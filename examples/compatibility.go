@@ -1,3 +1,5 @@
+//go:build examples
+
 package main
 
 import (
@@ -81,7 +83,7 @@ func main() {
 	fmt.Printf("   Processing Time: %v\n", result.ProcessingTime)
 
 	fmt.Println("\n=== Summary ===")
-	fmt.Println("✓ All golang.org/x/net/html APIs available")
-	fmt.Println("✓ Drop-in replacement - just change import path")
-	fmt.Println("✓ Plus enhanced content extraction features")
+	fmt.Println("All golang.org/x/net/html APIs available")
+	fmt.Println("Drop-in replacement - just change import path")
+	fmt.Println("Plus enhanced content extraction features")
 }

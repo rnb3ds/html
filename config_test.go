@@ -15,9 +15,6 @@ func TestDefaultConfig(t *testing.T) {
 	if config.MaxInputSize <= 0 {
 		t.Error("DefaultConfig() MaxInputSize should be positive")
 	}
-	if config.ProcessingTimeout <= 0 {
-		t.Error("DefaultConfig() ProcessingTimeout should be positive")
-	}
 	if config.MaxCacheEntries < 0 {
 		t.Error("DefaultConfig() MaxCacheEntries should be non-negative")
 	}
@@ -77,7 +74,6 @@ func TestConfigValidation(t *testing.T) {
 			name: "zero MaxInputSize",
 			config: html.Config{
 				MaxInputSize:       0,
-				ProcessingTimeout:  30 * time.Second,
 				MaxCacheEntries:    100,
 				CacheTTL:           time.Hour,
 				WorkerPoolSize:     4,
@@ -90,33 +86,6 @@ func TestConfigValidation(t *testing.T) {
 			name: "negative MaxInputSize",
 			config: html.Config{
 				MaxInputSize:       -1,
-				ProcessingTimeout:  30 * time.Second,
-				MaxCacheEntries:    100,
-				CacheTTL:           time.Hour,
-				WorkerPoolSize:     4,
-				EnableSanitization: true,
-				MaxDepth:           100,
-			},
-			wantErr: true,
-		},
-		{
-			name: "zero ProcessingTimeout",
-			config: html.Config{
-				MaxInputSize:       1024,
-				ProcessingTimeout:  0,
-				MaxCacheEntries:    100,
-				CacheTTL:           time.Hour,
-				WorkerPoolSize:     4,
-				EnableSanitization: true,
-				MaxDepth:           100,
-			},
-			wantErr: true,
-		},
-		{
-			name: "negative ProcessingTimeout",
-			config: html.Config{
-				MaxInputSize:       1024,
-				ProcessingTimeout:  -1,
 				MaxCacheEntries:    100,
 				CacheTTL:           time.Hour,
 				WorkerPoolSize:     4,
@@ -129,7 +98,6 @@ func TestConfigValidation(t *testing.T) {
 			name: "negative MaxCacheEntries",
 			config: html.Config{
 				MaxInputSize:       1024,
-				ProcessingTimeout:  30 * time.Second,
 				MaxCacheEntries:    -1,
 				CacheTTL:           time.Hour,
 				WorkerPoolSize:     4,
@@ -142,7 +110,6 @@ func TestConfigValidation(t *testing.T) {
 			name: "zero MaxCacheEntries (disabled cache)",
 			config: html.Config{
 				MaxInputSize:       1024,
-				ProcessingTimeout:  30 * time.Second,
 				MaxCacheEntries:    0,
 				CacheTTL:           time.Hour,
 				WorkerPoolSize:     4,
@@ -155,7 +122,6 @@ func TestConfigValidation(t *testing.T) {
 			name: "negative CacheTTL",
 			config: html.Config{
 				MaxInputSize:       1024,
-				ProcessingTimeout:  30 * time.Second,
 				MaxCacheEntries:    100,
 				CacheTTL:           -1,
 				WorkerPoolSize:     4,
@@ -168,7 +134,6 @@ func TestConfigValidation(t *testing.T) {
 			name: "zero CacheTTL (no expiration)",
 			config: html.Config{
 				MaxInputSize:       1024,
-				ProcessingTimeout:  30 * time.Second,
 				MaxCacheEntries:    100,
 				CacheTTL:           0,
 				WorkerPoolSize:     4,
@@ -181,7 +146,6 @@ func TestConfigValidation(t *testing.T) {
 			name: "zero WorkerPoolSize",
 			config: html.Config{
 				MaxInputSize:       1024,
-				ProcessingTimeout:  30 * time.Second,
 				MaxCacheEntries:    100,
 				CacheTTL:           time.Hour,
 				WorkerPoolSize:     0,
@@ -194,7 +158,6 @@ func TestConfigValidation(t *testing.T) {
 			name: "negative WorkerPoolSize",
 			config: html.Config{
 				MaxInputSize:       1024,
-				ProcessingTimeout:  30 * time.Second,
 				MaxCacheEntries:    100,
 				CacheTTL:           time.Hour,
 				WorkerPoolSize:     -1,
@@ -207,7 +170,6 @@ func TestConfigValidation(t *testing.T) {
 			name: "zero MaxDepth",
 			config: html.Config{
 				MaxInputSize:       1024,
-				ProcessingTimeout:  30 * time.Second,
 				MaxCacheEntries:    100,
 				CacheTTL:           time.Hour,
 				WorkerPoolSize:     4,
@@ -220,7 +182,6 @@ func TestConfigValidation(t *testing.T) {
 			name: "negative MaxDepth",
 			config: html.Config{
 				MaxInputSize:       1024,
-				ProcessingTimeout:  30 * time.Second,
 				MaxCacheEntries:    100,
 				CacheTTL:           time.Hour,
 				WorkerPoolSize:     4,
@@ -233,12 +194,50 @@ func TestConfigValidation(t *testing.T) {
 			name: "sanitization disabled",
 			config: html.Config{
 				MaxInputSize:       1024,
-				ProcessingTimeout:  30 * time.Second,
 				MaxCacheEntries:    100,
 				CacheTTL:           time.Hour,
 				WorkerPoolSize:     4,
 				EnableSanitization: false,
 				MaxDepth:           100,
+			},
+			wantErr: false,
+		},
+		{
+			name: "negative ProcessingTimeout",
+			config: html.Config{
+				MaxInputSize:       1024,
+				MaxCacheEntries:    100,
+				CacheTTL:           time.Hour,
+				WorkerPoolSize:     4,
+				EnableSanitization: true,
+				MaxDepth:           100,
+				ProcessingTimeout:  -1,
+			},
+			wantErr: true,
+		},
+		{
+			name: "zero ProcessingTimeout (no timeout)",
+			config: html.Config{
+				MaxInputSize:       1024,
+				MaxCacheEntries:    100,
+				CacheTTL:           time.Hour,
+				WorkerPoolSize:     4,
+				EnableSanitization: true,
+				MaxDepth:           100,
+				ProcessingTimeout:  0,
+			},
+			wantErr: false,
+		},
+		{
+			name: "valid ProcessingTimeout",
+			config: html.Config{
+				MaxInputSize:       1024,
+				MaxCacheEntries:    100,
+				CacheTTL:           time.Hour,
+				WorkerPoolSize:     4,
+				EnableSanitization: true,
+				MaxDepth:           100,
+				ProcessingTimeout:  30 * time.Second,
 			},
 			wantErr: false,
 		},
@@ -259,7 +258,6 @@ func TestCustomConfig(t *testing.T) {
 
 	config := html.Config{
 		MaxInputSize:       1024 * 1024,
-		ProcessingTimeout:  10 * time.Second,
 		MaxCacheEntries:    50,
 		CacheTTL:           30 * time.Minute,
 		WorkerPoolSize:     8,

@@ -36,50 +36,50 @@ func IsVideoURL(url string) bool {
 	return IsVideoEmbedURL(url)
 }
 
+var videoTypeMap = map[string]string{
+	".mp4":  "video/mp4",
+	".m4v":  "video/mp4",
+	".webm": "video/webm",
+	".ogg":  "video/ogg",
+	".mov":  "video/quicktime",
+	".avi":  "video/x-msvideo",
+	".wmv":  "video/x-ms-wmv",
+	".flv":  "video/x-flv",
+	".mkv":  "video/x-matroska",
+	".3gp":  "video/3gpp",
+}
+
 func DetectVideoType(url string) string {
 	lowerURL := strings.ToLower(url)
-	if strings.HasSuffix(lowerURL, ".mp4") || strings.HasSuffix(lowerURL, ".m4v") {
-		return "video/mp4"
-	} else if strings.HasSuffix(lowerURL, ".webm") {
-		return "video/webm"
-	} else if strings.HasSuffix(lowerURL, ".ogg") {
-		return "video/ogg"
-	} else if strings.HasSuffix(lowerURL, ".mov") {
-		return "video/quicktime"
-	} else if strings.HasSuffix(lowerURL, ".avi") {
-		return "video/x-msvideo"
-	} else if strings.HasSuffix(lowerURL, ".wmv") {
-		return "video/x-ms-wmv"
-	} else if strings.HasSuffix(lowerURL, ".flv") {
-		return "video/x-flv"
-	} else if strings.HasSuffix(lowerURL, ".mkv") {
-		return "video/x-matroska"
-	} else if strings.HasSuffix(lowerURL, ".3gp") {
-		return "video/3gpp"
-	} else if IsVideoEmbedURL(url) {
+	for ext, mimeType := range videoTypeMap {
+		if strings.HasSuffix(lowerURL, ext) {
+			return mimeType
+		}
+	}
+	if IsVideoEmbedURL(url) {
 		return "embed"
 	}
 	return ""
 }
 
+var audioTypeMap = map[string]string{
+	".mp3":  "audio/mpeg",
+	".wav":  "audio/wav",
+	".ogg":  "audio/ogg",
+	".oga":  "audio/ogg",
+	".m4a":  "audio/mp4",
+	".aac":  "audio/aac",
+	".flac": "audio/flac",
+	".wma":  "audio/x-ms-wma",
+	".opus": "audio/opus",
+}
+
 func DetectAudioType(url string) string {
 	lowerURL := strings.ToLower(url)
-	if strings.HasSuffix(lowerURL, ".mp3") {
-		return "audio/mpeg"
-	} else if strings.HasSuffix(lowerURL, ".wav") {
-		return "audio/wav"
-	} else if strings.HasSuffix(lowerURL, ".ogg") || strings.HasSuffix(lowerURL, ".oga") {
-		return "audio/ogg"
-	} else if strings.HasSuffix(lowerURL, ".m4a") {
-		return "audio/mp4"
-	} else if strings.HasSuffix(lowerURL, ".aac") {
-		return "audio/aac"
-	} else if strings.HasSuffix(lowerURL, ".flac") {
-		return "audio/flac"
-	} else if strings.HasSuffix(lowerURL, ".wma") {
-		return "audio/x-ms-wma"
-	} else if strings.HasSuffix(lowerURL, ".opus") {
-		return "audio/opus"
+	for ext, mimeType := range audioTypeMap {
+		if strings.HasSuffix(lowerURL, ext) {
+			return mimeType
+		}
 	}
 	return ""
 }

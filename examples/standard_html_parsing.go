@@ -1,3 +1,5 @@
+//go:build examples
+
 package main
 
 import (
@@ -56,6 +58,6 @@ func main() {
 		fmt.Printf("   Token: %v (type: %v)\n", token.Data, token.Type)
 	}
 
-	fmt.Println("\n✓ All standard golang.org/x/net/html APIs work identically!")
-	fmt.Println("✓ This library is a 100% compatible drop-in replacement")
+	fmt.Println("\nAll standard golang.org/x/net/html APIs work identically!")
+	fmt.Println("This library is a 100% compatible drop-in replacement")
 }

@@ -1,3 +1,5 @@
+//go:build examples
+
 package main
 
 import (
@@ -78,6 +80,6 @@ func main() {
 	fmt.Printf("Average Processing Time: %v\n", stats.AverageProcessTime)
 	fmt.Printf("Errors: %d\n", stats.ErrorCount)
 
-	fmt.Println("\n✓ All goroutines completed successfully!")
-	fmt.Println("✓ Processor is thread-safe for concurrent use")
+	fmt.Println("\nAll goroutines completed successfully!")
+	fmt.Println("Processor is thread-safe for concurrent use")
 }
