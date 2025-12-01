@@ -2,19 +2,17 @@ package internal
 
 import (
 	"sync"
-	"sync/atomic"
 	"time"
 )
 
 type cacheEntry struct {
 	value     any
-	expiresAt int64 // Unix nano timestamp, 0 means no expiration
-	lastUsed  atomic.Int64
+	expiresAt int64
+	lastUsed  int64
 }
 
 func (e *cacheEntry) isExpired(now int64) bool {
-	exp := e.expiresAt
-	return exp > 0 && now > exp
+	return e.expiresAt > 0 && now > e.expiresAt
 }
 
 // Cache provides thread-safe caching with TTL and LRU eviction.
@@ -25,12 +23,9 @@ type Cache struct {
 	ttl        time.Duration
 }
 
-// NewCache creates a new cache with the specified maximum entries and TTL.
+// NewCache creates a cache with the specified maximum entries and TTL.
 func NewCache(maxEntries int, ttl time.Duration) *Cache {
-	capacity := maxEntries
-	if capacity <= 0 {
-		capacity = 0
-	}
+	capacity := max(maxEntries, 0)
 	return &Cache{
 		entries:    make(map[string]*cacheEntry, capacity),
 		maxEntries: maxEntries,
@@ -38,102 +33,78 @@ func NewCache(maxEntries int, ttl time.Duration) *Cache {
 	}
 }
 
+// Get retrieves a value from the cache.
 func (c *Cache) Get(key string) any {
 	if key == "" {
 		return nil
 	}
-
-	c.mu.RLock()
+	now := time.Now().UnixNano()
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	entry := c.entries[key]
-	c.mu.RUnlock()
-
 	if entry == nil {
 		return nil
 	}
-
-	now := time.Now().UnixNano()
-
-	// Check expiration before updating lastUsed to avoid unnecessary atomic operation
 	if entry.isExpired(now) {
-		// Need to recheck under write lock to avoid race condition
-		c.mu.Lock()
-		// Recheck if entry still exists and is expired (it might have been deleted by another goroutine)
-		if currentEntry, exists := c.entries[key]; exists && currentEntry.isExpired(now) {
-			delete(c.entries, key)
-		}
-		c.mu.Unlock()
+		delete(c.entries, key)
 		return nil
 	}
-
-	// Update last used time atomically (safe without lock)
-	entry.lastUsed.Store(now)
+	entry.lastUsed = now
 	return entry.value
 }
 
+// Set adds or updates a value in the cache.
 func (c *Cache) Set(key string, value any) {
 	if value == nil || key == "" {
 		return
 	}
-
 	c.mu.Lock()
 	defer c.mu.Unlock()
-
 	if c.maxEntries == 0 {
 		return
 	}
-
 	if len(c.entries) >= c.maxEntries {
 		if _, exists := c.entries[key]; !exists {
 			c.evictOne()
 		}
 	}
-
 	now := time.Now()
 	nowNano := now.UnixNano()
 	entry := &cacheEntry{
-		value: value,
+		value:    value,
+		lastUsed: nowNano,
 	}
-	entry.lastUsed.Store(nowNano)
-
 	if c.ttl > 0 {
 		entry.expiresAt = now.Add(c.ttl).UnixNano()
 	}
-
 	c.entries[key] = entry
 }
 
 func (c *Cache) evictOne() {
 	nowNano := time.Now().UnixNano()
-	var oldestKey string
-	oldestTime := int64(1<<63 - 1) // max int64
-	expiredCount := 0
-
 	for k, e := range c.entries {
 		if e.isExpired(nowNano) {
 			delete(c.entries, k)
-			expiredCount++
-			if expiredCount >= 10 {
-				return
-			}
-			continue
-		}
-		if lastUsed := e.lastUsed.Load(); lastUsed < oldestTime {
-			oldestKey = k
-			oldestTime = lastUsed
+			return
 		}
 	}
-
-	if expiredCount == 0 && oldestKey != "" {
+	var oldestKey string
+	var oldestTime int64 = 1<<63 - 1
+	for k, e := range c.entries {
+		if e.lastUsed < oldestTime {
+			oldestKey = k
+			oldestTime = e.lastUsed
+		}
+	}
+	if oldestKey != "" {
 		delete(c.entries, oldestKey)
 	}
 }
 
+// Clear removes all entries from the cache.
 func (c *Cache) Clear() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	capacity := c.maxEntries
-	if capacity <= 0 {
-		capacity = 0
-	}
+	capacity := max(c.maxEntries, 0)
 	c.entries = make(map[string]*cacheEntry, capacity)
 }

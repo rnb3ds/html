@@ -82,8 +82,8 @@ func TestCacheDisabled(t *testing.T) {
 	t.Parallel()
 
 	config := html.Config{
-		MaxInputSize:       50 * 1024 * 1024,
-		ProcessingTimeout:  30 * time.Second,
+		MaxInputSize: 50 * 1024 * 1024,
+
 		MaxCacheEntries:    0, // Disable cache
 		CacheTTL:           time.Hour,
 		WorkerPoolSize:     4,
@@ -114,8 +114,8 @@ func TestCacheTTL(t *testing.T) {
 	}
 
 	config := html.Config{
-		MaxInputSize:       50 * 1024 * 1024,
-		ProcessingTimeout:  30 * time.Second,
+		MaxInputSize: 50 * 1024 * 1024,
+
 		MaxCacheEntries:    100,
 		CacheTTL:           100 * time.Millisecond, // Short TTL for testing
 		WorkerPoolSize:     4,
@@ -151,8 +151,8 @@ func TestCacheEviction(t *testing.T) {
 	t.Parallel()
 
 	config := html.Config{
-		MaxInputSize:       50 * 1024 * 1024,
-		ProcessingTimeout:  30 * time.Second,
+		MaxInputSize: 50 * 1024 * 1024,
+
 		MaxCacheEntries:    3, // Small cache for testing eviction
 		CacheTTL:           time.Hour,
 		WorkerPoolSize:     4,

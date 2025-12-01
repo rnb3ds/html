@@ -5,7 +5,6 @@ package html
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"os"
 	"regexp"
@@ -55,46 +54,44 @@ var (
 	NewTokenizer   = html.NewTokenizer
 )
 
+// Default configuration values.
 const (
-	DefaultMaxInputSize      = 50 * 1024 * 1024
-	DefaultMaxCacheEntries   = 1000
-	DefaultProcessingTimeout = 30 * time.Second
-	DefaultWorkerPoolSize    = 4
-	DefaultCacheTTL          = time.Hour
-	DefaultMaxDepth          = 100
+	DefaultMaxInputSize       = 50 * 1024 * 1024 // 50MB
+	DefaultMaxCacheEntries    = 1000             // 1000 entries
+	DefaultWorkerPoolSize     = 4                // 4 workers
+	DefaultCacheTTL           = time.Hour        // 1 hour
+	DefaultMaxDepth           = 100              // 100 levels
+	DefaultProcessingTimeout  = 30 * time.Second // 30 seconds
+)
 
-	maxURLLength    = 2000
-	maxHTMLForRegex = 1000000
-	maxRegexMatches = 100
-	wordsPerMinute  = 200
-	initialTextSize = 4096
+// Internal constants for validation and optimization.
+const (
+	maxURLLength     = 2000      // Maximum URL length to prevent DoS
+	maxHTMLForRegex  = 1000000   // 1MB limit for regex scanning
+	maxRegexMatches  = 100       // Maximum regex matches to prevent DoS
+	wordsPerMinute   = 200       // Average reading speed
+	maxCacheKeySize  = 64 * 1024 // 64KB threshold for full content hashing
+	initialTextSize  = 4096      // Initial text builder capacity
+	initialImageCap  = 16        // Initial image slice capacity
+	initialLinksCap  = 32        // Initial links slice capacity
+	initialVideosCap = 8         // Initial videos slice capacity
+	initialAudiosCap = 8         // Initial audios slice capacity
+	initialSeenCap   = 8         // Initial seen map capacity
+	cacheKeySample   = 4096      // Sample size for large content hashing
 )
 
 var (
-	ErrInputTooLarge    = errors.New("html: input size exceeds maximum allowed")
-	ErrInvalidHTML      = errors.New("html: invalid HTML structure")
-	ErrProcessorClosed  = errors.New("html: processor has been closed")
-	ErrMaxDepthExceeded = errors.New("html: maximum nesting depth exceeded")
-	ErrInvalidConfig    = errors.New("html: invalid configuration")
+	whitespaceRegex = regexp.MustCompile(`\s+`)
+	videoRegex      = regexp.MustCompile(`(?i)https?://[^\s<>"',;)}\]]{1,500}\.(?:mp4|webm|ogg|mov|avi|wmv|flv|mkv|m4v|3gp)`)
+	audioRegex      = regexp.MustCompile(`(?i)https?://[^\s<>"',;)}\]]{1,500}\.(?:mp3|wav|ogg|m4a|aac|flac|wma|opus|oga)`)
 )
 
 // Processor provides thread-safe HTML content extraction.
-// All methods are safe for concurrent use by multiple goroutines.
 type Processor struct {
-	// Immutable after creation - no lock needed
-	config          *Config
-	whitespaceRegex *regexp.Regexp
-	videoRegex      *regexp.Regexp
-	audioRegex      *regexp.Regexp
-
-	// Thread-safe cache with internal locking
-	cache *internal.Cache
-
-	// Atomic flag for closed state
+	config *Config
+	cache  *internal.Cache
 	closed atomic.Bool
-
-	// Atomic statistics counters
-	stats struct {
+	stats  struct {
 		totalProcessed   atomic.Int64
 		cacheHits        atomic.Int64
 		cacheMisses      atomic.Int64
@@ -106,50 +103,46 @@ type Processor struct {
 // Config holds processor configuration.
 type Config struct {
 	MaxInputSize       int
-	ProcessingTimeout  time.Duration
 	MaxCacheEntries    int
 	CacheTTL           time.Duration
 	WorkerPoolSize     int
 	EnableSanitization bool
 	MaxDepth           int
+	ProcessingTimeout  time.Duration
 }
 
-// DefaultConfig returns default configuration with secure settings.
+// DefaultConfig returns default configuration.
 func DefaultConfig() Config {
 	return Config{
 		MaxInputSize:       DefaultMaxInputSize,
-		ProcessingTimeout:  DefaultProcessingTimeout,
 		MaxCacheEntries:    DefaultMaxCacheEntries,
 		CacheTTL:           DefaultCacheTTL,
 		WorkerPoolSize:     DefaultWorkerPoolSize,
 		EnableSanitization: true,
 		MaxDepth:           DefaultMaxDepth,
+		ProcessingTimeout:  DefaultProcessingTimeout,
 	}
 }
 
 func validateConfig(c Config) error {
-	if c.MaxInputSize <= 0 {
+	switch {
+	case c.MaxInputSize <= 0:
 		return fmt.Errorf("%w: MaxInputSize must be positive", ErrInvalidConfig)
-	}
-	if c.ProcessingTimeout <= 0 {
-		return fmt.Errorf("%w: ProcessingTimeout must be positive", ErrInvalidConfig)
-	}
-	if c.MaxCacheEntries < 0 {
+	case c.MaxCacheEntries < 0:
 		return fmt.Errorf("%w: MaxCacheEntries cannot be negative", ErrInvalidConfig)
-	}
-	if c.CacheTTL < 0 {
+	case c.CacheTTL < 0:
 		return fmt.Errorf("%w: CacheTTL cannot be negative", ErrInvalidConfig)
-	}
-	if c.WorkerPoolSize <= 0 {
+	case c.WorkerPoolSize <= 0:
 		return fmt.Errorf("%w: WorkerPoolSize must be positive", ErrInvalidConfig)
-	}
-	if c.MaxDepth <= 0 {
+	case c.MaxDepth <= 0:
 		return fmt.Errorf("%w: MaxDepth must be positive", ErrInvalidConfig)
+	case c.ProcessingTimeout < 0:
+		return fmt.Errorf("%w: ProcessingTimeout cannot be negative", ErrInvalidConfig)
 	}
 	return nil
 }
 
-// ExtractConfig provides extraction configuration.
+// ExtractConfig configures content extraction.
 type ExtractConfig struct {
 	ExtractArticle    bool
 	PreserveImages    bool
@@ -171,7 +164,7 @@ func DefaultExtractConfig() ExtractConfig {
 	}
 }
 
-// Result represents extraction results.
+// Result contains extraction results.
 type Result struct {
 	Text           string
 	Title          string
@@ -221,7 +214,7 @@ type AudioInfo struct {
 	Duration string
 }
 
-// Statistics tracks processing metrics.
+// Statistics contains processing metrics.
 type Statistics struct {
 	TotalProcessed     int64
 	CacheHits          int64
@@ -230,39 +223,18 @@ type Statistics struct {
 	AverageProcessTime time.Duration
 }
 
-// New creates a new Processor with the given configuration.
+// New creates a Processor with the given configuration.
 func New(config Config) (*Processor, error) {
 	if err := validateConfig(config); err != nil {
 		return nil, err
 	}
-
-	whitespaceRegex, err := regexp.Compile(`\s+`)
-	if err != nil {
-		return nil, fmt.Errorf("compile whitespace regex: %w", err)
-	}
-
-	videoRegex, err := regexp.Compile(`(?i)https?://[^\s<>"',;)}\]]{1,500}\.(?:mp4|webm|ogg|mov|avi|wmv|flv|mkv|m4v|3gp)`)
-	if err != nil {
-		return nil, fmt.Errorf("compile video regex: %w", err)
-	}
-
-	audioRegex, err := regexp.Compile(`(?i)https?://[^\s<>"',;)}\]]{1,500}\.(?:mp3|wav|ogg|m4a|aac|flac|wma|opus|oga)`)
-	if err != nil {
-		return nil, fmt.Errorf("compile audio regex: %w", err)
-	}
-
-	p := &Processor{
-		config:          &config,
-		cache:           internal.NewCache(config.MaxCacheEntries, config.CacheTTL),
-		whitespaceRegex: whitespaceRegex,
-		videoRegex:      videoRegex,
-		audioRegex:      audioRegex,
-	}
-
-	return p, nil
+	return &Processor{
+		config: &config,
+		cache:  internal.NewCache(config.MaxCacheEntries, config.CacheTTL),
+	}, nil
 }
 
-// NewWithDefaults creates a new Processor with default configuration.
+// NewWithDefaults creates a Processor with default configuration.
 func NewWithDefaults() *Processor {
 	p, _ := New(DefaultConfig())
 	return p
@@ -291,7 +263,15 @@ func (p *Processor) Extract(htmlContent string, config ExtractConfig) (*Result, 
 	}
 	p.stats.cacheMisses.Add(1)
 
-	result, err := p.processContent(htmlContent, config)
+	// Process with timeout if configured
+	var result *Result
+	var err error
+	if p.config.ProcessingTimeout > 0 {
+		result, err = p.processWithTimeout(htmlContent, config)
+	} else {
+		result, err = p.processContent(htmlContent, config)
+	}
+
 	if err != nil {
 		p.stats.errorCount.Add(1)
 		return nil, err
@@ -309,26 +289,44 @@ func (p *Processor) Extract(htmlContent string, config ExtractConfig) (*Result, 
 	return result, nil
 }
 
+// processWithTimeout processes content with timeout protection.
+func (p *Processor) processWithTimeout(htmlContent string, config ExtractConfig) (*Result, error) {
+	type processResult struct {
+		result *Result
+		err    error
+	}
+
+	resultChan := make(chan processResult, 1)
+	go func() {
+		result, err := p.processContent(htmlContent, config)
+		resultChan <- processResult{result: result, err: err}
+	}()
+
+	select {
+	case res := <-resultChan:
+		return res.result, res.err
+	case <-time.After(p.config.ProcessingTimeout):
+		return nil, ErrProcessingTimeout
+	}
+}
+
 // ExtractWithDefaults extracts content using default extraction configuration.
 func (p *Processor) ExtractWithDefaults(htmlContent string) (*Result, error) {
 	return p.Extract(htmlContent, DefaultExtractConfig())
 }
 
-// ExtractFromFile reads HTML from a file and extracts content.
+// ExtractFromFile reads and extracts content from an HTML file.
 func (p *Processor) ExtractFromFile(filePath string, config ExtractConfig) (*Result, error) {
 	if p.closed.Load() {
 		return nil, ErrProcessorClosed
 	}
-
 	if filePath == "" {
-		return nil, fmt.Errorf("file path cannot be empty")
+		return nil, fmt.Errorf("empty file path")
 	}
-
 	data, err := os.ReadFile(filePath)
 	if err != nil {
 		return nil, fmt.Errorf("read file %q: %w", filePath, err)
 	}
-
 	return p.Extract(string(data), config)
 }
 
@@ -340,11 +338,6 @@ func (p *Processor) ExtractBatch(htmlContents []string, config ExtractConfig) ([
 
 	if len(htmlContents) == 0 {
 		return []*Result{}, nil
-	}
-
-	type item struct {
-		index   int
-		content string
 	}
 
 	results := make([]*Result, len(htmlContents))
@@ -398,42 +391,43 @@ func (p *Processor) ExtractBatchFiles(filePaths []string, config ExtractConfig) 
 }
 
 func collectResults(results []*Result, errs []error, names []string) ([]*Result, error) {
-	var errorMsgs []string
+	var firstErr error
 	successCount := 0
+	failCount := 0
 
 	for i, err := range errs {
 		if err != nil {
-			if names != nil {
-				errorMsgs = append(errorMsgs, fmt.Sprintf("%s: %v", names[i], err))
-			} else {
-				errorMsgs = append(errorMsgs, fmt.Sprintf("item %d: %v", i, err))
+			failCount++
+			if firstErr == nil {
+				if names != nil {
+					firstErr = fmt.Errorf("%s: %w", names[i], err)
+				} else {
+					firstErr = fmt.Errorf("item %d: %w", i, err)
+				}
 			}
 		} else {
 			successCount++
 		}
 	}
 
-	if successCount == 0 {
-		return results, fmt.Errorf("all items failed: %s", strings.Join(errorMsgs, "; "))
+	switch {
+	case successCount == 0:
+		return results, fmt.Errorf("all %d items failed: %w", len(results), firstErr)
+	case failCount > 0:
+		return results, fmt.Errorf("partial failure (%d/%d succeeded): %w", successCount, len(results), firstErr)
+	default:
+		return results, nil
 	}
-
-	if len(errorMsgs) > 0 {
-		return results, fmt.Errorf("partial failure (%d/%d succeeded): %s", successCount, len(results), strings.Join(errorMsgs, "; "))
-	}
-
-	return results, nil
 }
 
-// GetStatistics returns current processing statistics.
+// GetStatistics returns processing statistics.
 func (p *Processor) GetStatistics() Statistics {
 	totalProcessed := p.stats.totalProcessed.Load()
 	totalTime := time.Duration(p.stats.totalProcessTime.Load())
-
 	var avgTime time.Duration
 	if totalProcessed > 0 {
 		avgTime = totalTime / time.Duration(totalProcessed)
 	}
-
 	return Statistics{
 		TotalProcessed:     totalProcessed,
 		CacheHits:          p.stats.cacheHits.Load(),
@@ -443,52 +437,37 @@ func (p *Processor) GetStatistics() Statistics {
 	}
 }
 
-// ClearCache empties the cache and resets cache statistics.
+// ClearCache clears the cache and resets cache statistics.
 func (p *Processor) ClearCache() {
 	p.cache.Clear()
 	p.stats.cacheHits.Store(0)
 	p.stats.cacheMisses.Store(0)
 }
 
-// Close releases all resources held by the processor.
+// Close releases processor resources.
 func (p *Processor) Close() error {
 	if !p.closed.CompareAndSwap(false, true) {
 		return nil
 	}
-
 	p.cache.Clear()
 	return nil
 }
 
 func (p *Processor) processContent(htmlContent string, opts ExtractConfig) (*Result, error) {
 	if strings.TrimSpace(htmlContent) == "" {
-		return &Result{
-			Text:        "",
-			Title:       "",
-			Images:      []ImageInfo{},
-			Links:       []LinkInfo{},
-			Videos:      []VideoInfo{},
-			Audios:      []AudioInfo{},
-			WordCount:   0,
-			ReadingTime: 0,
-		}, nil
+		return &Result{}, nil
 	}
-
 	originalHTML := htmlContent
-
 	if p.config.EnableSanitization {
 		htmlContent = internal.SanitizeHTML(htmlContent)
 	}
-
 	doc, err := html.Parse(strings.NewReader(htmlContent))
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrInvalidHTML, err)
 	}
-
 	if err := p.validateDepth(doc, 0); err != nil {
 		return nil, err
 	}
-
 	return p.extractFromDocument(doc, originalHTML, opts)
 }
 
@@ -505,23 +484,15 @@ func (p *Processor) validateDepth(n *html.Node, depth int) error {
 }
 
 func (p *Processor) extractFromDocument(doc *html.Node, htmlContent string, opts ExtractConfig) (*Result, error) {
-	result := &Result{
-		Images: []ImageInfo{},
-		Links:  []LinkInfo{},
-		Videos: []VideoInfo{},
-		Audios: []AudioInfo{},
-	}
-
+	result := &Result{}
 	result.Title = p.extractTitle(doc)
 
-	var contentNode *html.Node
+	contentNode := doc
 	if opts.ExtractArticle {
-		contentNode = p.extractArticleNode(doc)
+		if article := p.extractArticleNode(doc); article != nil {
+			contentNode = article
+		}
 	}
-	if contentNode == nil {
-		contentNode = doc
-	}
-
 	contentNode = internal.CleanContentNode(contentNode)
 
 	format := strings.ToLower(strings.TrimSpace(opts.InlineImageFormat))
@@ -531,17 +502,14 @@ func (p *Processor) extractFromDocument(doc *html.Node, htmlContent string, opts
 
 	if format != "none" && opts.PreserveImages {
 		result.Images = p.extractImagesWithPosition(contentNode)
-
 		var sb strings.Builder
 		sb.Grow(initialTextSize)
 		imageCounter := 0
 		internal.ExtractTextWithStructureAndImages(contentNode, &sb, 0, &imageCounter)
-		textWithPlaceholders := internal.CleanText(sb.String(), p.whitespaceRegex)
-
+		textWithPlaceholders := internal.CleanText(sb.String(), whitespaceRegex)
 		result.Text = p.formatInlineImages(textWithPlaceholders, result.Images, format)
 	} else {
 		result.Text = p.extractTextContent(contentNode)
-
 		if opts.PreserveImages {
 			result.Images = p.extractImages(contentNode)
 		}
@@ -553,15 +521,12 @@ func (p *Processor) extractFromDocument(doc *html.Node, htmlContent string, opts
 	if opts.PreserveLinks {
 		result.Links = p.extractLinks(contentNode)
 	}
-
 	if opts.PreserveVideos {
 		result.Videos = p.extractVideos(doc, htmlContent)
 	}
-
 	if opts.PreserveAudios {
 		result.Audios = p.extractAudios(doc, htmlContent)
 	}
-
 	return result, nil
 }
 
@@ -570,14 +535,12 @@ func (p *Processor) extractTitle(doc *html.Node) string {
 		return ""
 	}
 	if titleNode := internal.FindElementByTag(doc, "title"); titleNode != nil {
-		title := internal.GetTextContent(titleNode)
-		if title != "" {
+		if title := internal.GetTextContent(titleNode); title != "" {
 			return title
 		}
 	}
 	if h1Node := internal.FindElementByTag(doc, "h1"); h1Node != nil {
-		title := internal.GetTextContent(h1Node)
-		if title != "" {
+		if title := internal.GetTextContent(h1Node); title != "" {
 			return title
 		}
 	}
@@ -591,39 +554,26 @@ func (p *Processor) extractArticleNode(doc *html.Node) *html.Node {
 	if doc == nil {
 		return nil
 	}
-
 	candidates := make(map[*html.Node]int)
-
 	internal.WalkNodes(doc, func(n *html.Node) bool {
 		if n.Type == html.ElementNode {
-			score := internal.ScoreContentNode(n)
-			if score > 0 {
+			if score := internal.ScoreContentNode(n); score > 0 {
 				candidates[n] = score
 			}
 		}
 		return true
 	})
-
-	bestNode := internal.SelectBestCandidate(candidates)
-
-	if bestNode == nil {
-		bodyNode := internal.FindElementByTag(doc, "body")
-		if bodyNode != nil {
-			return bodyNode
-		}
+	if bestNode := internal.SelectBestCandidate(candidates); bestNode != nil {
+		return bestNode
 	}
-
-	return bestNode
+	return internal.FindElementByTag(doc, "body")
 }
 
 func (p *Processor) extractTextContent(node *html.Node) string {
-	if node == nil {
-		return ""
-	}
 	var sb strings.Builder
 	sb.Grow(initialTextSize)
 	internal.ExtractTextWithStructure(node, &sb, 0)
-	return internal.CleanText(sb.String(), p.whitespaceRegex)
+	return internal.CleanText(sb.String(), whitespaceRegex)
 }
 
 func (p *Processor) formatInlineImages(textWithPlaceholders string, images []ImageInfo, format string) string {
@@ -631,61 +581,60 @@ func (p *Processor) formatInlineImages(textWithPlaceholders string, images []Ima
 		return textWithPlaceholders
 	}
 
-	imageMap := make(map[int]ImageInfo, len(images))
-	for _, img := range images {
-		imageMap[img.Position] = img
-	}
+	replacements := make([]string, 0, len(images)*2)
 
-	text := textWithPlaceholders
 	switch format {
 	case "markdown":
-		for i := 1; i <= len(images); i++ {
-			if img, ok := imageMap[i]; ok {
-				placeholder := fmt.Sprintf("[IMAGE:%d]", i)
-				altText := img.Alt
-				if altText == "" {
-					altText = fmt.Sprintf("Image %d", i)
-				}
-				markdown := fmt.Sprintf("![%s](%s)", altText, img.URL)
-				text = strings.ReplaceAll(text, placeholder, markdown)
+		for i := range images {
+			if images[i].Position == 0 {
+				continue
 			}
+			placeholder := fmt.Sprintf("[IMAGE:%d]", images[i].Position)
+			altText := images[i].Alt
+			if altText == "" {
+				altText = fmt.Sprintf("Image %d", images[i].Position)
+			}
+			markdown := fmt.Sprintf("![%s](%s)", altText, images[i].URL)
+			replacements = append(replacements, placeholder, markdown)
 		}
 	case "html":
-		for i := 1; i <= len(images); i++ {
-			if img, ok := imageMap[i]; ok {
-				placeholder := fmt.Sprintf("[IMAGE:%d]", i)
-				var htmlImg strings.Builder
-				htmlImg.Grow(128)
-				htmlImg.WriteString(`<img src="`)
-				htmlImg.WriteString(img.URL)
-				htmlImg.WriteString(`" alt="`)
-				htmlImg.WriteString(img.Alt)
-				htmlImg.WriteString(`"`)
-				if img.Width != "" {
-					htmlImg.WriteString(` width="`)
-					htmlImg.WriteString(img.Width)
-					htmlImg.WriteString(`"`)
-				}
-				if img.Height != "" {
-					htmlImg.WriteString(` height="`)
-					htmlImg.WriteString(img.Height)
-					htmlImg.WriteString(`"`)
-				}
-				htmlImg.WriteString(">")
-				text = strings.ReplaceAll(text, placeholder, htmlImg.String())
+		for i := range images {
+			if images[i].Position == 0 {
+				continue
 			}
+			placeholder := fmt.Sprintf("[IMAGE:%d]", images[i].Position)
+			var htmlImg strings.Builder
+			htmlImg.Grow(len(images[i].URL) + len(images[i].Alt) + len(images[i].Width) + len(images[i].Height) + 64)
+			htmlImg.WriteString(`<img src="`)
+			htmlImg.WriteString(images[i].URL)
+			htmlImg.WriteString(`" alt="`)
+			htmlImg.WriteString(images[i].Alt)
+			htmlImg.WriteString(`"`)
+			if images[i].Width != "" {
+				htmlImg.WriteString(` width="`)
+				htmlImg.WriteString(images[i].Width)
+				htmlImg.WriteString(`"`)
+			}
+			if images[i].Height != "" {
+				htmlImg.WriteString(` height="`)
+				htmlImg.WriteString(images[i].Height)
+				htmlImg.WriteString(`"`)
+			}
+			htmlImg.WriteString(">")
+			replacements = append(replacements, placeholder, htmlImg.String())
 		}
 	}
 
-	return text
+	if len(replacements) > 0 {
+		replacer := strings.NewReplacer(replacements...)
+		return replacer.Replace(textWithPlaceholders)
+	}
+
+	return textWithPlaceholders
 }
 
 func (p *Processor) extractImages(node *html.Node) []ImageInfo {
-	if node == nil {
-		return []ImageInfo{}
-	}
-
-	images := make([]ImageInfo, 0, 16)
+	images := make([]ImageInfo, 0, initialImageCap)
 
 	internal.WalkNodes(node, func(n *html.Node) bool {
 		if n.Type == html.ElementNode && n.Data == "img" {
@@ -701,11 +650,7 @@ func (p *Processor) extractImages(node *html.Node) []ImageInfo {
 }
 
 func (p *Processor) extractImagesWithPosition(node *html.Node) []ImageInfo {
-	if node == nil {
-		return []ImageInfo{}
-	}
-
-	images := make([]ImageInfo, 0, 16)
+	images := make([]ImageInfo, 0, initialImageCap)
 	position := 0
 
 	internal.WalkNodes(node, func(n *html.Node) bool {
@@ -728,6 +673,9 @@ func (p *Processor) parseImageNode(n *html.Node, position int) ImageInfo {
 	for _, attr := range n.Attr {
 		switch attr.Key {
 		case "src":
+			if !isValidURL(attr.Val) {
+				return ImageInfo{}
+			}
 			img.URL = attr.Val
 		case "alt":
 			img.Alt = attr.Val
@@ -740,20 +688,16 @@ func (p *Processor) parseImageNode(n *html.Node, position int) ImageInfo {
 		}
 	}
 
-	if img.URL != "" && len(img.URL) <= maxURLLength {
-		img.IsDecorative = img.Alt == ""
-		return img
+	if img.URL == "" {
+		return ImageInfo{}
 	}
 
-	return ImageInfo{}
+	img.IsDecorative = img.Alt == ""
+	return img
 }
 
 func (p *Processor) extractLinks(node *html.Node) []LinkInfo {
-	if node == nil {
-		return []LinkInfo{}
-	}
-
-	links := make([]LinkInfo, 0, 32)
+	links := make([]LinkInfo, 0, initialLinksCap)
 
 	internal.WalkNodes(node, func(n *html.Node) bool {
 		if n.Type == html.ElementNode && n.Data == "a" {
@@ -774,6 +718,9 @@ func (p *Processor) parseLinkNode(n *html.Node) LinkInfo {
 	for _, attr := range n.Attr {
 		switch attr.Key {
 		case "href":
+			if !isValidURL(attr.Val) {
+				return LinkInfo{}
+			}
 			link.URL = attr.Val
 		case "title":
 			link.Title = attr.Val
@@ -784,13 +731,13 @@ func (p *Processor) parseLinkNode(n *html.Node) LinkInfo {
 		}
 	}
 
-	if link.URL != "" && len(link.URL) <= maxURLLength {
-		link.Text = internal.GetTextContent(n)
-		link.IsExternal = internal.IsExternalURL(link.URL)
-		return link
+	if link.URL == "" {
+		return LinkInfo{}
 	}
 
-	return LinkInfo{}
+	link.Text = internal.GetTextContent(n)
+	link.IsExternal = internal.IsExternalURL(link.URL)
+	return link
 }
 
 func (p *Processor) countWords(text string) int {
@@ -810,8 +757,8 @@ func (p *Processor) calculateReadingTime(wordCount int) time.Duration {
 }
 
 func (p *Processor) extractVideos(node *html.Node, htmlContent string) []VideoInfo {
-	videos := make([]VideoInfo, 0, 8)
-	seen := make(map[string]bool, 8)
+	videos := make([]VideoInfo, 0, initialVideosCap)
+	seen := make(map[string]bool, initialSeenCap)
 
 	internal.WalkNodes(node, func(n *html.Node) bool {
 		if n.Type != html.ElementNode {
@@ -841,9 +788,9 @@ func (p *Processor) extractVideos(node *html.Node, htmlContent string) []VideoIn
 	})
 
 	if len(htmlContent) <= maxHTMLForRegex {
-		matches := p.videoRegex.FindAllString(htmlContent, maxRegexMatches)
+		matches := videoRegex.FindAllString(htmlContent, maxRegexMatches)
 		for _, url := range matches {
-			if !seen[url] && len(url) <= maxURLLength {
+			if isValidURL(url) && !seen[url] {
 				seen[url] = true
 				videos = append(videos, VideoInfo{
 					URL:  url,
@@ -861,6 +808,9 @@ func (p *Processor) parseVideoNode(n *html.Node) VideoInfo {
 	for _, attr := range n.Attr {
 		switch attr.Key {
 		case "src":
+			if !isValidURL(attr.Val) {
+				return VideoInfo{}
+			}
 			video.URL = attr.Val
 		case "poster":
 			video.Poster = attr.Val
@@ -874,31 +824,19 @@ func (p *Processor) parseVideoNode(n *html.Node) VideoInfo {
 	}
 
 	if video.URL == "" {
-		for c := n.FirstChild; c != nil; c = c.NextSibling {
-			if c.Type == html.ElementNode && c.Data == "source" {
-				for _, attr := range c.Attr {
-					if attr.Key == "src" && video.URL == "" {
-						video.URL = attr.Val
-					} else if attr.Key == "type" && video.Type == "" {
-						video.Type = attr.Val
-					}
-				}
-				if video.URL != "" {
-					break
-				}
-			}
-		}
+		video.URL, video.Type = p.findSourceURL(n)
 	}
 
-	if video.URL != "" && len(video.URL) <= maxURLLength {
-		return video
+	if !isValidURL(video.URL) {
+		return VideoInfo{}
 	}
-	return VideoInfo{}
+
+	return video
 }
 
 func (p *Processor) parseIframeNode(n *html.Node) VideoInfo {
 	for _, attr := range n.Attr {
-		if attr.Key == "src" && len(attr.Val) <= maxURLLength && internal.IsVideoEmbedURL(attr.Val) {
+		if attr.Key == "src" && isValidURL(attr.Val) && internal.IsVideoEmbedURL(attr.Val) {
 			video := VideoInfo{URL: attr.Val, Type: "embed"}
 			for _, a := range n.Attr {
 				switch a.Key {
@@ -916,7 +854,7 @@ func (p *Processor) parseIframeNode(n *html.Node) VideoInfo {
 
 func (p *Processor) parseEmbedNode(n *html.Node) VideoInfo {
 	for _, attr := range n.Attr {
-		if (attr.Key == "src" || attr.Key == "data") && len(attr.Val) <= maxURLLength && internal.IsVideoURL(attr.Val) {
+		if (attr.Key == "src" || attr.Key == "data") && isValidURL(attr.Val) && internal.IsVideoURL(attr.Val) {
 			video := VideoInfo{URL: attr.Val}
 			for _, a := range n.Attr {
 				switch a.Key {
@@ -935,8 +873,8 @@ func (p *Processor) parseEmbedNode(n *html.Node) VideoInfo {
 }
 
 func (p *Processor) extractAudios(node *html.Node, htmlContent string) []AudioInfo {
-	audios := make([]AudioInfo, 0, 8)
-	seen := make(map[string]bool, 8)
+	audios := make([]AudioInfo, 0, initialAudiosCap)
+	seen := make(map[string]bool, initialSeenCap)
 
 	internal.WalkNodes(node, func(n *html.Node) bool {
 		if n.Type == html.ElementNode && n.Data == "audio" {
@@ -949,9 +887,9 @@ func (p *Processor) extractAudios(node *html.Node, htmlContent string) []AudioIn
 	})
 
 	if len(htmlContent) <= maxHTMLForRegex {
-		matches := p.audioRegex.FindAllString(htmlContent, maxRegexMatches)
+		matches := audioRegex.FindAllString(htmlContent, maxRegexMatches)
 		for _, url := range matches {
-			if !seen[url] && len(url) <= maxURLLength {
+			if isValidURL(url) && !seen[url] {
 				seen[url] = true
 				audios = append(audios, AudioInfo{
 					URL:  url,
@@ -969,6 +907,9 @@ func (p *Processor) parseAudioNode(n *html.Node) AudioInfo {
 	for _, attr := range n.Attr {
 		switch attr.Key {
 		case "src":
+			if !isValidURL(attr.Val) {
+				return AudioInfo{}
+			}
 			audio.URL = attr.Val
 		case "duration":
 			audio.Duration = attr.Val
@@ -976,31 +917,43 @@ func (p *Processor) parseAudioNode(n *html.Node) AudioInfo {
 	}
 
 	if audio.URL == "" {
-		for c := n.FirstChild; c != nil; c = c.NextSibling {
-			if c.Type == html.ElementNode && c.Data == "source" {
-				for _, attr := range c.Attr {
-					if attr.Key == "src" && audio.URL == "" {
-						audio.URL = attr.Val
-					} else if attr.Key == "type" && audio.Type == "" {
-						audio.Type = attr.Val
-					}
+		audio.URL, audio.Type = p.findSourceURL(n)
+	}
+
+	if !isValidURL(audio.URL) {
+		return AudioInfo{}
+	}
+
+	return audio
+}
+
+func (p *Processor) findSourceURL(n *html.Node) (url, mediaType string) {
+	for c := n.FirstChild; c != nil; c = c.NextSibling {
+		if c.Type == html.ElementNode && c.Data == "source" {
+			var srcURL, srcType string
+			for _, attr := range c.Attr {
+				switch attr.Key {
+				case "src":
+					srcURL = attr.Val
+				case "type":
+					srcType = attr.Val
 				}
-				if audio.URL != "" {
-					break
-				}
+			}
+			if srcURL != "" {
+				return srcURL, srcType
 			}
 		}
 	}
+	return "", ""
+}
 
-	if audio.URL != "" && len(audio.URL) <= maxURLLength {
-		return audio
-	}
-	return AudioInfo{}
+// isValidURL checks if a URL is valid (non-empty and within length limits).
+func isValidURL(url string) bool {
+	return url != "" && len(url) <= maxURLLength
 }
 
 func (p *Processor) generateCacheKey(content string, opts ExtractConfig) string {
 	h := sha256.New()
-
 	var flags byte
 	if opts.ExtractArticle {
 		flags |= 1 << 0
@@ -1017,13 +970,32 @@ func (p *Processor) generateCacheKey(content string, opts ExtractConfig) string 
 	if opts.PreserveAudios {
 		flags |= 1 << 4
 	}
-
 	h.Write([]byte{flags})
 	if opts.InlineImageFormat != "" {
 		h.Write([]byte(opts.InlineImageFormat))
-		h.Write([]byte{0}) // separator
+		h.Write([]byte{0})
 	}
-	h.Write([]byte(content))
-
-	return hex.EncodeToString(h.Sum(nil))
+	contentLen := len(content)
+	if contentLen <= maxCacheKeySize {
+		h.Write([]byte(content))
+	} else {
+		h.Write([]byte(content[:cacheKeySample]))
+		mid := contentLen >> 1
+		halfSample := cacheKeySample >> 1
+		h.Write([]byte(content[mid-halfSample : mid+halfSample]))
+		h.Write([]byte(content[contentLen-cacheKeySample:]))
+		var lenBuf [8]byte
+		lenBuf[0] = byte(contentLen)
+		lenBuf[1] = byte(contentLen >> 8)
+		lenBuf[2] = byte(contentLen >> 16)
+		lenBuf[3] = byte(contentLen >> 24)
+		lenBuf[4] = byte(contentLen >> 32)
+		lenBuf[5] = byte(contentLen >> 40)
+		lenBuf[6] = byte(contentLen >> 48)
+		lenBuf[7] = byte(contentLen >> 56)
+		h.Write(lenBuf[:])
+	}
+	var buf [64]byte
+	sum := h.Sum(buf[:0])
+	return hex.EncodeToString(sum)
 }

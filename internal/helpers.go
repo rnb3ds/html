@@ -8,10 +8,7 @@ import (
 )
 
 func WalkNodes(node *html.Node, fn func(*html.Node) bool) {
-	if node == nil {
-		return
-	}
-	if !fn(node) {
+	if node == nil || !fn(node) {
 		return
 	}
 	for child := node.FirstChild; child != nil; child = child.NextSibling {
@@ -20,9 +17,6 @@ func WalkNodes(node *html.Node, fn func(*html.Node) bool) {
 }
 
 func FindElementByTag(doc *html.Node, tagName string) *html.Node {
-	if doc == nil {
-		return nil
-	}
 	var result *html.Node
 	WalkNodes(doc, func(n *html.Node) bool {
 		if n.Type == html.ElementNode && n.Data == tagName {
@@ -35,15 +29,11 @@ func FindElementByTag(doc *html.Node, tagName string) *html.Node {
 }
 
 func GetTextContent(node *html.Node) string {
-	if node == nil {
-		return ""
-	}
 	var sb strings.Builder
 	sb.Grow(256)
 	WalkNodes(node, func(n *html.Node) bool {
 		if n.Type == html.TextNode {
-			text := strings.TrimSpace(n.Data)
-			if text != "" {
+			if text := strings.TrimSpace(n.Data); text != "" {
 				if sb.Len() > 0 {
 					sb.WriteByte(' ')
 				}
@@ -56,9 +46,6 @@ func GetTextContent(node *html.Node) string {
 }
 
 func GetTextLength(n *html.Node) int {
-	if n == nil {
-		return 0
-	}
 	length := 0
 	WalkNodes(n, func(node *html.Node) bool {
 		if node.Type == html.TextNode {
@@ -70,9 +57,6 @@ func GetTextLength(n *html.Node) int {
 }
 
 func GetLinkDensity(n *html.Node) float64 {
-	if n == nil {
-		return 0.0
-	}
 	textLength := GetTextLength(n)
 	if textLength == 0 {
 		return 0.0
@@ -96,26 +80,23 @@ func CleanText(text string, whitespaceRegex *regexp.Regexp) string {
 	if whitespaceRegex == nil {
 		return ReplaceHTMLEntities(strings.TrimSpace(text))
 	}
-
+	textLen := len(text)
 	var result strings.Builder
-	result.Grow(len(text))
-
+	result.Grow(textLen >> 1)
 	start := 0
-	for i := 0; i <= len(text); i++ {
-		if i == len(text) || text[i] == '\n' {
-			line := text[start:i]
-			line = whitespaceRegex.ReplaceAllString(line, " ")
-			line = strings.TrimSpace(line)
-			if line != "" {
-				if result.Len() > 0 {
-					result.WriteByte('\n')
+	for i := 0; i <= textLen; i++ {
+		if i == textLen || text[i] == '\n' {
+			if line := whitespaceRegex.ReplaceAllString(text[start:i], " "); line != "" {
+				if line = strings.TrimSpace(line); line != "" {
+					if result.Len() > 0 {
+						result.WriteByte('\n')
+					}
+					result.WriteString(line)
 				}
-				result.WriteString(line)
 			}
 			start = i + 1
 		}
 	}
-
 	return ReplaceHTMLEntities(result.String())
 }
 
@@ -144,12 +125,8 @@ func IsExternalURL(url string) bool {
 }
 
 func SelectBestCandidate(candidates map[*html.Node]int) *html.Node {
-	if len(candidates) == 0 {
-		return nil
-	}
-
-	bestScore := -1
 	var bestNode *html.Node
+	bestScore := -1
 
 	for node, score := range candidates {
 		if score > bestScore {

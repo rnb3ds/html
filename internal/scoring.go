@@ -38,79 +38,61 @@ var blockElements = map[string]bool{
 	"li": true, "table": true, "tr": true, "td": true, "th": true, "br": true, "hr": true,
 }
 
+var tagScores = map[string]int{
+	"article": 1000,
+	"main":    900,
+	"section": 300,
+	"body":    100,
+	"div":     50,
+	"p":       0,
+}
+
 func ScoreContentNode(n *html.Node) int {
-	if n == nil || n.Type != html.ElementNode || IsNonContentElement(n.Data) {
+	if n == nil || n.Type != html.ElementNode || IsNonContentElement(n.Data) || n.Data == "p" {
 		return 0
 	}
-
-	score := 0
-
-	switch n.Data {
-	case "article":
-		score = 1000
-	case "main":
-		score = 900
-	case "section":
-		score = 300
-	case "div":
-		score = 50
-	case "body":
-		score = 100
-	case "p":
-		return 0
-	}
-
-	score += ScoreAttributes(n)
-
+	score := tagScores[n.Data] + ScoreAttributes(n)
 	paragraphCount := CountChildElements(n, "p")
 	if paragraphCount >= 3 {
 		score += paragraphCount * 150
 	} else if paragraphCount > 0 {
 		score += paragraphCount * 80
 	}
-
 	headingCount := CountChildElements(n, "h1") + CountChildElements(n, "h2") +
 		CountChildElements(n, "h3") + CountChildElements(n, "h4") +
 		CountChildElements(n, "h5") + CountChildElements(n, "h6")
 	if headingCount > 0 {
 		score += headingCount * 100
 	}
-
 	textLength := GetTextLength(n)
 	switch {
 	case textLength > 500:
 		score += 500 + (textLength-500)/10
 	case textLength > 200:
-		score += textLength / 2
+		score += textLength >> 1
 	case textLength > 100:
 		score += textLength / 3
 	case textLength < 50:
 		score -= 300
 	}
-
 	contentDensity := CalculateContentDensity(n)
-	switch {
-	case contentDensity > 0.7:
+	if contentDensity > 0.7 {
 		score = int(float64(score) * 1.2)
-	case contentDensity < 0.3:
+	} else if contentDensity < 0.3 {
 		score = int(float64(score) * 0.7)
 	}
-
 	linkDensity := GetLinkDensity(n)
-	switch {
-	case linkDensity > 0.5:
+	if linkDensity > 0.5 {
 		score = int(float64(score) * 0.2)
-	case linkDensity > 0.3:
+	} else if linkDensity > 0.3 {
 		score = int(float64(score) * 0.5)
-	case linkDensity > 0.15:
+	} else if linkDensity > 0.15 {
 		score = int(float64(score) * 0.75)
 	}
-
 	textContent := GetTextContent(n)
 	if commaCount := strings.Count(textContent, ",") + strings.Count(textContent, "，"); commaCount > 5 {
 		score += commaCount * 10
 	}
-
 	return score
 }
 
@@ -119,11 +101,10 @@ func ScoreAttributes(n *html.Node) int {
 		return 0
 	}
 	score := 0
-
 	for _, attr := range n.Attr {
-		if attr.Key == "class" || attr.Key == "id" {
+		switch attr.Key {
+		case "class", "id":
 			lowerVal := strings.ToLower(attr.Val)
-
 			if MatchesPattern(lowerVal, positiveStrongPatterns) {
 				score += 400
 			}
@@ -139,19 +120,16 @@ func ScoreAttributes(n *html.Node) int {
 			if MatchesPattern(lowerVal, negativeWeakPatterns) {
 				score -= 300
 			}
-		}
-
-		if attr.Key == "role" {
+		case "role":
 			lowerVal := strings.ToLower(attr.Val)
-			if lowerVal == "main" || lowerVal == "article" {
+			switch lowerVal {
+			case "main", "article":
 				score += 500
-			}
-			if lowerVal == "navigation" || lowerVal == "complementary" {
+			case "navigation", "complementary":
 				score -= 400
 			}
 		}
 	}
-
 	return score
 }
 
@@ -183,9 +161,6 @@ func CalculateContentDensity(n *html.Node) float64 {
 }
 
 func CountTags(n *html.Node) int {
-	if n == nil {
-		return 0
-	}
 	count := 0
 	WalkNodes(n, func(node *html.Node) bool {
 		if node.Type == html.ElementNode {
@@ -201,9 +176,6 @@ func IsNonContentElement(tag string) bool {
 }
 
 func CountChildElements(n *html.Node, tag string) int {
-	if n == nil {
-		return 0
-	}
 	count := 0
 	WalkNodes(n, func(node *html.Node) bool {
 		if node != n && node.Type == html.ElementNode && node.Data == tag {
@@ -221,7 +193,6 @@ func ShouldRemoveElement(n *html.Node) bool {
 	if IsNonContentElement(n.Data) {
 		return true
 	}
-
 	for _, attr := range n.Attr {
 		if attr.Key == "class" || attr.Key == "id" {
 			lowerVal := strings.ToLower(attr.Val)
@@ -231,7 +202,6 @@ func ShouldRemoveElement(n *html.Node) bool {
 				}
 			}
 		}
-
 		if attr.Key == "style" && (strings.Contains(attr.Val, "display:none") || strings.Contains(attr.Val, "display: none")) {
 			return true
 		}
@@ -239,7 +209,6 @@ func ShouldRemoveElement(n *html.Node) bool {
 			return true
 		}
 	}
-
 	return false
 }
 

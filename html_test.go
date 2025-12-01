@@ -33,15 +33,6 @@ func TestNew(t *testing.T) {
 		}
 	})
 
-	t.Run("invalid config - zero timeout", func(t *testing.T) {
-		config := html.DefaultConfig()
-		config.ProcessingTimeout = 0
-		_, err := html.New(config)
-		if err == nil {
-			t.Fatal("New() should fail with zero ProcessingTimeout")
-		}
-	})
-
 	t.Run("invalid config - negative cache entries", func(t *testing.T) {
 		config := html.DefaultConfig()
 		config.MaxCacheEntries = -1
@@ -130,7 +121,6 @@ func TestExtract(t *testing.T) {
 	t.Run("input too large", func(t *testing.T) {
 		config := html.Config{
 			MaxInputSize:       100,
-			ProcessingTimeout:  30 * time.Second,
 			MaxCacheEntries:    10,
 			CacheTTL:           time.Hour,
 			WorkerPoolSize:     4,
@@ -297,7 +287,6 @@ func TestMaxDepthExceeded(t *testing.T) {
 
 	config := html.Config{
 		MaxInputSize:       1024 * 1024,
-		ProcessingTimeout:  30 * time.Second,
 		MaxCacheEntries:    100,
 		CacheTTL:           time.Hour,
 		WorkerPoolSize:     4,

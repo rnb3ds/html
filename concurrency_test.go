@@ -354,8 +354,8 @@ func TestConcurrentCacheEviction(t *testing.T) {
 	t.Parallel()
 
 	config := html.Config{
-		MaxInputSize:       50 * 1024 * 1024,
-		ProcessingTimeout:  30 * time.Second,
+		MaxInputSize: 50 * 1024 * 1024,
+
 		MaxCacheEntries:    10, // Small cache to trigger eviction
 		CacheTTL:           time.Hour,
 		WorkerPoolSize:     4,
@@ -392,8 +392,8 @@ func TestConcurrentCacheTTLExpiration(t *testing.T) {
 	}
 
 	config := html.Config{
-		MaxInputSize:       50 * 1024 * 1024,
-		ProcessingTimeout:  30 * time.Second,
+		MaxInputSize: 50 * 1024 * 1024,
+
 		MaxCacheEntries:    100,
 		CacheTTL:           50 * time.Millisecond,
 		WorkerPoolSize:     4,
@@ -510,8 +510,8 @@ func TestRaceConditionCacheExpiration(t *testing.T) {
 	}
 
 	config := html.Config{
-		MaxInputSize:       50 * 1024 * 1024,
-		ProcessingTimeout:  30 * time.Second,
+		MaxInputSize: 50 * 1024 * 1024,
+
 		MaxCacheEntries:    100,
 		CacheTTL:           50 * time.Millisecond,
 		WorkerPoolSize:     4,
@@ -560,8 +560,8 @@ func TestConcurrentCacheEvictionUnderPressure(t *testing.T) {
 	t.Parallel()
 
 	config := html.Config{
-		MaxInputSize:       50 * 1024 * 1024,
-		ProcessingTimeout:  30 * time.Second,
+		MaxInputSize: 50 * 1024 * 1024,
+
 		MaxCacheEntries:    5,
 		CacheTTL:           time.Hour,
 		WorkerPoolSize:     4,
