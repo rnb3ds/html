@@ -30,4 +30,7 @@ var (
 
 	// ErrInvalidURL is returned when URL validation fails.
 	ErrInvalidURL = errors.New("html: invalid URL")
+
+	// ErrInvalidBaseURL is returned when base URL for relative link resolution is invalid.
+	ErrInvalidBaseURL = errors.New("html: invalid base URL")
 )
