@@ -54,14 +54,41 @@ var (
 	NewTokenizer   = html.NewTokenizer
 )
 
+// Convenience functions for quick content extraction without processor setup.
+
+// Extract extracts content from HTML using default configuration.
+// This is the simplest way to extract content - no setup required.
+func Extract(htmlContent string) (*Result, error) {
+	processor := NewWithDefaults()
+	defer processor.Close()
+	return processor.ExtractWithDefaults(htmlContent)
+}
+
+// ExtractFromFile reads and extracts content from an HTML file using defaults.
+func ExtractFromFile(filePath string) (*Result, error) {
+	processor := NewWithDefaults()
+	defer processor.Close()
+	return processor.ExtractFromFile(filePath, DefaultExtractConfig())
+}
+
+// ExtractText extracts only text content without metadata.
+// Returns clean text suitable for analysis or display.
+func ExtractText(htmlContent string) (string, error) {
+	result, err := Extract(htmlContent)
+	if err != nil {
+		return "", err
+	}
+	return result.Text, nil
+}
+
 // Default configuration values.
 const (
-	DefaultMaxInputSize       = 50 * 1024 * 1024 // 50MB
-	DefaultMaxCacheEntries    = 1000             // 1000 entries
-	DefaultWorkerPoolSize     = 4                // 4 workers
-	DefaultCacheTTL           = time.Hour        // 1 hour
-	DefaultMaxDepth           = 100              // 100 levels
-	DefaultProcessingTimeout  = 30 * time.Second // 30 seconds
+	DefaultMaxInputSize      = 50 * 1024 * 1024 // 50MB
+	DefaultMaxCacheEntries   = 1000             // 1000 entries
+	DefaultWorkerPoolSize    = 4                // 4 workers
+	DefaultCacheTTL          = time.Hour        // 1 hour
+	DefaultMaxDepth          = 100              // 100 levels
+	DefaultProcessingTimeout = 30 * time.Second // 30 seconds
 )
 
 // Internal constants for validation and optimization.
@@ -100,15 +127,29 @@ type Processor struct {
 	}
 }
 
-// Config holds processor configuration.
+// Config holds processor configuration with security and performance settings.
+// All fields have sensible defaults via DefaultConfig().
 type Config struct {
-	MaxInputSize       int
-	MaxCacheEntries    int
-	CacheTTL           time.Duration
-	WorkerPoolSize     int
+	// MaxInputSize limits input HTML size to prevent memory exhaustion (default: 50MB)
+	MaxInputSize int
+
+	// MaxCacheEntries limits cache size with LRU eviction (default: 1000, 0 disables cache)
+	MaxCacheEntries int
+
+	// CacheTTL sets cache entry expiration time (default: 1 hour, 0 means no expiration)
+	CacheTTL time.Duration
+
+	// WorkerPoolSize controls parallel processing workers (default: 4)
+	WorkerPoolSize int
+
+	// EnableSanitization removes script/style tags for security (default: true)
 	EnableSanitization bool
-	MaxDepth           int
-	ProcessingTimeout  time.Duration
+
+	// MaxDepth prevents billion laughs attacks via nesting limits (default: 100)
+	MaxDepth int
+
+	// ProcessingTimeout prevents DoS via processing time limits (default: 30s, 0 disables)
+	ProcessingTimeout time.Duration
 }
 
 // DefaultConfig returns default configuration.
@@ -124,31 +165,54 @@ func DefaultConfig() Config {
 	}
 }
 
+// validateConfig validates processor configuration for consistency and security.
 func validateConfig(c Config) error {
 	switch {
 	case c.MaxInputSize <= 0:
-		return fmt.Errorf("%w: MaxInputSize must be positive", ErrInvalidConfig)
+		return fmt.Errorf("%w: MaxInputSize must be positive, got %d", ErrInvalidConfig, c.MaxInputSize)
+	case c.MaxInputSize > 1024*1024*1024: // 1GB limit
+		return fmt.Errorf("%w: MaxInputSize too large (max 1GB), got %d", ErrInvalidConfig, c.MaxInputSize)
 	case c.MaxCacheEntries < 0:
-		return fmt.Errorf("%w: MaxCacheEntries cannot be negative", ErrInvalidConfig)
+		return fmt.Errorf("%w: MaxCacheEntries cannot be negative, got %d", ErrInvalidConfig, c.MaxCacheEntries)
 	case c.CacheTTL < 0:
-		return fmt.Errorf("%w: CacheTTL cannot be negative", ErrInvalidConfig)
+		return fmt.Errorf("%w: CacheTTL cannot be negative, got %v", ErrInvalidConfig, c.CacheTTL)
 	case c.WorkerPoolSize <= 0:
-		return fmt.Errorf("%w: WorkerPoolSize must be positive", ErrInvalidConfig)
+		return fmt.Errorf("%w: WorkerPoolSize must be positive, got %d", ErrInvalidConfig, c.WorkerPoolSize)
+	case c.WorkerPoolSize > 1000: // Reasonable upper limit
+		return fmt.Errorf("%w: WorkerPoolSize too large (max 1000), got %d", ErrInvalidConfig, c.WorkerPoolSize)
 	case c.MaxDepth <= 0:
-		return fmt.Errorf("%w: MaxDepth must be positive", ErrInvalidConfig)
+		return fmt.Errorf("%w: MaxDepth must be positive, got %d", ErrInvalidConfig, c.MaxDepth)
+	case c.MaxDepth > 10000: // Prevent excessive nesting
+		return fmt.Errorf("%w: MaxDepth too large (max 10000), got %d", ErrInvalidConfig, c.MaxDepth)
 	case c.ProcessingTimeout < 0:
-		return fmt.Errorf("%w: ProcessingTimeout cannot be negative", ErrInvalidConfig)
+		return fmt.Errorf("%w: ProcessingTimeout cannot be negative, got %v", ErrInvalidConfig, c.ProcessingTimeout)
 	}
+
+	// Cross-field validation - removed overly strict TTL check
+	// Zero CacheTTL means no expiration, which is valid
+
 	return nil
 }
 
-// ExtractConfig configures content extraction.
+// ExtractConfig configures content extraction behavior.
+// Controls what content types are extracted and how they're formatted.
 type ExtractConfig struct {
-	ExtractArticle    bool
-	PreserveImages    bool
-	PreserveLinks     bool
-	PreserveVideos    bool
-	PreserveAudios    bool
+	// ExtractArticle enables intelligent article detection (default: true)
+	ExtractArticle bool
+
+	// PreserveImages includes image metadata in results (default: true)
+	PreserveImages bool
+
+	// PreserveLinks includes link metadata in results (default: true)
+	PreserveLinks bool
+
+	// PreserveVideos includes video metadata in results (default: true)
+	PreserveVideos bool
+
+	// PreserveAudios includes audio metadata in results (default: true)
+	PreserveAudios bool
+
+	// InlineImageFormat controls image placeholder format: "none", "placeholder", "markdown", "html" (default: "none")
 	InlineImageFormat string
 }
 
@@ -321,12 +385,17 @@ func (p *Processor) ExtractFromFile(filePath string, config ExtractConfig) (*Res
 		return nil, ErrProcessorClosed
 	}
 	if filePath == "" {
-		return nil, fmt.Errorf("empty file path")
+		return nil, fmt.Errorf("%w: empty file path", ErrFileNotFound)
 	}
+
 	data, err := os.ReadFile(filePath)
 	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, fmt.Errorf("%w: %s", ErrFileNotFound, filePath)
+		}
 		return nil, fmt.Errorf("read file %q: %w", filePath, err)
 	}
+
 	return p.Extract(string(data), config)
 }
 
@@ -454,20 +523,29 @@ func (p *Processor) Close() error {
 }
 
 func (p *Processor) processContent(htmlContent string, opts ExtractConfig) (*Result, error) {
+	// Validate input is not empty
 	if strings.TrimSpace(htmlContent) == "" {
 		return &Result{}, nil
 	}
+
 	originalHTML := htmlContent
+
+	// Apply sanitization if enabled
 	if p.config.EnableSanitization {
 		htmlContent = internal.SanitizeHTML(htmlContent)
 	}
+
+	// Parse HTML document
 	doc, err := html.Parse(strings.NewReader(htmlContent))
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrInvalidHTML, err)
 	}
+
+	// Validate document depth to prevent DoS
 	if err := p.validateDepth(doc, 0); err != nil {
 		return nil, err
 	}
+
 	return p.extractFromDocument(doc, originalHTML, opts)
 }
 
@@ -569,9 +647,10 @@ func (p *Processor) extractArticleNode(doc *html.Node) *html.Node {
 	return internal.FindElementByTag(doc, "body")
 }
 
+// extractTextContent extracts clean text from HTML node with optimized performance.
 func (p *Processor) extractTextContent(node *html.Node) string {
 	var sb strings.Builder
-	sb.Grow(initialTextSize)
+	sb.Grow(initialTextSize) // Pre-allocate 4KB buffer
 	internal.ExtractTextWithStructure(node, &sb, 0)
 	return internal.CleanText(sb.String(), whitespaceRegex)
 }
@@ -947,13 +1026,30 @@ func (p *Processor) findSourceURL(n *html.Node) (url, mediaType string) {
 	return "", ""
 }
 
-// isValidURL checks if a URL is valid (non-empty and within length limits).
+// isValidURL checks if a URL is valid and safe.
+// Validates length, format, and prevents common attack vectors.
 func isValidURL(url string) bool {
-	return url != "" && len(url) <= maxURLLength
+	if url == "" || len(url) > maxURLLength {
+		return false
+	}
+
+	// Basic format validation - must contain valid URL characters
+	for _, r := range url {
+		if r < 32 || r > 126 {
+			return false // Non-printable or extended ASCII
+		}
+	}
+
+	// Allow all URLs that pass basic validation (including relative URLs)
+	return true
 }
 
+// generateCacheKey creates a SHA-256 hash for cache key generation.
+// Uses sampling for large content to avoid full content hashing overhead.
 func (p *Processor) generateCacheKey(content string, opts ExtractConfig) string {
 	h := sha256.New()
+
+	// Write configuration flags as single byte
 	var flags byte
 	if opts.ExtractArticle {
 		flags |= 1 << 0
@@ -971,19 +1067,28 @@ func (p *Processor) generateCacheKey(content string, opts ExtractConfig) string 
 		flags |= 1 << 4
 	}
 	h.Write([]byte{flags})
+
+	// Include image format if specified
 	if opts.InlineImageFormat != "" {
 		h.Write([]byte(opts.InlineImageFormat))
-		h.Write([]byte{0})
+		h.Write([]byte{0}) // separator
 	}
+
 	contentLen := len(content)
 	if contentLen <= maxCacheKeySize {
+		// Small content: hash everything
 		h.Write([]byte(content))
 	} else {
+		// Large content: use three-point sampling
 		h.Write([]byte(content[:cacheKeySample]))
+
 		mid := contentLen >> 1
 		halfSample := cacheKeySample >> 1
 		h.Write([]byte(content[mid-halfSample : mid+halfSample]))
+
 		h.Write([]byte(content[contentLen-cacheKeySample:]))
+
+		// Include content length to distinguish different large contents
 		var lenBuf [8]byte
 		lenBuf[0] = byte(contentLen)
 		lenBuf[1] = byte(contentLen >> 8)
@@ -995,6 +1100,8 @@ func (p *Processor) generateCacheKey(content string, opts ExtractConfig) string 
 		lenBuf[7] = byte(contentLen >> 56)
 		h.Write(lenBuf[:])
 	}
+
+	// Use pre-allocated buffer to avoid allocation
 	var buf [64]byte
 	sum := h.Sum(buf[:0])
 	return hex.EncodeToString(sum)
