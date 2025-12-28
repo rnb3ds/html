@@ -193,7 +193,76 @@ result, _ = processor.Extract(htmlContent, config)
 - `markdown`: Insert `![alt](url)` for Markdown conversion
 - `html`: Insert `<img>` tags for HTML reconstruction
 
-### 4. Batch Processing
+### 4. Comprehensive Link Extraction
+
+Extract all types of resource links with automatic URL resolution:
+
+```go
+htmlContent := `
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <base href="https://example.com/">
+        <link rel="stylesheet" href="css/main.css">
+        <script src="js/app.js"></script>
+        <link rel="icon" href="/favicon.ico">
+    </head>
+    <body>
+        <a href="/about">About</a>
+        <a href="https://external.com">External</a>
+        <img src="images/hero.jpg" alt="Hero">
+        <video src="videos/demo.mp4"></video>
+        <audio src="audio/music.mp3"></audio>
+        <iframe src="https://youtube.com/embed/abc123"></iframe>
+    </body>
+    </html>
+`
+
+// Simple extraction (convenience function)
+links, err := html.ExtractAllLinks(htmlContent)
+if err != nil {
+    log.Fatal(err)
+}
+
+// Group links by type using convenience function
+linksByType := html.GroupLinksByType(links)
+
+// Access specific types directly
+cssLinks := linksByType["css"]
+jsLinks := linksByType["js"]
+contentLinks := linksByType["link"]
+images := linksByType["image"]
+```
+
+**Advanced Configuration:**
+```go
+processor := html.NewWithDefaults()
+defer processor.Close()
+
+config := html.LinkExtractionConfig{
+    ResolveRelativeURLs:  true,  // Auto-resolve relative URLs
+    BaseURL:              "",    // Auto-detect or specify base URL
+    IncludeImages:        true,  // Extract image resources
+    IncludeVideos:        true,  // Extract video resources  
+    IncludeAudios:        true,  // Extract audio resources
+    IncludeCSS:           true,  // Extract CSS stylesheets
+    IncludeJS:            true,  // Extract JavaScript files
+    IncludeContentLinks:  true,  // Extract navigation links
+    IncludeExternalLinks: true,  // Extract external domain links
+    IncludeIcons:         true,  // Extract favicons and icons
+}
+
+links, err := processor.ExtractAllLinks(htmlContent, config)
+```
+
+**Features:**
+- **Automatic URL Resolution**: Detects base URLs from `<base>` tags, canonical meta, or existing URLs
+- **Resource Type Detection**: Images, videos, audio, CSS, JS, content links, external links, icons
+- **Smart Deduplication**: Prevents duplicate links in results
+- **Domain Classification**: Distinguishes internal vs external links
+- **Comprehensive Coverage**: Extracts from all HTML elements including `<link>`, `<script>`, `<img>`, `<video>`, `<audio>`, `<iframe>`, `<embed>`, `<object>`
+
+### 5. Batch Processing
 
 Process multiple documents in parallel with worker pools:
 
@@ -222,7 +291,7 @@ filePaths := []string{"page1.html", "page2.html", "page3.html"}
 results, err = processor.ExtractBatchFiles(filePaths, config)
 ```
 
-### 5. Performance & Caching
+### 6. Performance & Caching
 
 Built-in caching and monitoring:
 
@@ -410,6 +479,7 @@ See the [examples/](examples) directory for complete, runnable examples:
 - **[article_detection.go](examples/article_detection.go)** - Intelligent article extraction
 - **[blog_post_extraction.go](examples/blog_post_extraction.go)** - Real-world blog post extraction
 - **[media_extraction.go](examples/media_extraction.go)** - Extract images, videos, audio, links
+- **[link_extraction.go](examples/link_extraction.go)** - Comprehensive link extraction with URL resolution
 - **[inline_images.go](examples/inline_images.go)** - Image formatting options
 - **[batch_processing.go](examples/batch_processing.go)** - Parallel processing
 - **[concurrent_usage.go](examples/concurrent_usage.go)** - Thread-safe concurrent usage

@@ -8,6 +8,33 @@ All notable changes to the cybergodev/html library will be documented in this fi
 
 ---
 
+## v1.0.2 - Link Extraction & API Enhancements (2025-12-28)
+
+### Added
+- **Comprehensive Link Extraction**: New `ExtractAllLinks()` function with support for all resource types (images, videos, CSS, JS, content links, icons)
+- **Automatic URL Resolution**: Smart base URL detection from `<base>` tags, canonical meta tags, and existing absolute URLs
+- **Link Grouping**: `GroupLinksByType()` convenience function for easy link categorization
+- **Manual Base URL Override**: Variadic parameter support for CDN scenarios where auto-detection may be inaccurate
+- **LinkResource Type**: Structured representation of extracted links with URL, title, and type classification
+- **LinkExtractionConfig**: Granular control over extraction behavior with selective resource type inclusion
+
+### Changed
+- **Unified Link Classification**: All content links (`<a>` tags) now classified as "link" type regardless of domain (removed "external" type)
+- **API Simplification**: Replaced separate base URL function with variadic parameter approach in `ExtractAllLinks()`
+- **Enhanced Media Detection**: Consolidated video/audio type detection with unified `MediaType` registry
+- **Optimized Performance**: Improved cache key generation and pattern management for better efficiency
+
+### Fixed
+- **CDN URL Resolution**: Manual base URL specification ensures accurate relative URL resolution for CDN scenarios
+- **Link Type Consistency**: Unified classification system for more intuitive link processing
+- **Code Duplication**: Eliminated redundant media type detection code
+
+### Security
+- **Pre-Sanitization Extraction**: Links extracted before HTML sanitization to preserve script/style references
+- **Enhanced Input Validation**: Improved URL validation with character filtering and security checks
+
+---
+
 ## v1.0.1 - Optimization and Enhancement (2025-12-01)
 
 ### Added

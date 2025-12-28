@@ -4,6 +4,46 @@ import (
 	"strings"
 )
 
+// Media type registry for unified media detection
+type MediaType struct {
+	Extension string
+	MimeType  string
+	Category  string // "video" or "audio"
+}
+
+// Unified media type registry
+var mediaTypes = []MediaType{
+	// Video types
+	{".mp4", "video/mp4", "video"},
+	{".m4v", "video/mp4", "video"},
+	{".webm", "video/webm", "video"},
+	{".ogg", "video/ogg", "video"},
+	{".mov", "video/quicktime", "video"},
+	{".avi", "video/x-msvideo", "video"},
+	{".wmv", "video/x-ms-wmv", "video"},
+	{".flv", "video/x-flv", "video"},
+	{".mkv", "video/x-matroska", "video"},
+	{".3gp", "video/3gpp", "video"},
+
+	// Audio types
+	{".mp3", "audio/mpeg", "audio"},
+	{".wav", "audio/wav", "audio"},
+	{".ogg", "audio/ogg", "audio"},
+	{".oga", "audio/ogg", "audio"},
+	{".m4a", "audio/mp4", "audio"},
+	{".aac", "audio/aac", "audio"},
+	{".flac", "audio/flac", "audio"},
+	{".wma", "audio/x-ms-wma", "audio"},
+	{".opus", "audio/opus", "audio"},
+	{".oga", "audio/ogg", "audio"},
+	{".m4a", "audio/mp4", "audio"},
+	{".aac", "audio/aac", "audio"},
+	{".flac", "audio/flac", "audio"},
+	{".wma", "audio/x-ms-wma", "audio"},
+	{".opus", "audio/opus", "audio"},
+}
+
+// Video embed patterns for platform detection
 var embedPatterns = []string{
 	"youtube.com/embed/",
 	"youtube-nocookie.com/embed/",
@@ -14,8 +54,7 @@ var embedPatterns = []string{
 	"bilibili.com/",
 }
 
-var videoExtensions = []string{".mp4", ".webm", ".ogg", ".mov", ".avi", ".wmv", ".flv", ".mkv", ".m4v", ".3gp"}
-
+// IsVideoEmbedURL checks if URL is a video embed from known platforms.
 func IsVideoEmbedURL(url string) bool {
 	lowerURL := strings.ToLower(url)
 	for _, pattern := range embedPatterns {
@@ -26,34 +65,23 @@ func IsVideoEmbedURL(url string) bool {
 	return false
 }
 
+// IsVideoURL checks if URL is a video file or embed.
 func IsVideoURL(url string) bool {
 	lowerURL := strings.ToLower(url)
-	for _, ext := range videoExtensions {
-		if strings.HasSuffix(lowerURL, ext) {
+	for _, media := range mediaTypes {
+		if media.Category == "video" && strings.HasSuffix(lowerURL, media.Extension) {
 			return true
 		}
 	}
 	return IsVideoEmbedURL(url)
 }
 
-var videoTypeMap = map[string]string{
-	".mp4":  "video/mp4",
-	".m4v":  "video/mp4",
-	".webm": "video/webm",
-	".ogg":  "video/ogg",
-	".mov":  "video/quicktime",
-	".avi":  "video/x-msvideo",
-	".wmv":  "video/x-ms-wmv",
-	".flv":  "video/x-flv",
-	".mkv":  "video/x-matroska",
-	".3gp":  "video/3gpp",
-}
-
+// DetectVideoType returns MIME type for video URLs.
 func DetectVideoType(url string) string {
 	lowerURL := strings.ToLower(url)
-	for ext, mimeType := range videoTypeMap {
-		if strings.HasSuffix(lowerURL, ext) {
-			return mimeType
+	for _, media := range mediaTypes {
+		if media.Category == "video" && strings.HasSuffix(lowerURL, media.Extension) {
+			return media.MimeType
 		}
 	}
 	if IsVideoEmbedURL(url) {
@@ -62,23 +90,12 @@ func DetectVideoType(url string) string {
 	return ""
 }
 
-var audioTypeMap = map[string]string{
-	".mp3":  "audio/mpeg",
-	".wav":  "audio/wav",
-	".ogg":  "audio/ogg",
-	".oga":  "audio/ogg",
-	".m4a":  "audio/mp4",
-	".aac":  "audio/aac",
-	".flac": "audio/flac",
-	".wma":  "audio/x-ms-wma",
-	".opus": "audio/opus",
-}
-
+// DetectAudioType returns MIME type for audio URLs.
 func DetectAudioType(url string) string {
 	lowerURL := strings.ToLower(url)
-	for ext, mimeType := range audioTypeMap {
-		if strings.HasSuffix(lowerURL, ext) {
-			return mimeType
+	for _, media := range mediaTypes {
+		if media.Category == "audio" && strings.HasSuffix(lowerURL, media.Extension) {
+			return media.MimeType
 		}
 	}
 	return ""

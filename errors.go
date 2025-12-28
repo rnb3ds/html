@@ -21,4 +21,16 @@ var (
 
 	// ErrProcessingTimeout is returned when processing exceeds ProcessingTimeout.
 	ErrProcessingTimeout = errors.New("html: processing timeout exceeded")
+
+	// ErrEmptyInput is returned when input is empty or whitespace-only.
+	ErrEmptyInput = errors.New("html: empty input")
+
+	// ErrFileNotFound is returned when specified file cannot be read.
+	ErrFileNotFound = errors.New("html: file not found")
+
+	// ErrInvalidURL is returned when URL validation fails.
+	ErrInvalidURL = errors.New("html: invalid URL")
+
+	// ErrInvalidBaseURL is returned when base URL for relative link resolution is invalid.
+	ErrInvalidBaseURL = errors.New("html: invalid base URL")
 )
