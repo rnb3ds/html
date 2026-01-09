@@ -217,15 +217,15 @@ func TestMatchesPattern(t *testing.T) {
 
 	tests := []struct {
 		value    string
-		patterns []string
+		patterns map[string]bool
 		want     bool
 	}{
-		{"article-content", []string{"article", "content"}, true},
-		{"sidebar", []string{"article", "content"}, false},
-		{"main-article", []string{"article"}, true},
-		{"navigation-menu", []string{"nav", "menu"}, true},
-		{"", []string{"article"}, false},
-		{"test", []string{}, false},
+		{"article-content", map[string]bool{"article": true, "content": true}, true},
+		{"sidebar", map[string]bool{"article": true, "content": true}, false},
+		{"main-article", map[string]bool{"article": true}, true},
+		{"navigation-menu", map[string]bool{"nav": true, "menu": true}, true},
+		{"", map[string]bool{"article": true}, false},
+		{"test", map[string]bool{}, false},
 	}
 
 	for _, tt := range tests {
@@ -548,6 +548,61 @@ func TestIsBlockElement(t *testing.T) {
 			result := IsBlockElement(tt.tag)
 			if result != tt.want {
 				t.Errorf("IsBlockElement(%q) = %v, want %v", tt.tag, result, tt.want)
+			}
+		})
+	}
+}
+
+func TestCountCommas(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		html  string
+		want  int
+		check func(int) bool
+	}{
+		{
+			name:  "no commas",
+			html:  `<div>Text without commas</div>`,
+			check: func(count int) bool { return count == 0 },
+		},
+		{
+			name:  "with commas",
+			html:  `<div>Text, with, several, commas</div>`,
+			check: func(count int) bool { return count >= 3 },
+		},
+		{
+			name:  "Chinese commas",
+			html:  `<div>文本，包含，中文，逗号</div>`,
+			check: func(count int) bool { return count >= 3 },
+		},
+		{
+			name:  "mixed commas",
+			html:  `<div>Text, with, both，types，of，commas</div>`,
+			check: func(count int) bool { return count >= 5 },
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			doc, _ := html.Parse(strings.NewReader(tt.html))
+			var divNode *html.Node
+			WalkNodes(doc, func(n *html.Node) bool {
+				if n.Type == html.ElementNode && n.Data == "div" {
+					divNode = n
+					return false
+				}
+				return true
+			})
+
+			if divNode == nil {
+				t.Fatal("Could not find div node")
+			}
+
+			count := countCommas(divNode)
+			if !tt.check(count) {
+				t.Errorf("countCommas() = %d, failed check", count)
 			}
 		})
 	}

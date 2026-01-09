@@ -210,41 +210,46 @@ func TestExtractTableNil(t *testing.T) {
 	}
 }
 
-func TestPostProcessText(t *testing.T) {
+func TestExtractTextWithStructureNil(t *testing.T) {
+	t.Parallel()
+
+	var sb strings.Builder
+	ExtractTextWithStructure(nil, &sb, 0)
+
+	if sb.Len() != 0 {
+		t.Error("ExtractTextWithStructure(nil) should not write anything")
+	}
+}
+
+func TestExtractTextWithStructureDepth(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
 		name  string
-		input string
+		html  string
 		check func(string) bool
 	}{
 		{
-			name:  "empty string",
-			input: "",
-			check: func(s string) bool { return s == "" },
+			name:  "deeply nested inline elements",
+			html:  `<div><span><span><span>Deep</span></span></span></div>`,
+			check: func(s string) bool { return strings.Contains(s, "Deep") },
 		},
 		{
-			name:  "whitespace only",
-			input: "   \n   \n   ",
-			check: func(s string) bool { return s == "" },
-		},
-		{
-			name:  "simple text",
-			input: "Hello World",
-			check: func(s string) bool { return strings.Contains(s, "Hello") && strings.Contains(s, "World") },
-		},
-		{
-			name:  "text with newlines",
-			input: "Line1\nLine2",
-			check: func(s string) bool { return strings.Contains(s, "Line1") && strings.Contains(s, "Line2") },
+			name:  "mixed block and inline",
+			html:  `<div><p><span>Text1</span></p><p><span>Text2</span></p></div>`,
+			check: func(s string) bool { return strings.Contains(s, "Text1") && strings.Contains(s, "Text2") },
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := PostProcessText(tt.input, nil)
+			doc, _ := html.Parse(strings.NewReader(tt.html))
+			var sb strings.Builder
+			ExtractTextWithStructure(doc, &sb, 0)
+			result := sb.String()
+
 			if !tt.check(result) {
-				t.Errorf("PostProcessText() = %q, failed check", result)
+				t.Errorf("ExtractTextWithStructure() = %q, failed check", result)
 			}
 		})
 	}
@@ -329,14 +334,5 @@ func BenchmarkExtractTextWithStructure(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		var sb strings.Builder
 		ExtractTextWithStructure(doc, &sb, 0)
-	}
-}
-
-func BenchmarkPostProcessText(b *testing.B) {
-	text := "Line1\n\nLine2    with   spaces\n\n\nLine3"
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		PostProcessText(text, nil)
 	}
 }

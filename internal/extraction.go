@@ -2,7 +2,6 @@ package internal
 
 import (
 	"fmt"
-	"regexp"
 	"strings"
 
 	"golang.org/x/net/html"
@@ -21,13 +20,7 @@ func ExtractTextWithStructureAndImages(n *html.Node, sb *strings.Builder, depth 
 	}
 	if n.Type == html.TextNode {
 		if content := strings.TrimSpace(n.Data); content != "" {
-			if currentLen := sb.Len(); currentLen > 0 {
-				s := sb.String()
-				lastChar := s[currentLen-1]
-				if lastChar != ' ' && lastChar != '\n' {
-					sb.WriteByte(' ')
-				}
-			}
+			ensureSpacing(sb, ' ')
 			sb.WriteString(content)
 		}
 		return
@@ -35,12 +28,7 @@ func ExtractTextWithStructureAndImages(n *html.Node, sb *strings.Builder, depth 
 	if n.Type == html.ElementNode {
 		if n.Data == "img" && imageCounter != nil {
 			*imageCounter++
-			if currentLen := sb.Len(); currentLen > 0 {
-				s := sb.String()
-				if s[currentLen-1] != '\n' {
-					sb.WriteByte('\n')
-				}
-			}
+			ensureNewline(sb)
 			fmt.Fprintf(sb, "[IMAGE:%d]\n", *imageCounter)
 			return
 		}
@@ -51,32 +39,18 @@ func ExtractTextWithStructureAndImages(n *html.Node, sb *strings.Builder, depth 
 		isBlockElement := IsBlockElement(n.Data)
 		startLen := sb.Len()
 		if isBlockElement && startLen > 0 {
-			s := sb.String()
-			if s[startLen-1] != '\n' {
-				sb.WriteByte('\n')
-				startLen = sb.Len()
-			}
+			ensureNewline(sb)
+			startLen = sb.Len()
 		}
 		for c := n.FirstChild; c != nil; c = c.NextSibling {
 			ExtractTextWithStructureAndImages(c, sb, depth+1, imageCounter)
 		}
 		hasContent := sb.Len() > startLen
 		if isBlockElement && hasContent {
-			if currentLen := sb.Len(); currentLen > 0 {
-				s := sb.String()
-				if s[currentLen-1] != '\n' {
-					sb.WriteByte('\n')
-				}
-			}
+			ensureNewline(sb)
 		}
 		if !isBlockElement && hasContent && depth > 0 && n.NextSibling != nil {
-			if currentLen := sb.Len(); currentLen > 0 {
-				s := sb.String()
-				lastChar := s[currentLen-1]
-				if lastChar != ' ' && lastChar != '\n' {
-					sb.WriteByte(' ')
-				}
-			}
+			ensureSpacing(sb, ' ')
 		}
 	} else {
 		for c := n.FirstChild; c != nil; c = c.NextSibling {
@@ -85,10 +59,30 @@ func ExtractTextWithStructureAndImages(n *html.Node, sb *strings.Builder, depth 
 	}
 }
 
-func extractTable(table *html.Node, sb *strings.Builder) {
-	if currentLen := sb.Len(); currentLen > 0 && sb.String()[currentLen-1] != '\n' {
-		sb.WriteByte('\n')
+// ensureNewline adds newline if last character is not newline.
+func ensureNewline(sb *strings.Builder) {
+	if length := sb.Len(); length > 0 {
+		s := sb.String()
+		if s[length-1] != '\n' {
+			sb.WriteByte('\n')
+		}
 	}
+}
+
+// ensureSpacing adds spacing character if last character is not space or newline.
+func ensureSpacing(sb *strings.Builder, char byte) {
+	if length := sb.Len(); length > 0 {
+		s := sb.String()
+		lastChar := s[length-1]
+		if lastChar != ' ' && lastChar != '\n' {
+			sb.WriteByte(char)
+		}
+	}
+}
+
+func extractTable(table *html.Node, sb *strings.Builder) {
+	ensureNewline(sb)
+
 	rows := make([][]string, 0, 8)
 	var maxCols int
 	WalkNodes(table, func(n *html.Node) bool {
@@ -116,14 +110,18 @@ func extractTable(table *html.Node, sb *strings.Builder) {
 	if len(rows) == 0 {
 		return
 	}
+
+	// Pad rows to same length
 	for i := range rows {
 		for len(rows[i]) < maxCols {
 			rows[i] = append(rows[i], " ")
 		}
 	}
-	for i := range rows {
+
+	// Write table with markdown format
+	for i, row := range rows {
 		sb.WriteString("| ")
-		sb.WriteString(strings.Join(rows[i], " | "))
+		sb.WriteString(strings.Join(row, " | "))
 		sb.WriteString(" |\n")
 		if i == 0 {
 			sb.WriteByte('|')
@@ -134,10 +132,6 @@ func extractTable(table *html.Node, sb *strings.Builder) {
 		}
 	}
 	sb.WriteByte('\n')
-}
-
-func PostProcessText(text string, whitespaceRegex *regexp.Regexp) string {
-	return CleanText(text, whitespaceRegex)
 }
 
 func CleanContentNode(n *html.Node) *html.Node {

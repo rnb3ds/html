@@ -1,7 +1,7 @@
 # HTML 库 - 智能 HTML 内容提取
 
 [![Go Version](https://img.shields.io/badge/Go-1.24+-blue.svg)](https://golang.org)
-[![Go Reference](https://pkg.go.dev/badge/github.com/cybergodev/html.svg)](https://pkg.go.dev/github.com/cybergodev/html)
+[![pkg.go.dev](https://pkg.go.dev/badge/github.com/cybergodev/html.svg)](https://pkg.go.dev/github.com/cybergodev/html)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Security](https://img.shields.io/badge/Security-Production%20Ready-green.svg)](SECURITY.md)
 
@@ -224,7 +224,7 @@ if err != nil {
     log.Fatal(err)
 }
 
-// 使用便捷功能按类型对组进行分类
+// 使用便利函数按类型分组链接
 linksByType := html.GroupLinksByType(links)
 
 // 直接访问特定类型的数据
@@ -475,17 +475,12 @@ type Statistics struct {
 
 查看 [examples/](examples) 目录获取完整的可运行示例：
 
-- **[basic_extraction.go](examples/basic_extraction.go)** - 简单内容提取
-- **[article_detection.go](examples/article_detection.go)** - 智能文章提取
-- **[blog_post_extraction.go](examples/blog_post_extraction.go)** - 真实世界博客文章提取
-- **[media_extraction.go](examples/media_extraction.go)** - 提取图片、视频、音频、链接
-- **[link_extraction.go](examples/link_extraction.go)** - 全面链接提取与 URL 解析
-- **[inline_images.go](examples/inline_images.go)** - 图片格式化选项
-- **[batch_processing.go](examples/batch_processing.go)** - 并行处理
-- **[concurrent_usage.go](examples/concurrent_usage.go)** - 线程安全并发使用
-- **[caching_performance.go](examples/caching_performance.go)** - 缓存和性能
-- **[custom_configuration.go](examples/custom_configuration.go)** - 自定义设置
-- **[standard_html_parsing.go](examples/standard_html_parsing.go)** - 标准 HTML API
+- **[01_quick_start.go](examples/01_quick_start.go)** - 快速开始与便利函数
+- **[02_content_extraction.go](examples/02_content_extraction.go)** - 内容提取与文章检测和内联图片
+- **[03_link_extraction.go](examples/03_link_extraction.go)** - 全面链接提取与 URL 解析
+- **[04_media_extraction.go](examples/04_media_extraction.go)** - 提取图片、视频、音频和链接及元数据
+- **[05_advanced_usage.go](examples/05_advanced_usage.go)** - 高级功能：自定义配置、批量处理、缓存、并发
+- **[06_compatibility.go](examples/06_compatibility.go)** - 100% 兼容 golang.org/x/net/html
 
 ## 🔒 线程安全
 

@@ -1,7 +1,7 @@
 # HTML Library - intelligent HTML content extraction
 
 [![Go Version](https://img.shields.io/badge/Go-1.24+-blue.svg)](https://golang.org)
-[![Go Reference](https://pkg.go.dev/badge/github.com/cybergodev/html.svg)](https://pkg.go.dev/github.com/cybergodev/html)
+[![pkg.go.dev](https://pkg.go.dev/badge/github.com/cybergodev/html.svg)](https://pkg.go.dev/github.com/cybergodev/html)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Security](https://img.shields.io/badge/Security-Production%20Ready-green.svg)](SECURITY.md)
 
@@ -475,17 +475,12 @@ type Statistics struct {
 
 See the [examples/](examples) directory for complete, runnable examples:
 
-- **[basic_extraction.go](examples/basic_extraction.go)** - Simple content extraction
-- **[article_detection.go](examples/article_detection.go)** - Intelligent article extraction
-- **[blog_post_extraction.go](examples/blog_post_extraction.go)** - Real-world blog post extraction
-- **[media_extraction.go](examples/media_extraction.go)** - Extract images, videos, audio, links
-- **[link_extraction.go](examples/link_extraction.go)** - Comprehensive link extraction with URL resolution
-- **[inline_images.go](examples/inline_images.go)** - Image formatting options
-- **[batch_processing.go](examples/batch_processing.go)** - Parallel processing
-- **[concurrent_usage.go](examples/concurrent_usage.go)** - Thread-safe concurrent usage
-- **[caching_performance.go](examples/caching_performance.go)** - Caching and performance
-- **[custom_configuration.go](examples/custom_configuration.go)** - Custom settings
-- **[standard_html_parsing.go](examples/standard_html_parsing.go)** - Standard HTML APIs
+- **[01_quick_start.go](examples/01_quick_start.go)** - Quick start with convenience functions
+- **[02_content_extraction.go](examples/02_content_extraction.go)** - Content extraction with article detection and inline images
+- **[03_link_extraction.go](examples/03_link_extraction.go)** - Comprehensive link extraction with URL resolution
+- **[04_media_extraction.go](examples/04_media_extraction.go)** - Extract images, videos, audio, and links with metadata
+- **[05_advanced_usage.go](examples/05_advanced_usage.go)** - Advanced features: custom config, batch processing, caching, concurrency
+- **[06_compatibility.go](examples/06_compatibility.go)** - 100% compatibility with golang.org/x/net/html
 
 ## 🔒 Thread Safety
 
