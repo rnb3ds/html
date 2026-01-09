@@ -8,43 +8,55 @@ import (
 
 // Content scoring patterns for article detection
 const (
-	// Strong positive indicators
+	// Positive indicators
 	strongPositiveScore = 400
 	mediumPositiveScore = 200
 
-	// Strong negative indicators
+	// Negative indicators (weak < medium < strong in absolute value)
 	strongNegativeScore = -400
 	mediumNegativeScore = -200
-	weakNegativeScore   = -300
+	weakNegativeScore   = -100
 )
 
-// Pattern registry for content scoring
-var contentPatterns = struct {
-	positiveStrong []string
-	positiveMedium []string
-	negativeStrong []string
-	negativeMedium []string
-	negativeWeak   []string
-	removePatterns []string
-}{
-	positiveStrong: []string{"content", "article", "main", "post", "entry", "text", "body", "story"},
-	positiveMedium: []string{"blog", "news", "detail", "page"},
-	negativeStrong: []string{"comment", "sidebar", "nav", "footer", "header", "menu", "ad", "advertisement"},
-	negativeMedium: []string{"widget", "related", "share", "social", "meta", "tag", "category"},
-	negativeWeak:   []string{"promo", "banner", "sponsor"},
-	removePatterns: []string{
-		"nav", "navigation", "menu",
-		"sidebar", "side-bar",
-		"footer", "header",
-		"comment", "comments",
-		"ad", "ads", "advertisement",
-		"social", "share", "sharing",
-		"related", "recommend",
-		"widget", "plugin",
-		"promo", "promotion",
-		"banner", "sponsor",
-	},
-}
+// Pattern registry for content scoring with score values
+var (
+	positiveStrongPatterns = map[string]int{
+		"content": strongPositiveScore, "article": strongPositiveScore, "main": strongPositiveScore,
+		"post": strongPositiveScore, "entry": strongPositiveScore, "text": strongPositiveScore,
+		"body": strongPositiveScore, "story": strongPositiveScore,
+	}
+	positiveMediumPatterns = map[string]int{
+		"blog": mediumPositiveScore, "news": mediumPositiveScore,
+		"detail": mediumPositiveScore, "page": mediumPositiveScore,
+	}
+	negativeStrongPatterns = map[string]int{
+		"comment": strongNegativeScore, "sidebar": strongNegativeScore, "nav": strongNegativeScore,
+		"footer": strongNegativeScore, "header": strongNegativeScore, "menu": strongNegativeScore,
+		"ad": strongNegativeScore, "advertisement": strongNegativeScore,
+	}
+	negativeMediumPatterns = map[string]int{
+		"widget": mediumNegativeScore, "related": mediumNegativeScore, "share": mediumNegativeScore,
+		"social": mediumNegativeScore, "meta": mediumNegativeScore, "tag": mediumNegativeScore,
+		"category": mediumNegativeScore,
+	}
+	negativeWeakPatterns = map[string]int{
+		"promo": weakNegativeScore, "banner": weakNegativeScore, "sponsor": weakNegativeScore,
+	}
+
+	// Consolidated removal patterns
+	removePatterns = map[string]bool{
+		"nav": true, "navigation": true, "menu": true,
+		"sidebar": true, "side-bar": true,
+		"footer": true, "header": true,
+		"comment": true, "comments": true,
+		"ad": true, "ads": true, "advertisement": true,
+		"social": true, "share": true, "sharing": true,
+		"related": true, "recommend": true,
+		"widget": true, "plugin": true,
+		"promo": true, "promotion": true,
+		"banner": true, "sponsor": true,
+	}
+)
 
 // Non-content elements that should be excluded
 var nonContentTags = map[string]bool{
@@ -124,13 +136,25 @@ func ScoreContentNode(n *html.Node) int {
 		score = int(float64(score) * 0.75)
 	}
 
-	// Bonus for comma-rich content (likely prose)
-	textContent := GetTextContent(n)
-	if commaCount := strings.Count(textContent, ",") + strings.Count(textContent, "，"); commaCount > 5 {
+	// Bonus for comma-rich content (likely prose) - optimized to avoid GetTextContent()
+	commaCount := countCommas(n)
+	if commaCount > 5 {
 		score += commaCount * 10
 	}
 
 	return score
+}
+
+// countCommas efficiently counts commas without building full text string
+func countCommas(n *html.Node) int {
+	count := 0
+	WalkNodes(n, func(node *html.Node) bool {
+		if node.Type == html.TextNode {
+			count += strings.Count(node.Data, ",") + strings.Count(node.Data, "，")
+		}
+		return true
+	})
+	return count
 }
 
 // ScoreAttributes scores node based on class/id attributes.
@@ -144,20 +168,36 @@ func ScoreAttributes(n *html.Node) int {
 		switch attr.Key {
 		case "class", "id":
 			lowerVal := strings.ToLower(attr.Val)
-			if MatchesPattern(lowerVal, contentPatterns.positiveStrong) {
-				score += strongPositiveScore
+			// Check all pattern maps for matches
+			for pattern, patternScore := range positiveStrongPatterns {
+				if strings.Contains(lowerVal, pattern) {
+					score += patternScore
+					break
+				}
 			}
-			if MatchesPattern(lowerVal, contentPatterns.positiveMedium) {
-				score += mediumPositiveScore
+			for pattern, patternScore := range positiveMediumPatterns {
+				if strings.Contains(lowerVal, pattern) {
+					score += patternScore
+					break
+				}
 			}
-			if MatchesPattern(lowerVal, contentPatterns.negativeStrong) {
-				score += strongNegativeScore
+			for pattern, patternScore := range negativeStrongPatterns {
+				if strings.Contains(lowerVal, pattern) {
+					score += patternScore
+					break
+				}
 			}
-			if MatchesPattern(lowerVal, contentPatterns.negativeMedium) {
-				score += mediumNegativeScore
+			for pattern, patternScore := range negativeMediumPatterns {
+				if strings.Contains(lowerVal, pattern) {
+					score += patternScore
+					break
+				}
 			}
-			if MatchesPattern(lowerVal, contentPatterns.negativeWeak) {
-				score += weakNegativeScore
+			for pattern, patternScore := range negativeWeakPatterns {
+				if strings.Contains(lowerVal, pattern) {
+					score += patternScore
+					break
+				}
 			}
 		case "role":
 			lowerVal := strings.ToLower(attr.Val)
@@ -173,8 +213,8 @@ func ScoreAttributes(n *html.Node) int {
 }
 
 // MatchesPattern checks if value contains any of the patterns.
-func MatchesPattern(value string, patterns []string) bool {
-	for _, pattern := range patterns {
+func MatchesPattern(value string, patterns map[string]bool) bool {
+	for pattern := range patterns {
 		if strings.Contains(value, pattern) {
 			return true
 		}
@@ -241,18 +281,21 @@ func ShouldRemoveElement(n *html.Node) bool {
 	}
 
 	for _, attr := range n.Attr {
-		if attr.Key == "class" || attr.Key == "id" {
+		switch attr.Key {
+		case "class", "id":
 			lowerVal := strings.ToLower(attr.Val)
-			for _, pattern := range contentPatterns.removePatterns {
-				if strings.Contains(lowerVal, pattern) {
-					return true
-				}
+			if MatchesPattern(lowerVal, removePatterns) {
+				return true
 			}
-		}
-		if attr.Key == "style" && (strings.Contains(attr.Val, "display:none") || strings.Contains(attr.Val, "display: none")) {
-			return true
-		}
-		if attr.Key == "hidden" {
+		case "style":
+			lowerStyle := strings.ToLower(attr.Val)
+			if strings.Contains(lowerStyle, "display:none") ||
+				strings.Contains(lowerStyle, "display: none") ||
+				strings.Contains(lowerStyle, "visibility:hidden") ||
+				strings.Contains(lowerStyle, "visibility: hidden") {
+				return true
+			}
+		case "hidden":
 			return true
 		}
 	}

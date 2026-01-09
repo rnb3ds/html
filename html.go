@@ -54,10 +54,7 @@ var (
 	NewTokenizer   = html.NewTokenizer
 )
 
-// Convenience functions for quick content extraction without processor setup.
-
 // Extract extracts content from HTML using default configuration.
-// This is the simplest way to extract content - no setup required.
 func Extract(htmlContent string) (*Result, error) {
 	processor := NewWithDefaults()
 	defer processor.Close()
@@ -72,7 +69,6 @@ func ExtractFromFile(filePath string) (*Result, error) {
 }
 
 // ExtractText extracts only text content without metadata.
-// Returns clean text suitable for analysis or display.
 func ExtractText(htmlContent string) (string, error) {
 	result, err := Extract(htmlContent)
 	if err != nil {
@@ -82,41 +78,13 @@ func ExtractText(htmlContent string) (string, error) {
 }
 
 // ExtractAllLinks extracts all resource links from HTML using default configuration.
-// ExtractAllLinks extracts all resource links from HTML using default configuration.
-// This is the simplest way to extract all links - no setup required.
 // Automatically resolves relative URLs and deduplicates results.
-//
-// Parameters:
-//   - htmlContent: The HTML content to extract links from
-//   - baseURL (optional): Manual base URL for resolving relative links
-//
-// When baseURL is provided, it takes precedence over automatic detection from <base> tags,
-// canonical meta tags, or existing absolute URLs in the document. This is useful when
-// pages use CDN acceleration or external resources that would cause automatic base URL
-// detection to be inaccurate.
-//
-// Usage:
-//
-//	links, err := html.ExtractAllLinks(htmlContent)                    // Auto-detect base URL
-//	links, err := html.ExtractAllLinks(htmlContent, "https://example.com/") // Manual base URL
-//
-// Extracts all types of links including:
-//   - Images: <img>, preloaded images
-//   - Videos: <video>, <iframe> embeds, <embed>, <object>
-//   - Audio: <audio>, <source> tags
-//   - CSS: <link rel="stylesheet">, preloaded stylesheets
-//   - JavaScript: <script src="">, preloaded scripts
-//   - Icons: <link rel="icon">, favicons, touch icons
-//   - Content Links: <a href=""> for navigation (all domains)
-//
-// Returns deduplicated slice of LinkResource with resolved URLs.
+// Optional baseURL parameter overrides automatic base URL detection.
 func ExtractAllLinks(htmlContent string, baseURL ...string) ([]LinkResource, error) {
 	processor := NewWithDefaults()
 	defer processor.Close()
 
 	config := DefaultLinkExtractionConfig()
-
-	// If manual base URL is provided, use it
 	if len(baseURL) > 0 && baseURL[0] != "" {
 		config.BaseURL = baseURL[0]
 	}
@@ -124,35 +92,13 @@ func ExtractAllLinks(htmlContent string, baseURL ...string) ([]LinkResource, err
 	return processor.ExtractAllLinks(htmlContent, config)
 }
 
-// GroupLinksByType groups LinkResource slice by their Type field for easy categorization.
-// This convenience function takes the result from ExtractAllLinks and organizes links
-// into a map where keys are link types and values are slices of links of that type.
-//
-// Usage:
-//
-//	links, err := html.ExtractAllLinks(htmlContent)
-//	if err != nil {
-//	    log.Fatal(err)
-//	}
-//	grouped := html.GroupLinksByType(links)
-//
-//	// Access links by type
-//	cssLinks := grouped["css"]
-//	jsLinks := grouped["js"]
-//	contentLinks := grouped["link"]
-//	images := grouped["image"]
-//
-// Returns a map where:
-//   - Keys are link types: "css", "js", "link", "image", "video", "audio", "icon"
-//   - Values are slices of LinkResource for each type
-//   - Empty types are not included in the map
+// GroupLinksByType groups LinkResource slice by their Type field.
 func GroupLinksByType(links []LinkResource) map[string][]LinkResource {
 	if len(links) == 0 {
 		return make(map[string][]LinkResource)
 	}
 
-	grouped := make(map[string][]LinkResource, 8) // Pre-allocate for common types
-
+	grouped := make(map[string][]LinkResource, 8)
 	for _, link := range links {
 		if link.Type != "" {
 			grouped[link.Type] = append(grouped[link.Type], link)
@@ -160,34 +106,26 @@ func GroupLinksByType(links []LinkResource) map[string][]LinkResource {
 			grouped["unknown"] = append(grouped["unknown"], link)
 		}
 	}
-
 	return grouped
 }
 
-// Default configuration values.
 const (
-	DefaultMaxInputSize      = 50 * 1024 * 1024 // 50MB
-	DefaultMaxCacheEntries   = 1000             // 1000 entries
-	DefaultWorkerPoolSize    = 4                // 4 workers
-	DefaultCacheTTL          = time.Hour        // 1 hour
-	DefaultMaxDepth          = 100              // 100 levels
-	DefaultProcessingTimeout = 30 * time.Second // 30 seconds
-)
+	DefaultMaxInputSize      = 50 * 1024 * 1024
+	DefaultMaxCacheEntries   = 1000
+	DefaultWorkerPoolSize    = 4
+	DefaultCacheTTL          = time.Hour
+	DefaultMaxDepth          = 100
+	DefaultProcessingTimeout = 30 * time.Second
 
-// Internal constants for validation and optimization.
-const (
-	maxURLLength     = 2000      // Maximum URL length to prevent DoS
-	maxHTMLForRegex  = 1000000   // 1MB limit for regex scanning
-	maxRegexMatches  = 100       // Maximum regex matches to prevent DoS
-	wordsPerMinute   = 200       // Average reading speed
-	maxCacheKeySize  = 64 * 1024 // 64KB threshold for full content hashing
-	initialTextSize  = 4096      // Initial text builder capacity
-	initialImageCap  = 16        // Initial image slice capacity
-	initialLinksCap  = 32        // Initial links slice capacity
-	initialVideosCap = 8         // Initial videos slice capacity
-	initialAudiosCap = 8         // Initial audios slice capacity
-	initialSeenCap   = 8         // Initial seen map capacity
-	cacheKeySample   = 4096      // Sample size for large content hashing
+	maxURLLength    = 2000
+	maxHTMLForRegex = 1000000
+	maxRegexMatches = 100
+	wordsPerMinute  = 200
+	maxCacheKeySize = 64 * 1024
+	cacheKeySample  = 4096
+	initialTextSize = 4096
+	initialSliceCap = 16
+	initialMapCap   = 8
 )
 
 var (
@@ -603,19 +541,6 @@ func (p *Processor) ExtractBatchFiles(filePaths []string, config ExtractConfig) 
 }
 
 // ExtractAllLinks extracts all resource links from HTML with comprehensive metadata.
-// Supports automatic relative URL resolution and deduplication.
-//
-// This method provides full control over link extraction behavior through LinkExtractionConfig.
-// It can extract and classify all types of web resources including images, videos, audio,
-// stylesheets, scripts, navigation links, and external references.
-//
-// The processor automatically detects base URLs from <base> tags, canonical meta tags,
-// or existing absolute URLs in the document for accurate relative URL resolution.
-//
-// All extracted links are deduplicated and classified by type for easy filtering and processing.
-// The method is thread-safe and respects processor configuration limits and timeouts.
-//
-// Returns a slice of LinkResource structs containing resolved URLs, titles, and type classifications.
 func (p *Processor) ExtractAllLinks(htmlContent string, config LinkExtractionConfig) ([]LinkResource, error) {
 	if p.closed.Load() {
 		return nil, ErrProcessorClosed
@@ -924,7 +849,7 @@ func (p *Processor) formatInlineImages(textWithPlaceholders string, images []Ima
 }
 
 func (p *Processor) extractImages(node *html.Node) []ImageInfo {
-	images := make([]ImageInfo, 0, initialImageCap)
+	images := make([]ImageInfo, 0, initialSliceCap)
 
 	internal.WalkNodes(node, func(n *html.Node) bool {
 		if n.Type == html.ElementNode && n.Data == "img" {
@@ -940,7 +865,7 @@ func (p *Processor) extractImages(node *html.Node) []ImageInfo {
 }
 
 func (p *Processor) extractImagesWithPosition(node *html.Node) []ImageInfo {
-	images := make([]ImageInfo, 0, initialImageCap)
+	images := make([]ImageInfo, 0, initialSliceCap)
 	position := 0
 
 	internal.WalkNodes(node, func(n *html.Node) bool {
@@ -987,7 +912,7 @@ func (p *Processor) parseImageNode(n *html.Node, position int) ImageInfo {
 }
 
 func (p *Processor) extractLinks(node *html.Node) []LinkInfo {
-	links := make([]LinkInfo, 0, initialLinksCap)
+	links := make([]LinkInfo, 0, initialSliceCap)
 
 	internal.WalkNodes(node, func(n *html.Node) bool {
 		if n.Type == html.ElementNode && n.Data == "a" {
@@ -1047,8 +972,8 @@ func (p *Processor) calculateReadingTime(wordCount int) time.Duration {
 }
 
 func (p *Processor) extractVideos(node *html.Node, htmlContent string) []VideoInfo {
-	videos := make([]VideoInfo, 0, initialVideosCap)
-	seen := make(map[string]bool, initialSeenCap)
+	videos := make([]VideoInfo, 0, initialSliceCap)
+	seen := make(map[string]bool, initialMapCap)
 
 	internal.WalkNodes(node, func(n *html.Node) bool {
 		if n.Type != html.ElementNode {
@@ -1163,8 +1088,8 @@ func (p *Processor) parseEmbedNode(n *html.Node) VideoInfo {
 }
 
 func (p *Processor) extractAudios(node *html.Node, htmlContent string) []AudioInfo {
-	audios := make([]AudioInfo, 0, initialAudiosCap)
-	seen := make(map[string]bool, initialSeenCap)
+	audios := make([]AudioInfo, 0, initialSliceCap)
+	seen := make(map[string]bool, initialMapCap)
 
 	internal.WalkNodes(node, func(n *html.Node) bool {
 		if n.Type == html.ElementNode && n.Data == "audio" {
@@ -1237,45 +1162,75 @@ func (p *Processor) findSourceURL(n *html.Node) (url, mediaType string) {
 	return "", ""
 }
 
-// isValidURL checks if a URL is valid and safe.
-// Validates length, format, and prevents common attack vectors.
+// isValidURL checks if a URL is valid and safe for processing.
 func isValidURL(url string) bool {
-	if url == "" || len(url) > maxURLLength {
+	urlLen := len(url)
+	if urlLen == 0 || urlLen > maxURLLength {
 		return false
 	}
 
-	// Basic format validation - must contain valid URL characters
-	for _, r := range url {
-		if r < 32 || r > 126 {
-			return false // Non-printable or extended ASCII
+	// Special handling for data URLs
+	if urlLen >= 5 && url[:5] == "data:" {
+		for i := 5; i < urlLen; i++ {
+			if b := url[i]; b < 32 || b == 127 {
+				return false
+			}
+		}
+		return true
+	}
+
+	// Validate non-data URLs
+	for i := 0; i < urlLen; i++ {
+		b := url[i]
+		if b < 32 || b == 127 || b == '<' || b == '>' || b == '"' || b == '\'' {
+			return false
 		}
 	}
 
-	// Allow all URLs that pass basic validation (including relative URLs)
-	return true
+	// Accept absolute URLs
+	if urlLen >= 8 && url[:8] == "https://" {
+		return true
+	}
+	if urlLen >= 7 && url[:7] == "http://" {
+		return true
+	}
+	if urlLen >= 2 && url[0] == '/' && url[1] == '/' {
+		return true
+	}
+
+	// Accept relative URLs
+	if url[0] == '/' || url[0] == '.' {
+		return true
+	}
+
+	// Accept alphanumeric paths
+	if (url[0] >= 'a' && url[0] <= 'z') || (url[0] >= 'A' && url[0] <= 'Z') || (url[0] >= '0' && url[0] <= '9') {
+		return true
+	}
+
+	return false
 }
 
 // generateCacheKey creates a SHA-256 hash for cache key generation.
-// Uses sampling for large content to avoid full content hashing overhead.
 func (p *Processor) generateCacheKey(content string, opts ExtractConfig) string {
 	h := sha256.New()
 
 	// Write configuration flags as single byte
 	var flags byte
 	if opts.ExtractArticle {
-		flags |= 1 << 0
+		flags |= 1
 	}
 	if opts.PreserveImages {
-		flags |= 1 << 1
+		flags |= 2
 	}
 	if opts.PreserveLinks {
-		flags |= 1 << 2
+		flags |= 4
 	}
 	if opts.PreserveVideos {
-		flags |= 1 << 3
+		flags |= 8
 	}
 	if opts.PreserveAudios {
-		flags |= 1 << 4
+		flags |= 16
 	}
 	h.Write([]byte{flags})
 
@@ -1287,19 +1242,14 @@ func (p *Processor) generateCacheKey(content string, opts ExtractConfig) string 
 
 	contentLen := len(content)
 	if contentLen <= maxCacheKeySize {
-		// Small content: hash everything
 		h.Write([]byte(content))
 	} else {
-		// Large content: use three-point sampling
 		h.Write([]byte(content[:cacheKeySample]))
-
 		mid := contentLen >> 1
 		halfSample := cacheKeySample >> 1
 		h.Write([]byte(content[mid-halfSample : mid+halfSample]))
-
 		h.Write([]byte(content[contentLen-cacheKeySample:]))
 
-		// Include content length to distinguish different large contents
 		var lenBuf [8]byte
 		lenBuf[0] = byte(contentLen)
 		lenBuf[1] = byte(contentLen >> 8)
@@ -1312,8 +1262,7 @@ func (p *Processor) generateCacheKey(content string, opts ExtractConfig) string 
 		h.Write(lenBuf[:])
 	}
 
-	// Use pre-allocated buffer to avoid allocation
-	var buf [64]byte
+	var buf [32]byte
 	sum := h.Sum(buf[:0])
 	return hex.EncodeToString(sum)
 }
@@ -1357,7 +1306,6 @@ func (p *Processor) extractAllLinksFromContent(htmlContent string, config LinkEx
 
 // detectBaseURL attempts to detect base URL from HTML document.
 func (p *Processor) detectBaseURL(doc *html.Node) string {
-	// Check for <base> tag first
 	if baseNode := internal.FindElementByTag(doc, "base"); baseNode != nil {
 		for _, attr := range baseNode.Attr {
 			if attr.Key == "href" && attr.Val != "" {
@@ -1366,73 +1314,63 @@ func (p *Processor) detectBaseURL(doc *html.Node) string {
 		}
 	}
 
-	// Check meta tags for canonical URL
-	var canonicalURL string
+	var canonicalURL, canonicalLink, firstAbsoluteURL string
 	internal.WalkNodes(doc, func(n *html.Node) bool {
-		if n.Type == html.ElementNode && n.Data == "meta" {
-			var property, content string
-			for _, attr := range n.Attr {
-				switch attr.Key {
-				case "property":
-					property = attr.Val
-				case "content":
-					content = attr.Val
+		if n.Type != html.ElementNode {
+			return true
+		}
+
+		switch n.Data {
+		case "meta":
+			if canonicalURL == "" {
+				var property, content string
+				for _, attr := range n.Attr {
+					if attr.Key == "property" {
+						property = attr.Val
+					} else if attr.Key == "content" {
+						content = attr.Val
+					}
+				}
+				if (property == "og:url" || property == "canonical") && content != "" {
+					canonicalURL = content
 				}
 			}
-			if (property == "og:url" || property == "canonical") && content != "" {
-				canonicalURL = content
-				return false // Found canonical URL
+		case "link":
+			if canonicalLink == "" {
+				var rel, href string
+				for _, attr := range n.Attr {
+					if attr.Key == "rel" {
+						rel = attr.Val
+					} else if attr.Key == "href" {
+						href = attr.Val
+					}
+				}
+				if rel == "canonical" && href != "" {
+					canonicalLink = href
+				}
+			}
+		default:
+			if firstAbsoluteURL == "" {
+				for _, attr := range n.Attr {
+					if (attr.Key == "href" || attr.Key == "src") && p.isAbsoluteURL(attr.Val) {
+						if base := p.extractBaseFromURL(attr.Val); base != "" {
+							firstAbsoluteURL = base
+							break
+						}
+					}
+				}
 			}
 		}
-		return true
+		return canonicalURL == "" || canonicalLink == "" || firstAbsoluteURL == ""
 	})
 
 	if canonicalURL != "" {
 		return p.normalizeBaseURL(canonicalURL)
 	}
-
-	// Check link rel="canonical"
-	var canonicalLink string
-	internal.WalkNodes(doc, func(n *html.Node) bool {
-		if n.Type == html.ElementNode && n.Data == "link" {
-			var rel, href string
-			for _, attr := range n.Attr {
-				switch attr.Key {
-				case "rel":
-					rel = attr.Val
-				case "href":
-					href = attr.Val
-				}
-			}
-			if rel == "canonical" && href != "" {
-				canonicalLink = href
-				return false // Found canonical link
-			}
-		}
-		return true
-	})
-
 	if canonicalLink != "" {
 		return p.normalizeBaseURL(canonicalLink)
 	}
-
-	// Try to extract from absolute URLs in the document
-	var foundBaseURL string
-	internal.WalkNodes(doc, func(n *html.Node) bool {
-		if n.Type == html.ElementNode {
-			for _, attr := range n.Attr {
-				if (attr.Key == "href" || attr.Key == "src") && p.isAbsoluteURL(attr.Val) {
-					if base := p.extractBaseFromURL(attr.Val); base != "" {
-						foundBaseURL = base
-						return false
-					}
-				}
-			}
-		}
-		return foundBaseURL == ""
-	})
-
-	return foundBaseURL
+	return firstAbsoluteURL
 }
 
 // normalizeBaseURL normalizes base URL for consistent resolution.
@@ -1441,22 +1379,18 @@ func (p *Processor) normalizeBaseURL(baseURL string) string {
 		return ""
 	}
 
-	// For canonical URLs, always treat as a file path and get the directory
-	// This handles cases like "https://example.com/page" -> "https://example.com/"
-	lastSlash := strings.LastIndex(baseURL, "/")
-	if lastSlash >= 0 {
-		afterSlash := baseURL[lastSlash+1:]
-		// If there's content after the last slash, treat as a file
-		if afterSlash != "" {
-			return baseURL[:lastSlash+1]
-		}
+	// Find last slash position
+	lastSlash := strings.LastIndexByte(baseURL, '/')
+	if lastSlash < 0 {
+		return baseURL + "/"
 	}
 
-	// Ensure base URL ends with / for proper resolution
-	if !strings.HasSuffix(baseURL, "/") {
-		baseURL += "/"
+	// If there's content after last slash, it's a file - return directory
+	if lastSlash < len(baseURL)-1 {
+		return baseURL[:lastSlash+1]
 	}
 
+	// Already ends with slash
 	return baseURL
 }
 
@@ -1473,25 +1407,20 @@ func (p *Processor) extractBaseFromURL(url string) string {
 		return ""
 	}
 
-	// Find the third slash (after protocol)
-	protocolEnd := strings.Index(url, "://")
-	if protocolEnd == -1 {
-		if strings.HasPrefix(url, "//") {
-			protocolEnd = 0 // Protocol-relative URL
-		} else {
-			return ""
-		}
-	} else {
-		protocolEnd += 3
+	// Find protocol end
+	start := 0
+	if idx := strings.Index(url, "://"); idx >= 0 {
+		start = idx + 3
+	} else if strings.HasPrefix(url, "//") {
+		start = 2
 	}
 
-	// Find next slash after domain
-	pathStart := strings.Index(url[protocolEnd:], "/")
-	if pathStart == -1 {
-		return url + "/"
+	// Find path start after domain
+	if pathStart := strings.IndexByte(url[start:], '/'); pathStart >= 0 {
+		return url[:start+pathStart+1]
 	}
 
-	return url[:protocolEnd+pathStart+1]
+	return url + "/"
 }
 
 // isDifferentDomain checks if two URLs have different domains.
@@ -1509,26 +1438,25 @@ func (p *Processor) isDifferentDomain(baseURL, targetURL string) bool {
 // extractDomain extracts domain from URL.
 func (p *Processor) extractDomain(url string) string {
 	// Remove protocol
-	protocolEnd := strings.Index(url, "://")
-	if protocolEnd != -1 {
-		url = url[protocolEnd+3:]
+	start := 0
+	if idx := strings.Index(url, "://"); idx >= 0 {
+		start = idx + 3
 	} else if strings.HasPrefix(url, "//") {
-		url = url[2:]
+		start = 2
 	}
 
-	// Find first slash or end of string
-	pathStart := strings.Index(url, "/")
-	if pathStart == -1 {
-		return url
+	// Find first slash after domain
+	if pathStart := strings.IndexByte(url[start:], '/'); pathStart >= 0 {
+		return url[start : start+pathStart]
 	}
 
-	return url[:pathStart]
+	return url[start:]
 }
 
 // resolveURL resolves relative URL against base URL.
 func (p *Processor) resolveURL(baseURL, relativeURL string) string {
-	if relativeURL == "" {
-		return ""
+	if relativeURL == "" || baseURL == "" {
+		return relativeURL
 	}
 
 	// Already absolute
@@ -1536,33 +1464,24 @@ func (p *Processor) resolveURL(baseURL, relativeURL string) string {
 		return relativeURL
 	}
 
-	// No base URL available
-	if baseURL == "" {
-		return relativeURL
-	}
-
-	// Protocol-relative URL
-	if strings.HasPrefix(relativeURL, "//") {
+	// Protocol-relative URL (//example.com/path)
+	if len(relativeURL) >= 2 && relativeURL[0] == '/' && relativeURL[1] == '/' {
 		if strings.HasPrefix(baseURL, "https:") {
 			return "https:" + relativeURL
 		}
 		return "http:" + relativeURL
 	}
 
-	// Root-relative URL
-	if strings.HasPrefix(relativeURL, "/") {
+	// Root-relative URL (/path)
+	if relativeURL[0] == '/' {
 		// Extract protocol and domain from base URL
-		protocolEnd := strings.Index(baseURL, "://")
-		if protocolEnd == -1 {
-			return relativeURL
-		}
-
-		domainEnd := strings.Index(baseURL[protocolEnd+3:], "/")
-		if domainEnd == -1 {
+		if idx := strings.Index(baseURL, "://"); idx >= 0 {
+			if domainEnd := strings.IndexByte(baseURL[idx+3:], '/'); domainEnd >= 0 {
+				return baseURL[:idx+3+domainEnd] + relativeURL
+			}
 			return baseURL + relativeURL
 		}
-
-		return baseURL[:protocolEnd+3+domainEnd] + relativeURL
+		return relativeURL
 	}
 
 	// Relative URL - append to base
@@ -1719,69 +1638,46 @@ func (p *Processor) extractImageLinks(n *html.Node, baseURL string, linkMap map[
 
 // extractVideoLinks extracts video resource links.
 func (p *Processor) extractVideoLinks(n *html.Node, baseURL string, linkMap map[string]LinkResource) {
-	var src, title string
-	for _, attr := range n.Attr {
-		switch attr.Key {
-		case "src":
-			src = attr.Val
-		case "title":
-			title = attr.Val
-		}
-	}
-
-	if src != "" && isValidURL(src) {
-		resolvedURL := src
-		if baseURL != "" {
-			resolvedURL = p.resolveURL(baseURL, src)
-		}
-
-		if title == "" {
-			if lastSlash := strings.LastIndex(resolvedURL, "/"); lastSlash >= 0 {
-				title = resolvedURL[lastSlash+1:]
-			} else {
-				title = "Video"
-			}
-		}
-
-		linkMap[resolvedURL] = LinkResource{
-			URL:   resolvedURL,
-			Title: title,
-			Type:  "video",
-		}
-	}
+	p.extractMediaLink(n, baseURL, linkMap, "video")
 }
 
 // extractAudioLinks extracts audio resource links.
 func (p *Processor) extractAudioLinks(n *html.Node, baseURL string, linkMap map[string]LinkResource) {
+	p.extractMediaLink(n, baseURL, linkMap, "audio")
+}
+
+// extractMediaLink extracts video or audio resource links (consolidated helper).
+func (p *Processor) extractMediaLink(n *html.Node, baseURL string, linkMap map[string]LinkResource, mediaType string) {
 	var src, title string
 	for _, attr := range n.Attr {
-		switch attr.Key {
-		case "src":
+		if attr.Key == "src" {
 			src = attr.Val
-		case "title":
+		} else if attr.Key == "title" {
 			title = attr.Val
 		}
 	}
 
-	if src != "" && isValidURL(src) {
-		resolvedURL := src
-		if baseURL != "" {
-			resolvedURL = p.resolveURL(baseURL, src)
-		}
+	if src == "" || !isValidURL(src) {
+		return
+	}
 
-		if title == "" {
-			if lastSlash := strings.LastIndex(resolvedURL, "/"); lastSlash >= 0 {
-				title = resolvedURL[lastSlash+1:]
-			} else {
-				title = "Audio"
-			}
-		}
+	resolvedURL := src
+	if baseURL != "" {
+		resolvedURL = p.resolveURL(baseURL, src)
+	}
 
-		linkMap[resolvedURL] = LinkResource{
-			URL:   resolvedURL,
-			Title: title,
-			Type:  "audio",
+	if title == "" {
+		if lastSlash := strings.LastIndex(resolvedURL, "/"); lastSlash >= 0 {
+			title = resolvedURL[lastSlash+1:]
+		} else {
+			title = strings.ToUpper(mediaType[:1]) + mediaType[1:]
 		}
+	}
+
+	linkMap[resolvedURL] = LinkResource{
+		URL:   resolvedURL,
+		Title: title,
+		Type:  mediaType,
 	}
 }
 
@@ -1926,7 +1822,12 @@ func (p *Processor) extractLinkTagLinks(n *html.Node, baseURL string, config Lin
 		if lastSlash := strings.LastIndex(resolvedURL, "/"); lastSlash >= 0 {
 			title = resolvedURL[lastSlash+1:]
 		} else {
-			title = strings.Title(resourceType)
+			// Capitalize first letter of resource type
+			if len(resourceType) > 0 {
+				title = strings.ToUpper(resourceType[:1]) + resourceType[1:]
+			} else {
+				title = resourceType
+			}
 		}
 	}
 

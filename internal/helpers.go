@@ -8,7 +8,7 @@ import (
 )
 
 func WalkNodes(node *html.Node, fn func(*html.Node) bool) {
-	if node == nil || !fn(node) {
+	if node == nil || fn == nil || !fn(node) {
 		return
 	}
 	for child := node.FirstChild; child != nil; child = child.NextSibling {
@@ -57,19 +57,31 @@ func GetTextLength(n *html.Node) int {
 }
 
 func GetLinkDensity(n *html.Node) float64 {
-	textLength := GetTextLength(n)
-	if textLength == 0 {
+	if n == nil {
 		return 0.0
 	}
 
+	textLength := 0
 	linkTextLength := 0
+
 	WalkNodes(n, func(node *html.Node) bool {
-		if node.Type == html.ElementNode && node.Data == "a" {
-			linkTextLength += GetTextLength(node)
+		if node.Type == html.TextNode {
+			length := len(strings.TrimSpace(node.Data))
+			textLength += length
+			// Check if any ancestor is an <a> tag
+			for p := node.Parent; p != nil; p = p.Parent {
+				if p.Type == html.ElementNode && p.Data == "a" {
+					linkTextLength += length
+					break
+				}
+			}
 		}
 		return true
 	})
 
+	if textLength == 0 {
+		return 0.0
+	}
 	return float64(linkTextLength) / float64(textLength)
 }
 

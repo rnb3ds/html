@@ -1,6 +1,7 @@
 package internal
 
 import (
+	"regexp"
 	"strings"
 	"testing"
 
@@ -257,41 +258,123 @@ func TestGetLinkDensityNil(t *testing.T) {
 func TestCleanText(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
-		name  string
-		input string
-		want  string
-	}{
-		{
-			name:  "HTML entities",
-			input: "&lt;html&gt; &amp;",
-			want:  "<html> &",
-		},
-		{
-			name:  "empty",
-			input: "",
-			want:  "",
-		},
-		{
-			name:  "simple text",
-			input: "Hello World",
-			want:  "Hello World",
-		},
-		{
-			name:  "newlines preserved",
-			input: "Line1\nLine2",
-			want:  "Line1\nLine2",
-		},
-	}
+	t.Run("without regex", func(t *testing.T) {
+		tests := []struct {
+			name  string
+			input string
+			want  string
+		}{
+			{
+				name:  "HTML entities",
+				input: "&lt;html&gt; &amp;",
+				want:  "<html> &",
+			},
+			{
+				name:  "empty",
+				input: "",
+				want:  "",
+			},
+			{
+				name:  "simple text",
+				input: "Hello World",
+				want:  "Hello World",
+			},
+			{
+				name:  "newlines preserved",
+				input: "Line1\nLine2",
+				want:  "Line1\nLine2",
+			},
+		}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := CleanText(tt.input, nil)
-			if result != tt.want {
-				t.Errorf("CleanText() = %q, want %q", result, tt.want)
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				result := CleanText(tt.input, nil)
+				if result != tt.want {
+					t.Errorf("CleanText() = %q, want %q", result, tt.want)
+				}
+			})
+		}
+	})
+
+	t.Run("with regex", func(t *testing.T) {
+		whitespaceRegex := regexp.MustCompile(`\s+`)
+
+		tests := []struct {
+			name  string
+			input string
+			want  string
+		}{
+			{
+				name:  "multiple spaces",
+				input: "Hello    World",
+				want:  "Hello World",
+			},
+			{
+				name:  "tabs and spaces",
+				input: "Hello\t\t\tWorld",
+				want:  "Hello World",
+			},
+			{
+				name:  "mixed whitespace",
+				input: "Hello  \t  \n  World",
+				want:  "Hello\nWorld",
+			},
+			{
+				name:  "leading spaces",
+				input: "    Hello",
+				want:  "Hello",
+			},
+			{
+				name:  "trailing spaces",
+				input: "Hello    ",
+				want:  "Hello",
+			},
+			{
+				name:  "multiple newlines collapsed",
+				input: "Line1\n\n\nLine2",
+				want:  "Line1\nLine2",
+			},
+			{
+				name:  "only whitespace",
+				input: "     ",
+				want:  "",
+			},
+			{
+				name:  "unicode characters",
+				input: "Hello   世界   Test",
+				want:  "Hello 世界 Test",
+			},
+		}
+
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				result := CleanText(tt.input, whitespaceRegex)
+				if result != tt.want {
+					t.Errorf("CleanText() = %q, want %q", result, tt.want)
+				}
+			})
+		}
+	})
+
+	t.Run("edge cases", func(t *testing.T) {
+		whitespaceRegex := regexp.MustCompile(`\s+`)
+
+		t.Run("very long text", func(t *testing.T) {
+			longText := strings.Repeat("word ", 10000)
+			result := CleanText(longText, whitespaceRegex)
+			if len(result) == 0 {
+				t.Error("CleanText() should handle long text")
 			}
 		})
-	}
+
+		t.Run("special characters", func(t *testing.T) {
+			input := "Test   @#$%   Special"
+			result := CleanText(input, whitespaceRegex)
+			if !strings.Contains(result, "@#$%") {
+				t.Error("CleanText() should preserve special chars")
+			}
+		})
+	})
 }
 
 func TestReplaceHTMLEntities(t *testing.T) {
@@ -409,6 +492,117 @@ func TestSelectBestCandidate(t *testing.T) {
 	}
 }
 
+func TestPostProcessText(t *testing.T) {
+	t.Parallel()
+
+	t.Run("basic functionality", func(t *testing.T) {
+		tests := []struct {
+			name  string
+			input string
+			check func(string) bool
+		}{
+			{
+				name:  "empty string",
+				input: "",
+				check: func(s string) bool { return s == "" },
+			},
+			{
+				name:  "whitespace only",
+				input: "   \n   \n   ",
+				check: func(s string) bool { return s == "" },
+			},
+			{
+				name:  "simple text",
+				input: "Hello World",
+				check: func(s string) bool { return strings.Contains(s, "Hello") && strings.Contains(s, "World") },
+			},
+		}
+
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				result := CleanText(tt.input, nil)
+				if !tt.check(result) {
+					t.Errorf("CleanText() = %q, failed check", result)
+				}
+			})
+		}
+	})
+
+	t.Run("with regex", func(t *testing.T) {
+		whitespaceRegex := regexp.MustCompile(`\s+`)
+
+		tests := []struct {
+			name  string
+			input string
+			check func(string) bool
+		}{
+			{
+				name:  "multiple spaces per line",
+				input: "Hello    World\nFoo    Bar",
+				check: func(s string) bool {
+					return strings.Contains(s, "Hello World") && strings.Contains(s, "Foo Bar")
+				},
+			},
+			{
+				name:  "empty lines removed",
+				input: "Line1\n\n\nLine2",
+				check: func(s string) bool {
+					lines := strings.Split(s, "\n")
+					for _, line := range lines {
+						if strings.TrimSpace(line) == "" {
+							return false
+						}
+					}
+					return true
+				},
+			},
+			{
+				name:  "tabs converted to spaces",
+				input: "Hello\t\tWorld",
+				check: func(s string) bool {
+					return strings.Contains(s, "Hello") && strings.Contains(s, "World") && !strings.Contains(s, "\t")
+				},
+			},
+		}
+
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				result := CleanText(tt.input, whitespaceRegex)
+				if !tt.check(result) {
+					t.Errorf("CleanText() = %q, failed check", result)
+				}
+			})
+		}
+	})
+
+	t.Run("long content", func(t *testing.T) {
+		whitespaceRegex := regexp.MustCompile(`\s+`)
+
+		t.Run("many lines", func(t *testing.T) {
+			var sb strings.Builder
+			for i := 0; i < 1000; i++ {
+				sb.WriteString("Line ")
+				sb.WriteString(strings.Repeat(" ", 10))
+				sb.WriteString("Content\n")
+			}
+
+			result := CleanText(sb.String(), whitespaceRegex)
+			if len(result) == 0 {
+				t.Error("CleanText() should handle long content")
+			}
+		})
+
+		t.Run("unicode and newlines", func(t *testing.T) {
+			input := "中文   测试\n日本語   テスト\n한국어   테스트"
+			result := CleanText(input, whitespaceRegex)
+
+			if !strings.Contains(result, "中文") || !strings.Contains(result, "日本語") || !strings.Contains(result, "한국어") {
+				t.Error("CleanText() should preserve unicode characters")
+			}
+		})
+	})
+}
+
 func BenchmarkGetTextContent(b *testing.B) {
 	doc, _ := html.Parse(strings.NewReader(`<html><body><p>Hello World</p><p>More text</p></body></html>`))
 
@@ -420,9 +614,27 @@ func BenchmarkGetTextContent(b *testing.B) {
 
 func BenchmarkCleanText(b *testing.B) {
 	text := "Hello    World\n\nWith   multiple   spaces"
+	whitespaceRegex := regexp.MustCompile(`\s+`)
+
+	b.Run("without regex", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			CleanText(text, nil)
+		}
+	})
+
+	b.Run("with regex", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			CleanText(text, whitespaceRegex)
+		}
+	})
+}
+
+func BenchmarkPostProcessText(b *testing.B) {
+	text := strings.Repeat("Line   with   spaces\n", 100)
+	whitespaceRegex := regexp.MustCompile(`\s+`)
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		CleanText(text, nil)
+		CleanText(text, whitespaceRegex)
 	}
 }

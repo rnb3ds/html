@@ -2,6 +2,7 @@ package internal
 
 import (
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -34,23 +35,37 @@ func NewCache(maxEntries int, ttl time.Duration) *Cache {
 }
 
 // Get retrieves a value from the cache.
+// Uses atomic operations for lastUsed updates to avoid write lock contention on reads.
 func (c *Cache) Get(key string) any {
 	if key == "" {
 		return nil
 	}
 	now := time.Now().UnixNano()
-	c.mu.Lock()
-	defer c.mu.Unlock()
+
+	c.mu.RLock()
 	entry := c.entries[key]
 	if entry == nil {
+		c.mu.RUnlock()
 		return nil
 	}
 	if entry.isExpired(now) {
-		delete(c.entries, key)
+		c.mu.RUnlock()
+		// Upgrade to write lock to delete expired entry
+		c.mu.Lock()
+		// Double-check after acquiring write lock
+		if entry := c.entries[key]; entry != nil && entry.isExpired(now) {
+			delete(c.entries, key)
+		}
+		c.mu.Unlock()
 		return nil
 	}
-	entry.lastUsed = now
-	return entry.value
+	value := entry.value
+	// Update lastUsed atomically without releasing read lock
+	// This is safe because we're only updating a single int64 field
+	atomic.StoreInt64(&entry.lastUsed, now)
+	c.mu.RUnlock()
+
+	return value
 }
 
 // Set adds or updates a value in the cache.
@@ -80,22 +95,25 @@ func (c *Cache) Set(key string, value any) {
 	c.entries[key] = entry
 }
 
+// evictOne removes one entry (optimized single-pass algorithm)
 func (c *Cache) evictOne() {
 	nowNano := time.Now().UnixNano()
+	var oldestKey string
+	var oldestTime int64 = 1<<63 - 1
+
+	// Single pass: find expired or oldest entry
 	for k, e := range c.entries {
 		if e.isExpired(nowNano) {
 			delete(c.entries, k)
 			return
 		}
-	}
-	var oldestKey string
-	var oldestTime int64 = 1<<63 - 1
-	for k, e := range c.entries {
-		if e.lastUsed < oldestTime {
+		lastUsed := atomic.LoadInt64(&e.lastUsed)
+		if lastUsed < oldestTime {
 			oldestKey = k
-			oldestTime = e.lastUsed
+			oldestTime = lastUsed
 		}
 	}
+
 	if oldestKey != "" {
 		delete(c.entries, oldestKey)
 	}
