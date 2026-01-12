@@ -1849,3 +1849,344 @@ func (p *Processor) extractEmbedLinks(n *html.Node, baseURL string, linkMap map[
 		Type:  "video",
 	}
 }
+
+// ============================================================================
+// Package-Level Convenience Functions
+// ============================================================================
+
+// ExtractToMarkdown extracts HTML content and converts it to Markdown format.
+// Images are preserved as Markdown image syntax with their alt text.
+func ExtractToMarkdown(htmlContent string) (string, error) {
+	result, err := Extract(htmlContent)
+	if err != nil {
+		return "", err
+	}
+
+	processor := NewWithDefaults()
+	defer processor.Close()
+
+	markdownConfig := DefaultExtractConfig()
+	markdownConfig.InlineImageFormat = "markdown"
+	markdownResult, err := processor.Extract(htmlContent, markdownConfig)
+	if err != nil {
+		return result.Text, nil // Fallback to plain text
+	}
+
+	return markdownResult.Text, nil
+}
+
+// ExtractToJSON extracts HTML content and returns it as JSON bytes.
+// The JSON includes all extracted data: title, text, images, links, videos, audios, word count, and reading time.
+func ExtractToJSON(htmlContent string) ([]byte, error) {
+	result, err := Extract(htmlContent)
+	if err != nil {
+		return nil, err
+	}
+
+	var buf strings.Builder
+	buf.Grow(len(result.Text) + 512)
+	buf.WriteString(`{"title":`)
+	writeJSONString(&buf, result.Title)
+	buf.WriteString(`,"text":`)
+	writeJSONString(&buf, result.Text)
+	buf.WriteString(`,"word_count":`)
+	buf.WriteString(strconv.Itoa(result.WordCount))
+	buf.WriteString(`,"reading_time_ms":`)
+	buf.WriteString(strconv.FormatInt(result.ReadingTime.Milliseconds(), 10))
+	buf.WriteString(`,"processing_time_ms":`)
+	buf.WriteString(strconv.FormatInt(result.ProcessingTime.Milliseconds(), 10))
+
+	if len(result.Images) > 0 {
+		buf.WriteString(`,"images":[`)
+		for i, img := range result.Images {
+			if i > 0 {
+				buf.WriteString(",")
+			}
+			buf.WriteString(`{"url":"`)
+			buf.WriteString(stdhtml.EscapeString(img.URL))
+			buf.WriteString(`","alt":"`)
+			buf.WriteString(stdhtml.EscapeString(img.Alt))
+			buf.WriteString(`","title":"`)
+			buf.WriteString(stdhtml.EscapeString(img.Title))
+			buf.WriteString(`","width":"`)
+			buf.WriteString(stdhtml.EscapeString(img.Width))
+			buf.WriteString(`","height":"`)
+			buf.WriteString(stdhtml.EscapeString(img.Height))
+			buf.WriteString(`","is_decorative":`)
+			buf.WriteString(strconv.FormatBool(img.IsDecorative))
+			buf.WriteString(`,"position":`)
+			buf.WriteString(strconv.Itoa(img.Position))
+			buf.WriteString("}")
+		}
+		buf.WriteString("]")
+	}
+
+	if len(result.Links) > 0 {
+		buf.WriteString(`,"links":[`)
+		for i, link := range result.Links {
+			if i > 0 {
+				buf.WriteString(",")
+			}
+			buf.WriteString(`{"url":"`)
+			buf.WriteString(stdhtml.EscapeString(link.URL))
+			buf.WriteString(`","text":"`)
+			buf.WriteString(stdhtml.EscapeString(link.Text))
+			buf.WriteString(`","title":"`)
+			buf.WriteString(stdhtml.EscapeString(link.Title))
+			buf.WriteString(`","is_external":`)
+			buf.WriteString(strconv.FormatBool(link.IsExternal))
+			buf.WriteString(`,"is_nofollow":`)
+			buf.WriteString(strconv.FormatBool(link.IsNoFollow))
+			buf.WriteString("}")
+		}
+		buf.WriteString("]")
+	}
+
+	if len(result.Videos) > 0 {
+		buf.WriteString(`,"videos":[`)
+		for i, vid := range result.Videos {
+			if i > 0 {
+				buf.WriteString(",")
+			}
+			buf.WriteString(`{"url":"`)
+			buf.WriteString(stdhtml.EscapeString(vid.URL))
+			buf.WriteString(`","type":"`)
+			buf.WriteString(stdhtml.EscapeString(vid.Type))
+			buf.WriteString(`","poster":"`)
+			buf.WriteString(stdhtml.EscapeString(vid.Poster))
+			buf.WriteString(`","width":"`)
+			buf.WriteString(stdhtml.EscapeString(vid.Width))
+			buf.WriteString(`","height":"`)
+			buf.WriteString(stdhtml.EscapeString(vid.Height))
+			buf.WriteString(`","duration":"`)
+			buf.WriteString(stdhtml.EscapeString(vid.Duration))
+			buf.WriteString(`"}`)
+		}
+		buf.WriteString("]")
+	}
+
+	if len(result.Audios) > 0 {
+		buf.WriteString(`,"audios":[`)
+		for i, aud := range result.Audios {
+			if i > 0 {
+				buf.WriteString(",")
+			}
+			buf.WriteString(`{"url":"`)
+			buf.WriteString(stdhtml.EscapeString(aud.URL))
+			buf.WriteString(`","type":"`)
+			buf.WriteString(stdhtml.EscapeString(aud.Type))
+			buf.WriteString(`","duration":"`)
+			buf.WriteString(stdhtml.EscapeString(aud.Duration))
+			buf.WriteString(`"}`)
+		}
+		buf.WriteString("]")
+	}
+
+	buf.WriteString("}")
+
+	return []byte(buf.String()), nil
+}
+
+// writeJSONString writes a string as JSON to the builder with proper escaping.
+func writeJSONString(sb *strings.Builder, s string) {
+	sb.WriteString("\"")
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		switch c {
+		case '"':
+			sb.WriteString(`\"`)
+		case '\\':
+			sb.WriteString(`\\`)
+		case '\b':
+			sb.WriteString(`\b`)
+		case '\f':
+			sb.WriteString(`\f`)
+		case '\n':
+			sb.WriteString(`\n`)
+		case '\r':
+			sb.WriteString(`\r`)
+		case '\t':
+			sb.WriteString(`\t`)
+		default:
+			if c < 32 {
+				sb.WriteString(`\u00`)
+				sb.WriteString(strconv.FormatInt(int64(c), 16))
+			} else {
+				sb.WriteByte(c)
+			}
+		}
+	}
+	sb.WriteString("\"")
+}
+
+// ExtractWithTitle extracts both the title and text content from HTML.
+// Returns (title, text, error).
+func ExtractWithTitle(htmlContent string) (string, string, error) {
+	result, err := Extract(htmlContent)
+	if err != nil {
+		return "", "", err
+	}
+	return result.Title, result.Text, nil
+}
+
+// ExtractImages extracts only image information from HTML content.
+func ExtractImages(htmlContent string) ([]ImageInfo, error) {
+	result, err := Extract(htmlContent)
+	if err != nil {
+		return nil, err
+	}
+	return result.Images, nil
+}
+
+// ExtractVideos extracts only video information from HTML content.
+func ExtractVideos(htmlContent string) ([]VideoInfo, error) {
+	result, err := Extract(htmlContent)
+	if err != nil {
+		return nil, err
+	}
+	return result.Videos, nil
+}
+
+// ExtractAudios extracts only audio information from HTML content.
+func ExtractAudios(htmlContent string) ([]AudioInfo, error) {
+	result, err := Extract(htmlContent)
+	if err != nil {
+		return nil, err
+	}
+	return result.Audios, nil
+}
+
+// ExtractLinks extracts only link information from HTML content.
+func ExtractLinks(htmlContent string) ([]LinkInfo, error) {
+	result, err := Extract(htmlContent)
+	if err != nil {
+		return nil, err
+	}
+	return result.Links, nil
+}
+
+// ConfigForRSS returns an ExtractConfig optimized for RSS feed generation.
+// Disables article detection for faster processing.
+func ConfigForRSS() ExtractConfig {
+	return ExtractConfig{
+		ExtractArticle:    false,
+		PreserveImages:    true,
+		PreserveLinks:     true,
+		PreserveVideos:    false,
+		PreserveAudios:    false,
+		InlineImageFormat: "none",
+	}
+}
+
+// ConfigForSearchIndex returns an ExtractConfig optimized for search indexing.
+// Includes all metadata and content for comprehensive indexing.
+func ConfigForSearchIndex() ExtractConfig {
+	return ExtractConfig{
+		ExtractArticle:    true,
+		PreserveImages:    true,
+		PreserveLinks:     true,
+		PreserveVideos:    true,
+		PreserveAudios:    true,
+		InlineImageFormat: "none",
+	}
+}
+
+// ConfigForSummary returns an ExtractConfig optimized for content summaries.
+// Focuses on text content without media or links.
+func ConfigForSummary() ExtractConfig {
+	return ExtractConfig{
+		ExtractArticle:    true,
+		PreserveImages:    false,
+		PreserveLinks:     false,
+		PreserveVideos:    false,
+		PreserveAudios:    false,
+		InlineImageFormat: "none",
+	}
+}
+
+// ConfigForMarkdown returns an ExtractConfig optimized for Markdown output.
+// Preserves images as inline Markdown syntax.
+func ConfigForMarkdown() ExtractConfig {
+	return ExtractConfig{
+		ExtractArticle:    true,
+		PreserveImages:    true,
+		PreserveLinks:     true,
+		PreserveVideos:    false,
+		PreserveAudios:    false,
+		InlineImageFormat: "markdown",
+	}
+}
+
+// Summarize extracts content and returns a summary limited to maxWords.
+// If maxWords is 0 or negative, returns the full text.
+func Summarize(htmlContent string, maxWords int) (string, error) {
+	result, err := Extract(htmlContent)
+	if err != nil {
+		return "", err
+	}
+
+	if maxWords <= 0 {
+		return result.Text, nil
+	}
+
+	words := strings.Fields(result.Text)
+	if len(words) <= maxWords {
+		return result.Text, nil
+	}
+
+	summary := strings.Join(words[:maxWords], " ")
+	if len(words) > maxWords {
+		summary += "..."
+	}
+	return summary, nil
+}
+
+// ExtractAndClean extracts content from HTML and returns thoroughly cleaned text.
+// Removes extra whitespace, normalizes line breaks, and trims leading/trailing space.
+func ExtractAndClean(htmlContent string) (string, error) {
+	result, err := Extract(htmlContent)
+	if err != nil {
+		return "", err
+	}
+
+	cleaned := whitespaceRegex.ReplaceAllString(result.Text, " ")
+	lines := strings.Split(cleaned, "\n")
+	var nonEmptyLines []string
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed != "" {
+			nonEmptyLines = append(nonEmptyLines, trimmed)
+		}
+	}
+
+	return strings.Join(nonEmptyLines, "\n\n"), nil
+}
+
+// GetReadingTime estimates reading time for HTML content in minutes.
+// Returns the estimated reading time as a float (minutes).
+func GetReadingTime(htmlContent string) (float64, error) {
+	result, err := Extract(htmlContent)
+	if err != nil {
+		return 0, err
+	}
+	return result.ReadingTime.Minutes(), nil
+}
+
+// GetWordCount returns the word count of HTML content.
+func GetWordCount(htmlContent string) (int, error) {
+	result, err := Extract(htmlContent)
+	if err != nil {
+		return 0, err
+	}
+	return result.WordCount, nil
+}
+
+// ExtractTitle extracts only the title from HTML content.
+// Searches for <title>, <h1>, then <h2> tags in that order.
+func ExtractTitle(htmlContent string) (string, error) {
+	result, err := Extract(htmlContent)
+	if err != nil {
+		return "", err
+	}
+	return result.Title, nil
+}

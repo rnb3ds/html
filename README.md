@@ -26,9 +26,7 @@
 ### 📦 Zero Bloat
 
 - **Single Dependency**: Only `golang.org/x/net/html` (no bloated dependency tree)
-- **Minimal API Surface**: Simple, focused, easy to learn (not a kitchen sink)
-- **No Breaking Changes**: Stable API with backward compatibility guarantee
-
+- **Minimal API Surface**: Simple, focused, easy to learn
 
 ### 🎯 Use Cases
 - 📰 **News Aggregators**: Extract clean article content from various news sites
@@ -79,11 +77,11 @@ if err != nil {
 }
 
 // Extracted content (navigation and ads removed automatically)
-fmt.Println("Title:", result.Title)           // "10 Tips for Better Go Code"
-fmt.Println("Text:", result.Text)             // Clean article text only
-fmt.Println("Word Count:", result.WordCount)  // 156
-fmt.Println("Reading Time:", result.ReadingTime) // 47s
-fmt.Println("Images:", len(result.Images))    // 1
+fmt.Println("Title:", result.Title)              // "10 Tips for Better Go Code"
+fmt.Println("Text:", result.Text)                // Clean article text only
+fmt.Println("Word Count:", result.WordCount)     // 8
+fmt.Println("Reading Time:", result.ReadingTime) // 2.4s
+fmt.Println("Images:", len(result.Images))       // 1
 
 // Image metadata
 for _, img := range result.Images {

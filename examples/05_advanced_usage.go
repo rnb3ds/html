@@ -124,8 +124,8 @@ func main() {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
-			html := fmt.Sprintf(`<article><h1>Article %d</h1><p>Concurrent processing test %d.</p></article>`, id, id)
-			result, err := processor.ExtractWithDefaults(html)
+			htmlData := fmt.Sprintf(`<article><h1>Article %d</h1><p>Concurrent processing test %d.</p></article>`, id, id)
+			result, err := processor.ExtractWithDefaults(htmlData)
 			if err != nil {
 				concurrentResults <- fmt.Sprintf("Error: %v", err)
 				return
