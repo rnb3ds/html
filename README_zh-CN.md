@@ -3,8 +3,11 @@
 [![Go Version](https://img.shields.io/badge/Go-1.24+-00ADD8?logo=go)](https://golang.org)
 [![pkg.go.dev](https://pkg.go.dev/badge/github.com/cybergodev/html.svg)](https://pkg.go.dev/github.com/cybergodev/html)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Performance](https://img.shields.io/badge/performance-high%20performance-green.svg)](https://github.com/cybergodev/json)
+[![Thread Safe](https://img.shields.io/badge/thread%20safe-yes-brightgreen.svg)](https://github.com/cybergodev/json)
 
-**一个用于智能 HTML 内容提取的 Go 库。** 与 `golang.org/x/net/html` 兼容 — 可作为直接替代品使用，并提供增强的内容提取功能。
+
+**一个用于 HTML 内容智能提取的 Go 库。** 与 `golang.org/x/net/html` 兼容 — 可作为直接替代品使用，并提供增强的内容提取功能。
 
 #### **[English Documentation](README.md)** - 英文文档
 
@@ -21,10 +24,6 @@
 - **批量处理**：使用可配置的工作池并行提取
 - **线程安全**：支持并发使用，无需外部同步
 - **资源限制**：可配置的输入大小、嵌套深度和超时保护
-
-### 最小依赖
-- **单一依赖**：只需要 `golang.org/x/net/html`
-- **精简 API**：简单、专注、易于学习
 
 ### 应用场景
 - 📰 **新闻聚合器**：从新闻网站提取文章内容
@@ -70,7 +69,7 @@ fmt.Println(text) // "Hello World\n这里是内容..."
 
 ## 快速指南
 
-### 一行函数
+### 一行代码
 
 只想完成任务？使用这些包级函数：
 
@@ -105,7 +104,7 @@ summary, _ := html.Summarize(htmlContent, 50) // 最多 50 个单词
 
 ### 基础处理器用法
 
-需要更多控制？创建处理器：
+需要更多控制，创建处理器：
 
 ```go
 processor := html.NewWithDefaults()

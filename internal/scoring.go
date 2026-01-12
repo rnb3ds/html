@@ -2,6 +2,7 @@ package internal
 
 import (
 	"strings"
+	"sync"
 
 	"golang.org/x/net/html"
 )
@@ -16,6 +17,25 @@ const (
 )
 
 var (
+	// Thread-safe pattern maps initialized once and read-only after init
+	positiveStrongPatterns map[string]int
+	positiveMediumPatterns map[string]int
+	negativeStrongPatterns map[string]int
+	negativeMediumPatterns map[string]int
+	negativeWeakPatterns   map[string]int
+	removePatterns         map[string]bool
+	nonContentTags         map[string]bool
+	blockElements          map[string]bool
+	tagScores              map[string]int
+
+	// Mutex for protecting concurrent read access to pattern maps
+	scoreMapsMutex sync.RWMutex
+)
+
+func init() {
+	scoreMapsMutex.Lock()
+	defer scoreMapsMutex.Unlock()
+
 	positiveStrongPatterns = map[string]int{
 		"content": strongPositiveScore, "article": strongPositiveScore, "main": strongPositiveScore,
 		"post": strongPositiveScore, "entry": strongPositiveScore, "text": strongPositiveScore,
@@ -71,7 +91,7 @@ var (
 		"div":     50,
 		"p":       0,
 	}
-)
+}
 
 // ScoreContentNode calculates content relevance score for a node.
 func ScoreContentNode(node *html.Node) int {
@@ -79,7 +99,7 @@ func ScoreContentNode(node *html.Node) int {
 		return 0
 	}
 
-	score := tagScores[node.Data] + ScoreAttributes(node)
+	score := getTagScore(node.Data) + ScoreAttributes(node)
 
 	// Score based on paragraph count
 	paragraphCount := CountChildElements(node, "p")
@@ -137,6 +157,13 @@ func ScoreContentNode(node *html.Node) int {
 	return score
 }
 
+// getTagScore thread-safe retrieves tag score.
+func getTagScore(tag string) int {
+	scoreMapsMutex.RLock()
+	defer scoreMapsMutex.RUnlock()
+	return tagScores[tag]
+}
+
 // countCommas efficiently counts commas without building full text string.
 func countCommas(node *html.Node) int {
 	count := 0
@@ -178,8 +205,11 @@ func ScoreAttributes(n *html.Node) int {
 	return score
 }
 
-// checkPatterns returns the sum of all pattern scores that match the value.
+// checkPatterns returns the sum of all pattern scores that match the value (thread-safe).
 func checkPatterns(value string, patterns map[string]int) int {
+	scoreMapsMutex.RLock()
+	defer scoreMapsMutex.RUnlock()
+
 	score := 0
 	for pattern, patternScore := range patterns {
 		if strings.Contains(value, pattern) {
@@ -189,8 +219,11 @@ func checkPatterns(value string, patterns map[string]int) int {
 	return score
 }
 
-// MatchesPattern checks if value contains any of the patterns.
+// MatchesPattern checks if value contains any of the patterns (thread-safe).
 func MatchesPattern(value string, patterns map[string]bool) bool {
+	scoreMapsMutex.RLock()
+	defer scoreMapsMutex.RUnlock()
+
 	for pattern := range patterns {
 		if strings.Contains(value, pattern) {
 			return true
@@ -230,8 +263,10 @@ func CountTags(n *html.Node) int {
 	return count
 }
 
-// IsNonContentElement checks if tag should be excluded from content.
+// IsNonContentElement checks if tag should be excluded from content (thread-safe).
 func IsNonContentElement(tag string) bool {
+	scoreMapsMutex.RLock()
+	defer scoreMapsMutex.RUnlock()
 	return nonContentTags[tag]
 }
 
@@ -247,7 +282,7 @@ func CountChildElements(n *html.Node, tag string) int {
 	return count
 }
 
-// ShouldRemoveElement determines if element should be removed during cleaning.
+// ShouldRemoveElement determines if element should be removed during cleaning (thread-safe).
 func ShouldRemoveElement(n *html.Node) bool {
 	if n == nil || n.Type != html.ElementNode {
 		return false
@@ -279,7 +314,9 @@ func ShouldRemoveElement(n *html.Node) bool {
 	return false
 }
 
-// IsBlockElement checks if tag is a block-level element.
+// IsBlockElement checks if tag is a block-level element (thread-safe).
 func IsBlockElement(tag string) bool {
+	scoreMapsMutex.RLock()
+	defer scoreMapsMutex.RUnlock()
 	return blockElements[tag]
 }

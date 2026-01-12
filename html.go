@@ -133,6 +133,7 @@ const (
 )
 
 var (
+	// Package-level regex patterns (compiled once, thread-safe in Go 1.6+)
 	whitespaceRegex = regexp.MustCompile(`\s+`)
 	videoRegex      = regexp.MustCompile(`(?i)https?://[^\s<>"',;)}\]]{1,500}\.(?:mp4|webm|ogg|mov|avi|wmv|flv|mkv|m4v|3gp)`)
 	audioRegex      = regexp.MustCompile(`(?i)https?://[^\s<>"',;)}\]]{1,500}\.(?:mp3|wav|ogg|m4a|aac|flac|wma|opus|oga)`)
@@ -1875,20 +1876,45 @@ func ExtractToMarkdown(htmlContent string) (string, error) {
 	return markdownResult.Text, nil
 }
 
+// jsonBuilderPool reuses builders for JSON generation.
+var jsonBuilderPool = sync.Pool{
+	New: func() any {
+		sb := &strings.Builder{}
+		sb.Grow(4096) // Pre-allocate for typical JSON size
+		return sb
+	},
+}
+
 // ExtractToJSON extracts HTML content and returns it as JSON bytes.
 // The JSON includes all extracted data: title, text, images, links, videos, audios, word count, and reading time.
+// Optimized for Go 1.24+ with sync.Pool and efficient string building.
 func ExtractToJSON(htmlContent string) ([]byte, error) {
 	result, err := Extract(htmlContent)
 	if err != nil {
 		return nil, err
 	}
 
-	var buf strings.Builder
-	buf.Grow(len(result.Text) + 512)
+	// Acquire builder from pool
+	buf := jsonBuilderPool.Get().(*strings.Builder)
+	defer func() {
+		buf.Reset()
+		jsonBuilderPool.Put(buf)
+	}()
+
+	// Estimate size and pre-allocate
+	estimatedSize := len(result.Text) + len(result.Title) + 512
+	for _, img := range result.Images {
+		estimatedSize += len(img.URL) + len(img.Alt) + 100
+	}
+	for _, link := range result.Links {
+		estimatedSize += len(link.URL) + len(link.Text) + 100
+	}
+	buf.Grow(estimatedSize)
+
 	buf.WriteString(`{"title":`)
-	writeJSONString(&buf, result.Title)
+	writeJSONStringFast(buf, result.Title)
 	buf.WriteString(`,"text":`)
-	writeJSONString(&buf, result.Text)
+	writeJSONStringFast(buf, result.Text)
 	buf.WriteString(`,"word_count":`)
 	buf.WriteString(strconv.Itoa(result.WordCount))
 	buf.WriteString(`,"reading_time_ms":`)
@@ -1898,125 +1924,167 @@ func ExtractToJSON(htmlContent string) ([]byte, error) {
 
 	if len(result.Images) > 0 {
 		buf.WriteString(`,"images":[`)
-		for i, img := range result.Images {
-			if i > 0 {
-				buf.WriteString(",")
-			}
-			buf.WriteString(`{"url":"`)
-			buf.WriteString(stdhtml.EscapeString(img.URL))
-			buf.WriteString(`","alt":"`)
-			buf.WriteString(stdhtml.EscapeString(img.Alt))
-			buf.WriteString(`","title":"`)
-			buf.WriteString(stdhtml.EscapeString(img.Title))
-			buf.WriteString(`","width":"`)
-			buf.WriteString(stdhtml.EscapeString(img.Width))
-			buf.WriteString(`","height":"`)
-			buf.WriteString(stdhtml.EscapeString(img.Height))
-			buf.WriteString(`","is_decorative":`)
-			buf.WriteString(strconv.FormatBool(img.IsDecorative))
-			buf.WriteString(`,"position":`)
-			buf.WriteString(strconv.Itoa(img.Position))
-			buf.WriteString("}")
-		}
+		writeImagesJSON(buf, result.Images)
 		buf.WriteString("]")
 	}
 
 	if len(result.Links) > 0 {
 		buf.WriteString(`,"links":[`)
-		for i, link := range result.Links {
-			if i > 0 {
-				buf.WriteString(",")
-			}
-			buf.WriteString(`{"url":"`)
-			buf.WriteString(stdhtml.EscapeString(link.URL))
-			buf.WriteString(`","text":"`)
-			buf.WriteString(stdhtml.EscapeString(link.Text))
-			buf.WriteString(`","title":"`)
-			buf.WriteString(stdhtml.EscapeString(link.Title))
-			buf.WriteString(`","is_external":`)
-			buf.WriteString(strconv.FormatBool(link.IsExternal))
-			buf.WriteString(`,"is_nofollow":`)
-			buf.WriteString(strconv.FormatBool(link.IsNoFollow))
-			buf.WriteString("}")
-		}
+		writeLinksJSON(buf, result.Links)
 		buf.WriteString("]")
 	}
 
 	if len(result.Videos) > 0 {
 		buf.WriteString(`,"videos":[`)
-		for i, vid := range result.Videos {
-			if i > 0 {
-				buf.WriteString(",")
-			}
-			buf.WriteString(`{"url":"`)
-			buf.WriteString(stdhtml.EscapeString(vid.URL))
-			buf.WriteString(`","type":"`)
-			buf.WriteString(stdhtml.EscapeString(vid.Type))
-			buf.WriteString(`","poster":"`)
-			buf.WriteString(stdhtml.EscapeString(vid.Poster))
-			buf.WriteString(`","width":"`)
-			buf.WriteString(stdhtml.EscapeString(vid.Width))
-			buf.WriteString(`","height":"`)
-			buf.WriteString(stdhtml.EscapeString(vid.Height))
-			buf.WriteString(`","duration":"`)
-			buf.WriteString(stdhtml.EscapeString(vid.Duration))
-			buf.WriteString(`"}`)
-		}
+		writeVideosJSON(buf, result.Videos)
 		buf.WriteString("]")
 	}
 
 	if len(result.Audios) > 0 {
 		buf.WriteString(`,"audios":[`)
-		for i, aud := range result.Audios {
-			if i > 0 {
-				buf.WriteString(",")
-			}
-			buf.WriteString(`{"url":"`)
-			buf.WriteString(stdhtml.EscapeString(aud.URL))
-			buf.WriteString(`","type":"`)
-			buf.WriteString(stdhtml.EscapeString(aud.Type))
-			buf.WriteString(`","duration":"`)
-			buf.WriteString(stdhtml.EscapeString(aud.Duration))
-			buf.WriteString(`"}`)
-		}
+		writeAudiosJSON(buf, result.Audios)
 		buf.WriteString("]")
 	}
 
 	buf.WriteString("}")
 
-	return []byte(buf.String()), nil
+	resultBytes := make([]byte, buf.Len())
+	copy(resultBytes, []byte(buf.String()))
+	return resultBytes, nil
 }
 
-// writeJSONString writes a string as JSON to the builder with proper escaping.
-func writeJSONString(sb *strings.Builder, s string) {
-	sb.WriteString("\"")
+// writeJSONStringFast writes a JSON string with optimized escaping for Go 1.24+.
+func writeJSONStringFast(sb *strings.Builder, s string) {
+	sb.WriteByte('"')
+	// Use strings.Builder's internal buffer more efficiently
+	start := 0
 	for i := 0; i < len(s); i++ {
 		c := s[i]
 		switch c {
-		case '"':
-			sb.WriteString(`\"`)
-		case '\\':
-			sb.WriteString(`\\`)
-		case '\b':
-			sb.WriteString(`\b`)
-		case '\f':
-			sb.WriteString(`\f`)
-		case '\n':
-			sb.WriteString(`\n`)
-		case '\r':
-			sb.WriteString(`\r`)
-		case '\t':
-			sb.WriteString(`\t`)
+		case '"', '\\', '\b', '\f', '\n', '\r', '\t':
+			if start < i {
+				sb.WriteString(s[start:i])
+			}
+			switch c {
+			case '"':
+				sb.WriteString(`\"`)
+			case '\\':
+				sb.WriteString(`\\`)
+			case '\b':
+				sb.WriteString(`\b`)
+			case '\f':
+				sb.WriteString(`\f`)
+			case '\n':
+				sb.WriteString(`\n`)
+			case '\r':
+				sb.WriteString(`\r`)
+			case '\t':
+				sb.WriteString(`\t`)
+			}
+			start = i + 1
 		default:
 			if c < 32 {
+				if start < i {
+					sb.WriteString(s[start:i])
+				}
 				sb.WriteString(`\u00`)
 				sb.WriteString(strconv.FormatInt(int64(c), 16))
-			} else {
-				sb.WriteByte(c)
+				start = i + 1
 			}
 		}
 	}
-	sb.WriteString("\"")
+	if start < len(s) {
+		sb.WriteString(s[start:])
+	}
+	sb.WriteByte('"')
+}
+
+// writeImagesJSON efficiently writes image array to JSON.
+func writeImagesJSON(sb *strings.Builder, images []ImageInfo) {
+	for i, img := range images {
+		if i > 0 {
+			sb.WriteByte(',')
+		}
+		sb.WriteString(`{"url":"`)
+		sb.WriteString(stdhtml.EscapeString(img.URL))
+		sb.WriteString(`","alt":"`)
+		sb.WriteString(stdhtml.EscapeString(img.Alt))
+		sb.WriteString(`","title":"`)
+		sb.WriteString(stdhtml.EscapeString(img.Title))
+		sb.WriteString(`","width":"`)
+		sb.WriteString(stdhtml.EscapeString(img.Width))
+		sb.WriteString(`","height":"`)
+		sb.WriteString(stdhtml.EscapeString(img.Height))
+		sb.WriteString(`","is_decorative":`)
+		sb.WriteString(strconv.FormatBool(img.IsDecorative))
+		sb.WriteString(`,"position":`)
+		sb.WriteString(strconv.Itoa(img.Position))
+		sb.WriteByte('}')
+	}
+}
+
+// writeLinksJSON efficiently writes link array to JSON.
+func writeLinksJSON(sb *strings.Builder, links []LinkInfo) {
+	for i, link := range links {
+		if i > 0 {
+			sb.WriteByte(',')
+		}
+		sb.WriteString(`{"url":"`)
+		sb.WriteString(stdhtml.EscapeString(link.URL))
+		sb.WriteString(`","text":"`)
+		sb.WriteString(stdhtml.EscapeString(link.Text))
+		sb.WriteString(`","title":"`)
+		sb.WriteString(stdhtml.EscapeString(link.Title))
+		sb.WriteString(`","is_external":`)
+		sb.WriteString(strconv.FormatBool(link.IsExternal))
+		sb.WriteString(`,"is_nofollow":`)
+		sb.WriteString(strconv.FormatBool(link.IsNoFollow))
+		sb.WriteByte('}')
+	}
+}
+
+// writeVideosJSON efficiently writes video array to JSON.
+func writeVideosJSON(sb *strings.Builder, videos []VideoInfo) {
+	for i, vid := range videos {
+		if i > 0 {
+			sb.WriteByte(',')
+		}
+		sb.WriteString(`{"url":"`)
+		sb.WriteString(stdhtml.EscapeString(vid.URL))
+		sb.WriteString(`","type":"`)
+		sb.WriteString(stdhtml.EscapeString(vid.Type))
+		sb.WriteString(`","poster":"`)
+		sb.WriteString(stdhtml.EscapeString(vid.Poster))
+		sb.WriteString(`","width":"`)
+		sb.WriteString(stdhtml.EscapeString(vid.Width))
+		sb.WriteString(`","height":"`)
+		sb.WriteString(stdhtml.EscapeString(vid.Height))
+		sb.WriteString(`","duration":"`)
+		sb.WriteString(stdhtml.EscapeString(vid.Duration))
+		sb.WriteString(`"}`)
+	}
+}
+
+// writeAudiosJSON efficiently writes audio array to JSON.
+func writeAudiosJSON(sb *strings.Builder, audios []AudioInfo) {
+	for i, aud := range audios {
+		if i > 0 {
+			sb.WriteByte(',')
+		}
+		sb.WriteString(`{"url":"`)
+		sb.WriteString(stdhtml.EscapeString(aud.URL))
+		sb.WriteString(`","type":"`)
+		sb.WriteString(stdhtml.EscapeString(aud.Type))
+		sb.WriteString(`","duration":"`)
+		sb.WriteString(stdhtml.EscapeString(aud.Duration))
+		sb.WriteString(`"}`)
+	}
+}
+
+// writeJSONString writes a string as JSON to the builder with proper escaping.
+// Deprecated: Use writeJSONStringFast for better performance.
+func writeJSONString(sb *strings.Builder, s string) {
+	writeJSONStringFast(sb, s)
 }
 
 // ExtractWithTitle extracts both the title and text content from HTML.

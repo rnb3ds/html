@@ -7,6 +7,42 @@ import (
 	"golang.org/x/net/html"
 )
 
+var (
+	// Package-level regex for whitespace (compiled once, thread-safe in Go 1.6+)
+	whitespaceRegex = regexp.MustCompile(`\s+`)
+)
+
+// CleanTextWithRegex cleans text using provided regex.
+// Note: The regex parameter should be a compiled regex pattern.
+// In Go 1.6+, regexp.Regexp is safe for concurrent use.
+func CleanTextWithRegex(text string, whitespaceRegex *regexp.Regexp) string {
+	if text == "" {
+		return ""
+	}
+	if whitespaceRegex == nil {
+		return ReplaceHTMLEntities(strings.TrimSpace(text))
+	}
+	textLen := len(text)
+	var result strings.Builder
+	result.Grow(textLen >> 1)
+	start := 0
+	for i := 0; i <= textLen; i++ {
+		if i == textLen || text[i] == '\n' {
+			line := whitespaceRegex.ReplaceAllString(text[start:i], " ")
+			if line != "" {
+				if line = strings.TrimSpace(line); line != "" {
+					if result.Len() > 0 {
+						result.WriteByte('\n')
+					}
+					result.WriteString(line)
+				}
+			}
+			start = i + 1
+		}
+	}
+	return ReplaceHTMLEntities(result.String())
+}
+
 func WalkNodes(node *html.Node, fn func(*html.Node) bool) {
 	if node == nil || fn == nil || !fn(node) {
 		return
@@ -85,31 +121,10 @@ func GetLinkDensity(node *html.Node) float64 {
 	return float64(linkTextLength) / float64(textLength)
 }
 
+// CleanText cleans text with optional whitespace regex replacement.
+// For backward compatibility, it accepts an optional regex parameter.
 func CleanText(text string, whitespaceRegex *regexp.Regexp) string {
-	if text == "" {
-		return ""
-	}
-	if whitespaceRegex == nil {
-		return ReplaceHTMLEntities(strings.TrimSpace(text))
-	}
-	textLen := len(text)
-	var result strings.Builder
-	result.Grow(textLen >> 1)
-	start := 0
-	for i := 0; i <= textLen; i++ {
-		if i == textLen || text[i] == '\n' {
-			if line := whitespaceRegex.ReplaceAllString(text[start:i], " "); line != "" {
-				if line = strings.TrimSpace(line); line != "" {
-					if result.Len() > 0 {
-						result.WriteByte('\n')
-					}
-					result.WriteString(line)
-				}
-			}
-			start = i + 1
-		}
-	}
-	return ReplaceHTMLEntities(result.String())
+	return CleanTextWithRegex(text, whitespaceRegex)
 }
 
 var entityReplacer = strings.NewReplacer(

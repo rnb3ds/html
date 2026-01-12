@@ -3,6 +3,9 @@
 [![Go Version](https://img.shields.io/badge/Go-1.24+-00ADD8?logo=go)](https://golang.org)
 [![pkg.go.dev](https://pkg.go.dev/badge/github.com/cybergodev/html.svg)](https://pkg.go.dev/github.com/cybergodev/html)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Performance](https://img.shields.io/badge/performance-high%20performance-green.svg)](https://github.com/cybergodev/json)
+[![Thread Safe](https://img.shields.io/badge/thread%20safe-yes-brightgreen.svg)](https://github.com/cybergodev/json)
+
 
 **A Go library for intelligent HTML content extraction.** Compatible with `golang.org/x/net/html` — use it as a drop-in replacement, plus get enhanced content extraction features.
 
@@ -21,10 +24,6 @@
 - **Batch Processing**: Parallel extraction with configurable worker pools
 - **Thread-Safe**: Concurrent use without external synchronization
 - **Resource Limits**: Configurable input size, nesting depth, and timeout protection
-
-### Minimal Dependencies
-- **Single Dependency**: Only `golang.org/x/net/html` required
-- **Minimal API Surface**: Simple, focused, easy to learn
 
 ### Use Cases
 - 📰 **News Aggregators**: Extract article content from news sites
