@@ -7,6 +7,42 @@ import (
 	"golang.org/x/net/html"
 )
 
+var (
+	// Package-level regex for whitespace (compiled once, thread-safe in Go 1.6+)
+	whitespaceRegex = regexp.MustCompile(`\s+`)
+)
+
+// CleanTextWithRegex cleans text using provided regex.
+// Note: The regex parameter should be a compiled regex pattern.
+// In Go 1.6+, regexp.Regexp is safe for concurrent use.
+func CleanTextWithRegex(text string, whitespaceRegex *regexp.Regexp) string {
+	if text == "" {
+		return ""
+	}
+	if whitespaceRegex == nil {
+		return ReplaceHTMLEntities(strings.TrimSpace(text))
+	}
+	textLen := len(text)
+	var result strings.Builder
+	result.Grow(textLen >> 1)
+	start := 0
+	for i := 0; i <= textLen; i++ {
+		if i == textLen || text[i] == '\n' {
+			line := whitespaceRegex.ReplaceAllString(text[start:i], " ")
+			if line != "" {
+				if line = strings.TrimSpace(line); line != "" {
+					if result.Len() > 0 {
+						result.WriteByte('\n')
+					}
+					result.WriteString(line)
+				}
+			}
+			start = i + 1
+		}
+	}
+	return ReplaceHTMLEntities(result.String())
+}
+
 func WalkNodes(node *html.Node, fn func(*html.Node) bool) {
 	if node == nil || fn == nil || !fn(node) {
 		return
@@ -45,32 +81,32 @@ func GetTextContent(node *html.Node) string {
 	return sb.String()
 }
 
-func GetTextLength(n *html.Node) int {
+func GetTextLength(node *html.Node) int {
 	length := 0
-	WalkNodes(n, func(node *html.Node) bool {
-		if node.Type == html.TextNode {
-			length += len(strings.TrimSpace(node.Data))
+	WalkNodes(node, func(n *html.Node) bool {
+		if n.Type == html.TextNode {
+			length += len(strings.TrimSpace(n.Data))
 		}
 		return true
 	})
 	return length
 }
 
-func GetLinkDensity(n *html.Node) float64 {
-	if n == nil {
+func GetLinkDensity(node *html.Node) float64 {
+	if node == nil {
 		return 0.0
 	}
 
 	textLength := 0
 	linkTextLength := 0
 
-	WalkNodes(n, func(node *html.Node) bool {
-		if node.Type == html.TextNode {
-			length := len(strings.TrimSpace(node.Data))
+	WalkNodes(node, func(n *html.Node) bool {
+		if n.Type == html.TextNode {
+			length := len(strings.TrimSpace(n.Data))
 			textLength += length
 			// Check if any ancestor is an <a> tag
-			for p := node.Parent; p != nil; p = p.Parent {
-				if p.Type == html.ElementNode && p.Data == "a" {
+			for parent := n.Parent; parent != nil; parent = parent.Parent {
+				if parent.Type == html.ElementNode && parent.Data == "a" {
 					linkTextLength += length
 					break
 				}
@@ -85,31 +121,10 @@ func GetLinkDensity(n *html.Node) float64 {
 	return float64(linkTextLength) / float64(textLength)
 }
 
+// CleanText cleans text with optional whitespace regex replacement.
+// For backward compatibility, it accepts an optional regex parameter.
 func CleanText(text string, whitespaceRegex *regexp.Regexp) string {
-	if text == "" {
-		return ""
-	}
-	if whitespaceRegex == nil {
-		return ReplaceHTMLEntities(strings.TrimSpace(text))
-	}
-	textLen := len(text)
-	var result strings.Builder
-	result.Grow(textLen >> 1)
-	start := 0
-	for i := 0; i <= textLen; i++ {
-		if i == textLen || text[i] == '\n' {
-			if line := whitespaceRegex.ReplaceAllString(text[start:i], " "); line != "" {
-				if line = strings.TrimSpace(line); line != "" {
-					if result.Len() > 0 {
-						result.WriteByte('\n')
-					}
-					result.WriteString(line)
-				}
-			}
-			start = i + 1
-		}
-	}
-	return ReplaceHTMLEntities(result.String())
+	return CleanTextWithRegex(text, whitespaceRegex)
 }
 
 var entityReplacer = strings.NewReplacer(

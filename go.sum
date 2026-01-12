@@ -2,5 +2,7 @@ github.com/cybergodev/dd v1.0.5 h1:mQLa8wxlnPQc2pTYzAy0jEX2itZt8LhwYZdkfpHqpew=
 github.com/cybergodev/dd v1.0.5/go.mod h1:83CNsw9lClQOBoHO7lsqo3c58syXMb1vpnAgUyP8xvY=
 github.com/cybergodev/dd v1.0.6 h1:XcJOgcjbD9XzFnBCfsc/MDPE7NhlYKY94p2Q1efwtl0=
 github.com/cybergodev/dd v1.0.6/go.mod h1:83CNsw9lClQOBoHO7lsqo3c58syXMb1vpnAgUyP8xvY=
+github.com/cybergodev/dd v1.0.7 h1:Cp6bB2FFZWakoPrYvH9Sdpv4Y14Wzngf6mmYqtEXKsw=
+github.com/cybergodev/dd v1.0.7/go.mod h1:83CNsw9lClQOBoHO7lsqo3c58syXMb1vpnAgUyP8xvY=
 golang.org/x/net v0.48.0 h1:zyQRTTrjc33Lhh0fBgT/H3oZq9WuvRR5gPC70xpDiQU=
 golang.org/x/net v0.48.0/go.mod h1:+ndRgGjkh8FGtu1w1FGbEC31if4VrNVMuKTgcAAnQRY=

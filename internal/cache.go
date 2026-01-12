@@ -16,7 +16,6 @@ func (e *cacheEntry) isExpired(now int64) bool {
 	return e.expiresAt > 0 && now > e.expiresAt
 }
 
-// Cache provides thread-safe caching with TTL and LRU eviction.
 type Cache struct {
 	mu         sync.RWMutex
 	entries    map[string]*cacheEntry
@@ -24,7 +23,6 @@ type Cache struct {
 	ttl        time.Duration
 }
 
-// NewCache creates a cache with the specified maximum entries and TTL.
 func NewCache(maxEntries int, ttl time.Duration) *Cache {
 	capacity := max(maxEntries, 0)
 	return &Cache{
@@ -34,8 +32,6 @@ func NewCache(maxEntries int, ttl time.Duration) *Cache {
 	}
 }
 
-// Get retrieves a value from the cache.
-// Uses atomic operations for lastUsed updates to avoid write lock contention on reads.
 func (c *Cache) Get(key string) any {
 	if key == "" {
 		return nil
@@ -48,6 +44,8 @@ func (c *Cache) Get(key string) any {
 		c.mu.RUnlock()
 		return nil
 	}
+
+	// Check expiration under read lock
 	if entry.isExpired(now) {
 		c.mu.RUnlock()
 		// Upgrade to write lock to delete expired entry
@@ -59,16 +57,16 @@ func (c *Cache) Get(key string) any {
 		c.mu.Unlock()
 		return nil
 	}
+
+	// Entry exists and not expired - get value under read lock
 	value := entry.value
-	// Update lastUsed atomically without releasing read lock
-	// This is safe because we're only updating a single int64 field
+	// Update lastUsed with atomic operation (safe even after RUnlock)
 	atomic.StoreInt64(&entry.lastUsed, now)
 	c.mu.RUnlock()
 
 	return value
 }
 
-// Set adds or updates a value in the cache.
 func (c *Cache) Set(key string, value any) {
 	if value == nil || key == "" {
 		return
@@ -95,31 +93,41 @@ func (c *Cache) Set(key string, value any) {
 	c.entries[key] = entry
 }
 
-// evictOne removes one entry (optimized single-pass algorithm)
 func (c *Cache) evictOne() {
 	nowNano := time.Now().UnixNano()
 	var oldestKey string
 	var oldestTime int64 = 1<<63 - 1
+	var expiredKeys []string
 
-	// Single pass: find expired or oldest entry
+	// First pass: collect expired entries and find oldest (all under write lock)
+	// We're already holding the lock from Set(), so we can safely iterate
 	for k, e := range c.entries {
 		if e.isExpired(nowNano) {
-			delete(c.entries, k)
-			return
-		}
-		lastUsed := atomic.LoadInt64(&e.lastUsed)
-		if lastUsed < oldestTime {
-			oldestKey = k
-			oldestTime = lastUsed
+			expiredKeys = append(expiredKeys, k)
+		} else {
+			lastUsed := atomic.LoadInt64(&e.lastUsed)
+			if lastUsed < oldestTime {
+				oldestKey = k
+				oldestTime = lastUsed
+			}
 		}
 	}
 
-	if oldestKey != "" {
+	// Delete expired entries first
+	for _, k := range expiredKeys {
+		delete(c.entries, k)
+		if len(expiredKeys) > 1 {
+			// If we deleted multiple expired entries, we're done
+			return
+		}
+	}
+
+	// If no expired entries found, remove the oldest one
+	if len(expiredKeys) == 0 && oldestKey != "" {
 		delete(c.entries, oldestKey)
 	}
 }
 
-// Clear removes all entries from the cache.
 func (c *Cache) Clear() {
 	c.mu.Lock()
 	defer c.mu.Unlock()

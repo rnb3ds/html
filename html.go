@@ -3,11 +3,15 @@
 package html
 
 import (
+	"context"
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/hex"
 	"fmt"
+	stdhtml "html"
 	"os"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -129,6 +133,7 @@ const (
 )
 
 var (
+	// Package-level regex patterns (compiled once, thread-safe in Go 1.6+)
 	whitespaceRegex = regexp.MustCompile(`\s+`)
 	videoRegex      = regexp.MustCompile(`(?i)https?://[^\s<>"',;)}\]]{1,500}\.(?:mp4|webm|ogg|mov|avi|wmv|flv|mkv|m4v|3gp)`)
 	audioRegex      = regexp.MustCompile(`(?i)https?://[^\s<>"',;)}\]]{1,500}\.(?:mp3|wav|ogg|m4a|aac|flac|wma|opus|oga)`)
@@ -149,28 +154,14 @@ type Processor struct {
 }
 
 // Config holds processor configuration with security and performance settings.
-// All fields have sensible defaults via DefaultConfig().
 type Config struct {
-	// MaxInputSize limits input HTML size to prevent memory exhaustion (default: 50MB)
-	MaxInputSize int
-
-	// MaxCacheEntries limits cache size with LRU eviction (default: 1000, 0 disables cache)
-	MaxCacheEntries int
-
-	// CacheTTL sets cache entry expiration time (default: 1 hour, 0 means no expiration)
-	CacheTTL time.Duration
-
-	// WorkerPoolSize controls parallel processing workers (default: 4)
-	WorkerPoolSize int
-
-	// EnableSanitization removes script/style tags for security (default: true)
-	EnableSanitization bool
-
-	// MaxDepth prevents billion laughs attacks via nesting limits (default: 100)
-	MaxDepth int
-
-	// ProcessingTimeout prevents DoS via processing time limits (default: 30s, 0 disables)
-	ProcessingTimeout time.Duration
+	MaxInputSize       int          // Limit input HTML size (default: 50MB)
+	MaxCacheEntries    int          // Cache size with LRU eviction (default: 1000, 0 disables)
+	CacheTTL           time.Duration // Cache entry expiration (default: 1 hour, 0 = no expiration)
+	WorkerPoolSize     int          // Parallel processing workers (default: 4)
+	EnableSanitization bool         // Remove script/style tags for security (default: true)
+	MaxDepth           int          // Prevent billion laughs attacks (default: 100)
+	ProcessingTimeout  time.Duration // Prevent DoS (default: 30s, 0 disables)
 }
 
 // DefaultConfig returns default configuration.
@@ -191,8 +182,8 @@ func validateConfig(c Config) error {
 	switch {
 	case c.MaxInputSize <= 0:
 		return fmt.Errorf("%w: MaxInputSize must be positive, got %d", ErrInvalidConfig, c.MaxInputSize)
-	case c.MaxInputSize > 1024*1024*1024: // 1GB limit
-		return fmt.Errorf("%w: MaxInputSize too large (max 1GB), got %d", ErrInvalidConfig, c.MaxInputSize)
+	case c.MaxInputSize > 50*1024*1024: // 50MB limit
+		return fmt.Errorf("%w: MaxInputSize too large (max 50MB), got %d", ErrInvalidConfig, c.MaxInputSize)
 	case c.MaxCacheEntries < 0:
 		return fmt.Errorf("%w: MaxCacheEntries cannot be negative, got %d", ErrInvalidConfig, c.MaxCacheEntries)
 	case c.CacheTTL < 0:
@@ -209,32 +200,17 @@ func validateConfig(c Config) error {
 		return fmt.Errorf("%w: ProcessingTimeout cannot be negative, got %v", ErrInvalidConfig, c.ProcessingTimeout)
 	}
 
-	// Cross-field validation - removed overly strict TTL check
-	// Zero CacheTTL means no expiration, which is valid
-
 	return nil
 }
 
 // ExtractConfig configures content extraction behavior.
-// Controls what content types are extracted and how they're formatted.
 type ExtractConfig struct {
-	// ExtractArticle enables intelligent article detection (default: true)
-	ExtractArticle bool
-
-	// PreserveImages includes image metadata in results (default: true)
-	PreserveImages bool
-
-	// PreserveLinks includes link metadata in results (default: true)
-	PreserveLinks bool
-
-	// PreserveVideos includes video metadata in results (default: true)
-	PreserveVideos bool
-
-	// PreserveAudios includes audio metadata in results (default: true)
-	PreserveAudios bool
-
-	// InlineImageFormat controls image placeholder format: "none", "placeholder", "markdown", "html" (default: "none")
-	InlineImageFormat string
+	ExtractArticle    bool // Enable intelligent article detection
+	PreserveImages    bool // Include image metadata in results
+	PreserveLinks     bool // Include link metadata in results
+	PreserveVideos    bool // Include video metadata in results
+	PreserveAudios    bool // Include audio metadata in results
+	InlineImageFormat string // Format: "none", "placeholder", "markdown", "html"
 }
 
 // DefaultExtractConfig returns default extraction configuration.
@@ -300,8 +276,6 @@ type AudioInfo struct {
 }
 
 // LinkResource represents a comprehensive link resource with metadata.
-// Contains the complete URL (resolved if originally relative), descriptive title,
-// and resource type classification for easy filtering and processing.
 type LinkResource struct {
 	URL   string // Complete URL (resolved if originally relative)
 	Title string // Link title or resource name
@@ -309,38 +283,17 @@ type LinkResource struct {
 }
 
 // LinkExtractionConfig configures comprehensive link extraction behavior.
-// Provides granular control over which types of links to extract and how to handle URL resolution.
 type LinkExtractionConfig struct {
-	// ResolveRelativeURLs enables automatic resolution of relative URLs using base URL detection (default: true)
-	ResolveRelativeURLs bool
-
-	// BaseURL provides explicit base URL for relative link resolution (optional, auto-detected if empty)
-	BaseURL string
-
-	// IncludeImages includes image resources (default: true)
-	IncludeImages bool
-
-	// IncludeVideos includes video resources (default: true)
-	IncludeVideos bool
-
-	// IncludeAudios includes audio resources (default: true)
-	IncludeAudios bool
-
-	// IncludeCSS includes CSS stylesheet links (default: true)
-	IncludeCSS bool
-
-	// IncludeJS includes JavaScript resources (default: true)
-	IncludeJS bool
-
-	// IncludeContentLinks includes content navigation links (default: true)
-	IncludeContentLinks bool
-
-	// IncludeExternalLinks includes external domain links (default: true)
-	// Note: All content links are now classified as "link" type regardless of domain
-	IncludeExternalLinks bool
-
-	// IncludeIcons includes favicon and icon links (default: true)
-	IncludeIcons bool
+	ResolveRelativeURLs  bool // Auto-resolve relative URLs using base URL
+	BaseURL              string // Explicit base URL (overrides auto-detection)
+	IncludeImages        bool // Include image resources
+	IncludeVideos        bool // Include video resources
+	IncludeAudios        bool // Include audio resources
+	IncludeCSS           bool // Include CSS stylesheet links
+	IncludeJS            bool // Include JavaScript resources
+	IncludeContentLinks  bool // Include content navigation links
+	IncludeExternalLinks bool // Include external domain links
+	IncludeIcons         bool // Include favicon and icon links
 }
 
 // DefaultLinkExtractionConfig returns default link extraction configuration.
@@ -434,8 +387,11 @@ func (p *Processor) Extract(htmlContent string, config ExtractConfig) (*Result, 
 	return result, nil
 }
 
-// processWithTimeout processes content with timeout protection.
+// processWithTimeout processes content with timeout protection using context.
 func (p *Processor) processWithTimeout(htmlContent string, config ExtractConfig) (*Result, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), p.config.ProcessingTimeout)
+	defer cancel()
+
 	type processResult struct {
 		result *Result
 		err    error
@@ -444,13 +400,16 @@ func (p *Processor) processWithTimeout(htmlContent string, config ExtractConfig)
 	resultChan := make(chan processResult, 1)
 	go func() {
 		result, err := p.processContent(htmlContent, config)
-		resultChan <- processResult{result: result, err: err}
+		select {
+		case resultChan <- processResult{result: result, err: err}:
+		case <-ctx.Done():
+		}
 	}()
 
 	select {
 	case res := <-resultChan:
 		return res.result, res.err
-	case <-time.After(p.config.ProcessingTimeout):
+	case <-ctx.Done():
 		return nil, ErrProcessingTimeout
 	}
 }
@@ -574,8 +533,11 @@ func (p *Processor) ExtractAllLinks(htmlContent string, config LinkExtractionCon
 	return links, nil
 }
 
-// extractLinksWithTimeout processes link extraction with timeout protection.
+// extractLinksWithTimeout processes link extraction with timeout protection using context.
 func (p *Processor) extractLinksWithTimeout(htmlContent string, config LinkExtractionConfig) ([]LinkResource, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), p.config.ProcessingTimeout)
+	defer cancel()
+
 	type linkResult struct {
 		links []LinkResource
 		err   error
@@ -584,13 +546,16 @@ func (p *Processor) extractLinksWithTimeout(htmlContent string, config LinkExtra
 	resultChan := make(chan linkResult, 1)
 	go func() {
 		links, err := p.extractAllLinksFromContent(htmlContent, config)
-		resultChan <- linkResult{links: links, err: err}
+		select {
+		case resultChan <- linkResult{links: links, err: err}:
+		case <-ctx.Done():
+		}
 	}()
 
 	select {
 	case res := <-resultChan:
 		return res.links, res.err
-	case <-time.After(p.config.ProcessingTimeout):
+	case <-ctx.Done():
 		return nil, ErrProcessingTimeout
 	}
 }
@@ -786,8 +751,8 @@ func (p *Processor) extractArticleNode(doc *html.Node) *html.Node {
 // extractTextContent extracts clean text from HTML node with optimized performance.
 func (p *Processor) extractTextContent(node *html.Node) string {
 	var sb strings.Builder
-	sb.Grow(initialTextSize) // Pre-allocate 4KB buffer
-	internal.ExtractTextWithStructure(node, &sb, 0)
+	sb.Grow(initialTextSize)
+	internal.ExtractTextWithStructureAndImages(node, &sb, 0, nil)
 	return internal.CleanText(sb.String(), whitespaceRegex)
 }
 
@@ -821,18 +786,18 @@ func (p *Processor) formatInlineImages(textWithPlaceholders string, images []Ima
 			var htmlImg strings.Builder
 			htmlImg.Grow(len(images[i].URL) + len(images[i].Alt) + len(images[i].Width) + len(images[i].Height) + 64)
 			htmlImg.WriteString(`<img src="`)
-			htmlImg.WriteString(images[i].URL)
+			htmlImg.WriteString(stdhtml.EscapeString(images[i].URL))
 			htmlImg.WriteString(`" alt="`)
-			htmlImg.WriteString(images[i].Alt)
+			htmlImg.WriteString(stdhtml.EscapeString(images[i].Alt))
 			htmlImg.WriteString(`"`)
 			if images[i].Width != "" {
 				htmlImg.WriteString(` width="`)
-				htmlImg.WriteString(images[i].Width)
+				htmlImg.WriteString(stdhtml.EscapeString(images[i].Width))
 				htmlImg.WriteString(`"`)
 			}
 			if images[i].Height != "" {
 				htmlImg.WriteString(` height="`)
-				htmlImg.WriteString(images[i].Height)
+				htmlImg.WriteString(stdhtml.EscapeString(images[i].Height))
 				htmlImg.WriteString(`"`)
 			}
 			htmlImg.WriteString(">")
@@ -1051,7 +1016,7 @@ func (p *Processor) parseVideoNode(n *html.Node) VideoInfo {
 
 func (p *Processor) parseIframeNode(n *html.Node) VideoInfo {
 	for _, attr := range n.Attr {
-		if attr.Key == "src" && isValidURL(attr.Val) && internal.IsVideoEmbedURL(attr.Val) {
+		if attr.Key == "src" && isValidURL(attr.Val) && internal.IsVideoURL(attr.Val) {
 			video := VideoInfo{URL: attr.Val, Type: "embed"}
 			for _, a := range n.Attr {
 				switch a.Key {
@@ -1170,7 +1135,7 @@ func isValidURL(url string) bool {
 	}
 
 	// Special handling for data URLs
-	if urlLen >= 5 && url[:5] == "data:" {
+	if strings.HasPrefix(url, "data:") {
 		for i := 5; i < urlLen; i++ {
 			if b := url[i]; b < 32 || b == 127 {
 				return false
@@ -1179,7 +1144,7 @@ func isValidURL(url string) bool {
 		return true
 	}
 
-	// Validate non-data URLs
+	// Validate non-data URLs: check for dangerous characters
 	for i := 0; i < urlLen; i++ {
 		b := url[i]
 		if b < 32 || b == 127 || b == '<' || b == '>' || b == '"' || b == '\'' {
@@ -1187,79 +1152,55 @@ func isValidURL(url string) bool {
 		}
 	}
 
-	// Accept absolute URLs
-	if urlLen >= 8 && url[:8] == "https://" {
+	// Accept absolute and protocol-relative URLs
+	if strings.HasPrefix(url, "https://") || strings.HasPrefix(url, "http://") {
 		return true
 	}
-	if urlLen >= 7 && url[:7] == "http://" {
-		return true
-	}
-	if urlLen >= 2 && url[0] == '/' && url[1] == '/' {
+	if strings.HasPrefix(url, "//") {
 		return true
 	}
 
-	// Accept relative URLs
-	if url[0] == '/' || url[0] == '.' {
+	// Accept relative URLs and paths
+	firstChar := url[0]
+	if firstChar == '/' || firstChar == '.' {
 		return true
 	}
 
 	// Accept alphanumeric paths
-	if (url[0] >= 'a' && url[0] <= 'z') || (url[0] >= 'A' && url[0] <= 'Z') || (url[0] >= '0' && url[0] <= '9') {
-		return true
-	}
-
-	return false
+	return (firstChar >= 'a' && firstChar <= 'z') ||
+		(firstChar >= 'A' && firstChar <= 'Z') ||
+		(firstChar >= '0' && firstChar <= '9')
 }
 
 // generateCacheKey creates a SHA-256 hash for cache key generation.
 func (p *Processor) generateCacheKey(content string, opts ExtractConfig) string {
 	h := sha256.New()
 
-	// Write configuration flags as single byte
-	var flags byte
-	if opts.ExtractArticle {
-		flags |= 1
-	}
-	if opts.PreserveImages {
-		flags |= 2
-	}
-	if opts.PreserveLinks {
-		flags |= 4
-	}
-	if opts.PreserveVideos {
-		flags |= 8
-	}
-	if opts.PreserveAudios {
-		flags |= 16
-	}
-	h.Write([]byte{flags})
-
-	// Include image format if specified
-	if opts.InlineImageFormat != "" {
-		h.Write([]byte(opts.InlineImageFormat))
-		h.Write([]byte{0}) // separator
-	}
+	// Encode configuration as a simple string for clarity and maintainability
+	configKey := strconv.FormatBool(opts.ExtractArticle) + "," +
+		strconv.FormatBool(opts.PreserveImages) + "," +
+		strconv.FormatBool(opts.PreserveLinks) + "," +
+		strconv.FormatBool(opts.PreserveVideos) + "," +
+		strconv.FormatBool(opts.PreserveAudios) + "," +
+		opts.InlineImageFormat
+	h.Write([]byte(configKey))
+	h.Write([]byte{0}) // separator
 
 	contentLen := len(content)
 	if contentLen <= maxCacheKeySize {
 		h.Write([]byte(content))
 	} else {
-		h.Write([]byte(content[:cacheKeySample]))
+		// Use more robust sampling: start, middle, end with length info
+		sampleSize := cacheKeySample / 3
+		h.Write([]byte(content[:sampleSize]))
 		mid := contentLen >> 1
-		halfSample := cacheKeySample >> 1
-		h.Write([]byte(content[mid-halfSample : mid+halfSample]))
-		h.Write([]byte(content[contentLen-cacheKeySample:]))
+		h.Write([]byte(content[mid-sampleSize/2 : mid+sampleSize/2]))
+		h.Write([]byte(content[contentLen-sampleSize:]))
 
-		var lenBuf [8]byte
-		lenBuf[0] = byte(contentLen)
-		lenBuf[1] = byte(contentLen >> 8)
-		lenBuf[2] = byte(contentLen >> 16)
-		lenBuf[3] = byte(contentLen >> 24)
-		lenBuf[4] = byte(contentLen >> 32)
-		lenBuf[5] = byte(contentLen >> 40)
-		lenBuf[6] = byte(contentLen >> 48)
-		lenBuf[7] = byte(contentLen >> 56)
-		h.Write(lenBuf[:])
+		// Write content length using binary.Write for clarity
+		lenBuf := make([]byte, 8)
+		binary.LittleEndian.PutUint64(lenBuf, uint64(contentLen))
+		h.Write(lenBuf)
 	}
 
 	var buf [32]byte
@@ -1506,11 +1447,11 @@ func (p *Processor) extractLinksFromDocument(doc *html.Node, baseURL string, con
 			}
 		case "video":
 			if config.IncludeVideos {
-				p.extractVideoLinks(n, baseURL, linkMap)
+				p.extractMediaLink(n, baseURL, linkMap, "video")
 			}
 		case "audio":
 			if config.IncludeAudios {
-				p.extractAudioLinks(n, baseURL, linkMap)
+				p.extractMediaLink(n, baseURL, linkMap, "audio")
 			}
 		case "source":
 			if config.IncludeVideos || config.IncludeAudios {
@@ -1636,17 +1577,7 @@ func (p *Processor) extractImageLinks(n *html.Node, baseURL string, linkMap map[
 	}
 }
 
-// extractVideoLinks extracts video resource links.
-func (p *Processor) extractVideoLinks(n *html.Node, baseURL string, linkMap map[string]LinkResource) {
-	p.extractMediaLink(n, baseURL, linkMap, "video")
-}
-
-// extractAudioLinks extracts audio resource links.
-func (p *Processor) extractAudioLinks(n *html.Node, baseURL string, linkMap map[string]LinkResource) {
-	p.extractMediaLink(n, baseURL, linkMap, "audio")
-}
-
-// extractMediaLink extracts video or audio resource links (consolidated helper).
+// extractMediaLink extracts video or audio resource links.
 func (p *Processor) extractMediaLink(n *html.Node, baseURL string, linkMap map[string]LinkResource, mediaType string) {
 	var src, title string
 	for _, attr := range n.Attr {
@@ -1890,8 +1821,8 @@ func (p *Processor) extractEmbedLinks(n *html.Node, baseURL string, linkMap map[
 		return
 	}
 
-	// Only include if it's a video embed URL
-	if !internal.IsVideoEmbedURL(src) && !internal.IsVideoURL(src) {
+	// Only include if it's a video URL (includes embed patterns)
+	if !internal.IsVideoURL(src) {
 		return
 	}
 
@@ -1918,4 +1849,412 @@ func (p *Processor) extractEmbedLinks(n *html.Node, baseURL string, linkMap map[
 		Title: title,
 		Type:  "video",
 	}
+}
+
+// ============================================================================
+// Package-Level Convenience Functions
+// ============================================================================
+
+// ExtractToMarkdown extracts HTML content and converts it to Markdown format.
+// Images are preserved as Markdown image syntax with their alt text.
+func ExtractToMarkdown(htmlContent string) (string, error) {
+	result, err := Extract(htmlContent)
+	if err != nil {
+		return "", err
+	}
+
+	processor := NewWithDefaults()
+	defer processor.Close()
+
+	markdownConfig := DefaultExtractConfig()
+	markdownConfig.InlineImageFormat = "markdown"
+	markdownResult, err := processor.Extract(htmlContent, markdownConfig)
+	if err != nil {
+		return result.Text, nil // Fallback to plain text
+	}
+
+	return markdownResult.Text, nil
+}
+
+// jsonBuilderPool reuses builders for JSON generation.
+var jsonBuilderPool = sync.Pool{
+	New: func() any {
+		sb := &strings.Builder{}
+		sb.Grow(4096) // Pre-allocate for typical JSON size
+		return sb
+	},
+}
+
+// ExtractToJSON extracts HTML content and returns it as JSON bytes.
+// The JSON includes all extracted data: title, text, images, links, videos, audios, word count, and reading time.
+// Optimized for Go 1.24+ with sync.Pool and efficient string building.
+func ExtractToJSON(htmlContent string) ([]byte, error) {
+	result, err := Extract(htmlContent)
+	if err != nil {
+		return nil, err
+	}
+
+	// Acquire builder from pool
+	buf := jsonBuilderPool.Get().(*strings.Builder)
+	defer func() {
+		buf.Reset()
+		jsonBuilderPool.Put(buf)
+	}()
+
+	// Estimate size and pre-allocate
+	estimatedSize := len(result.Text) + len(result.Title) + 512
+	for _, img := range result.Images {
+		estimatedSize += len(img.URL) + len(img.Alt) + 100
+	}
+	for _, link := range result.Links {
+		estimatedSize += len(link.URL) + len(link.Text) + 100
+	}
+	buf.Grow(estimatedSize)
+
+	buf.WriteString(`{"title":`)
+	writeJSONStringFast(buf, result.Title)
+	buf.WriteString(`,"text":`)
+	writeJSONStringFast(buf, result.Text)
+	buf.WriteString(`,"word_count":`)
+	buf.WriteString(strconv.Itoa(result.WordCount))
+	buf.WriteString(`,"reading_time_ms":`)
+	buf.WriteString(strconv.FormatInt(result.ReadingTime.Milliseconds(), 10))
+	buf.WriteString(`,"processing_time_ms":`)
+	buf.WriteString(strconv.FormatInt(result.ProcessingTime.Milliseconds(), 10))
+
+	if len(result.Images) > 0 {
+		buf.WriteString(`,"images":[`)
+		writeImagesJSON(buf, result.Images)
+		buf.WriteString("]")
+	}
+
+	if len(result.Links) > 0 {
+		buf.WriteString(`,"links":[`)
+		writeLinksJSON(buf, result.Links)
+		buf.WriteString("]")
+	}
+
+	if len(result.Videos) > 0 {
+		buf.WriteString(`,"videos":[`)
+		writeVideosJSON(buf, result.Videos)
+		buf.WriteString("]")
+	}
+
+	if len(result.Audios) > 0 {
+		buf.WriteString(`,"audios":[`)
+		writeAudiosJSON(buf, result.Audios)
+		buf.WriteString("]")
+	}
+
+	buf.WriteString("}")
+
+	resultBytes := make([]byte, buf.Len())
+	copy(resultBytes, []byte(buf.String()))
+	return resultBytes, nil
+}
+
+// writeJSONStringFast writes a JSON string with optimized escaping for Go 1.24+.
+func writeJSONStringFast(sb *strings.Builder, s string) {
+	sb.WriteByte('"')
+	// Use strings.Builder's internal buffer more efficiently
+	start := 0
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		switch c {
+		case '"', '\\', '\b', '\f', '\n', '\r', '\t':
+			if start < i {
+				sb.WriteString(s[start:i])
+			}
+			switch c {
+			case '"':
+				sb.WriteString(`\"`)
+			case '\\':
+				sb.WriteString(`\\`)
+			case '\b':
+				sb.WriteString(`\b`)
+			case '\f':
+				sb.WriteString(`\f`)
+			case '\n':
+				sb.WriteString(`\n`)
+			case '\r':
+				sb.WriteString(`\r`)
+			case '\t':
+				sb.WriteString(`\t`)
+			}
+			start = i + 1
+		default:
+			if c < 32 {
+				if start < i {
+					sb.WriteString(s[start:i])
+				}
+				sb.WriteString(`\u00`)
+				sb.WriteString(strconv.FormatInt(int64(c), 16))
+				start = i + 1
+			}
+		}
+	}
+	if start < len(s) {
+		sb.WriteString(s[start:])
+	}
+	sb.WriteByte('"')
+}
+
+// writeImagesJSON efficiently writes image array to JSON.
+func writeImagesJSON(sb *strings.Builder, images []ImageInfo) {
+	for i, img := range images {
+		if i > 0 {
+			sb.WriteByte(',')
+		}
+		sb.WriteString(`{"url":"`)
+		sb.WriteString(stdhtml.EscapeString(img.URL))
+		sb.WriteString(`","alt":"`)
+		sb.WriteString(stdhtml.EscapeString(img.Alt))
+		sb.WriteString(`","title":"`)
+		sb.WriteString(stdhtml.EscapeString(img.Title))
+		sb.WriteString(`","width":"`)
+		sb.WriteString(stdhtml.EscapeString(img.Width))
+		sb.WriteString(`","height":"`)
+		sb.WriteString(stdhtml.EscapeString(img.Height))
+		sb.WriteString(`","is_decorative":`)
+		sb.WriteString(strconv.FormatBool(img.IsDecorative))
+		sb.WriteString(`,"position":`)
+		sb.WriteString(strconv.Itoa(img.Position))
+		sb.WriteByte('}')
+	}
+}
+
+// writeLinksJSON efficiently writes link array to JSON.
+func writeLinksJSON(sb *strings.Builder, links []LinkInfo) {
+	for i, link := range links {
+		if i > 0 {
+			sb.WriteByte(',')
+		}
+		sb.WriteString(`{"url":"`)
+		sb.WriteString(stdhtml.EscapeString(link.URL))
+		sb.WriteString(`","text":"`)
+		sb.WriteString(stdhtml.EscapeString(link.Text))
+		sb.WriteString(`","title":"`)
+		sb.WriteString(stdhtml.EscapeString(link.Title))
+		sb.WriteString(`","is_external":`)
+		sb.WriteString(strconv.FormatBool(link.IsExternal))
+		sb.WriteString(`,"is_nofollow":`)
+		sb.WriteString(strconv.FormatBool(link.IsNoFollow))
+		sb.WriteByte('}')
+	}
+}
+
+// writeVideosJSON efficiently writes video array to JSON.
+func writeVideosJSON(sb *strings.Builder, videos []VideoInfo) {
+	for i, vid := range videos {
+		if i > 0 {
+			sb.WriteByte(',')
+		}
+		sb.WriteString(`{"url":"`)
+		sb.WriteString(stdhtml.EscapeString(vid.URL))
+		sb.WriteString(`","type":"`)
+		sb.WriteString(stdhtml.EscapeString(vid.Type))
+		sb.WriteString(`","poster":"`)
+		sb.WriteString(stdhtml.EscapeString(vid.Poster))
+		sb.WriteString(`","width":"`)
+		sb.WriteString(stdhtml.EscapeString(vid.Width))
+		sb.WriteString(`","height":"`)
+		sb.WriteString(stdhtml.EscapeString(vid.Height))
+		sb.WriteString(`","duration":"`)
+		sb.WriteString(stdhtml.EscapeString(vid.Duration))
+		sb.WriteString(`"}`)
+	}
+}
+
+// writeAudiosJSON efficiently writes audio array to JSON.
+func writeAudiosJSON(sb *strings.Builder, audios []AudioInfo) {
+	for i, aud := range audios {
+		if i > 0 {
+			sb.WriteByte(',')
+		}
+		sb.WriteString(`{"url":"`)
+		sb.WriteString(stdhtml.EscapeString(aud.URL))
+		sb.WriteString(`","type":"`)
+		sb.WriteString(stdhtml.EscapeString(aud.Type))
+		sb.WriteString(`","duration":"`)
+		sb.WriteString(stdhtml.EscapeString(aud.Duration))
+		sb.WriteString(`"}`)
+	}
+}
+
+// writeJSONString writes a string as JSON to the builder with proper escaping.
+// Deprecated: Use writeJSONStringFast for better performance.
+func writeJSONString(sb *strings.Builder, s string) {
+	writeJSONStringFast(sb, s)
+}
+
+// ExtractWithTitle extracts both the title and text content from HTML.
+// Returns (title, text, error).
+func ExtractWithTitle(htmlContent string) (string, string, error) {
+	result, err := Extract(htmlContent)
+	if err != nil {
+		return "", "", err
+	}
+	return result.Title, result.Text, nil
+}
+
+// ExtractImages extracts only image information from HTML content.
+func ExtractImages(htmlContent string) ([]ImageInfo, error) {
+	result, err := Extract(htmlContent)
+	if err != nil {
+		return nil, err
+	}
+	return result.Images, nil
+}
+
+// ExtractVideos extracts only video information from HTML content.
+func ExtractVideos(htmlContent string) ([]VideoInfo, error) {
+	result, err := Extract(htmlContent)
+	if err != nil {
+		return nil, err
+	}
+	return result.Videos, nil
+}
+
+// ExtractAudios extracts only audio information from HTML content.
+func ExtractAudios(htmlContent string) ([]AudioInfo, error) {
+	result, err := Extract(htmlContent)
+	if err != nil {
+		return nil, err
+	}
+	return result.Audios, nil
+}
+
+// ExtractLinks extracts only link information from HTML content.
+func ExtractLinks(htmlContent string) ([]LinkInfo, error) {
+	result, err := Extract(htmlContent)
+	if err != nil {
+		return nil, err
+	}
+	return result.Links, nil
+}
+
+// ConfigForRSS returns an ExtractConfig optimized for RSS feed generation.
+// Disables article detection for faster processing.
+func ConfigForRSS() ExtractConfig {
+	return ExtractConfig{
+		ExtractArticle:    false,
+		PreserveImages:    true,
+		PreserveLinks:     true,
+		PreserveVideos:    false,
+		PreserveAudios:    false,
+		InlineImageFormat: "none",
+	}
+}
+
+// ConfigForSearchIndex returns an ExtractConfig optimized for search indexing.
+// Includes all metadata and content for comprehensive indexing.
+func ConfigForSearchIndex() ExtractConfig {
+	return ExtractConfig{
+		ExtractArticle:    true,
+		PreserveImages:    true,
+		PreserveLinks:     true,
+		PreserveVideos:    true,
+		PreserveAudios:    true,
+		InlineImageFormat: "none",
+	}
+}
+
+// ConfigForSummary returns an ExtractConfig optimized for content summaries.
+// Focuses on text content without media or links.
+func ConfigForSummary() ExtractConfig {
+	return ExtractConfig{
+		ExtractArticle:    true,
+		PreserveImages:    false,
+		PreserveLinks:     false,
+		PreserveVideos:    false,
+		PreserveAudios:    false,
+		InlineImageFormat: "none",
+	}
+}
+
+// ConfigForMarkdown returns an ExtractConfig optimized for Markdown output.
+// Preserves images as inline Markdown syntax.
+func ConfigForMarkdown() ExtractConfig {
+	return ExtractConfig{
+		ExtractArticle:    true,
+		PreserveImages:    true,
+		PreserveLinks:     true,
+		PreserveVideos:    false,
+		PreserveAudios:    false,
+		InlineImageFormat: "markdown",
+	}
+}
+
+// Summarize extracts content and returns a summary limited to maxWords.
+// If maxWords is 0 or negative, returns the full text.
+func Summarize(htmlContent string, maxWords int) (string, error) {
+	result, err := Extract(htmlContent)
+	if err != nil {
+		return "", err
+	}
+
+	if maxWords <= 0 {
+		return result.Text, nil
+	}
+
+	words := strings.Fields(result.Text)
+	if len(words) <= maxWords {
+		return result.Text, nil
+	}
+
+	summary := strings.Join(words[:maxWords], " ")
+	if len(words) > maxWords {
+		summary += "..."
+	}
+	return summary, nil
+}
+
+// ExtractAndClean extracts content from HTML and returns thoroughly cleaned text.
+// Removes extra whitespace, normalizes line breaks, and trims leading/trailing space.
+func ExtractAndClean(htmlContent string) (string, error) {
+	result, err := Extract(htmlContent)
+	if err != nil {
+		return "", err
+	}
+
+	cleaned := whitespaceRegex.ReplaceAllString(result.Text, " ")
+	lines := strings.Split(cleaned, "\n")
+	var nonEmptyLines []string
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed != "" {
+			nonEmptyLines = append(nonEmptyLines, trimmed)
+		}
+	}
+
+	return strings.Join(nonEmptyLines, "\n\n"), nil
+}
+
+// GetReadingTime estimates reading time for HTML content in minutes.
+// Returns the estimated reading time as a float (minutes).
+func GetReadingTime(htmlContent string) (float64, error) {
+	result, err := Extract(htmlContent)
+	if err != nil {
+		return 0, err
+	}
+	return result.ReadingTime.Minutes(), nil
+}
+
+// GetWordCount returns the word count of HTML content.
+func GetWordCount(htmlContent string) (int, error) {
+	result, err := Extract(htmlContent)
+	if err != nil {
+		return 0, err
+	}
+	return result.WordCount, nil
+}
+
+// ExtractTitle extracts only the title from HTML content.
+// Searches for <title>, <h1>, then <h2> tags in that order.
+func ExtractTitle(htmlContent string) (string, error) {
+	result, err := Extract(htmlContent)
+	if err != nil {
+		return "", err
+	}
+	return result.Title, nil
 }

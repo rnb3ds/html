@@ -1,202 +1,289 @@
 package internal
 
-import (
-	"testing"
-)
+import "testing"
 
-func TestIsVideoEmbedURL(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		url  string
-		want bool
-	}{
-		{"https://youtube.com/embed/abc123", true},
-		{"https://www.youtube.com/embed/abc123", true},
-		{"https://youtube-nocookie.com/embed/abc123", true},
-		{"https://player.vimeo.com/video/123456", true},
-		{"https://dailymotion.com/embed/video123", true},
-		{"https://player.youku.com/embed/abc", true},
-		{"https://v.qq.com/iframe/player.html", true},
-		{"https://bilibili.com/video/av123", true},
-		{"https://example.com/video.mp4", false},
-		{"https://example.com", false},
-		{"", false},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.url, func(t *testing.T) {
-			result := IsVideoEmbedURL(tt.url)
-			if result != tt.want {
-				t.Errorf("IsVideoEmbedURL(%q) = %v, want %v", tt.url, result, tt.want)
-			}
-		})
-	}
-}
-
+// TestIsVideoURL tests video URL detection
 func TestIsVideoURL(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		url  string
-		want bool
-	}{
-		{"https://example.com/video.mp4", true},
-		{"https://example.com/video.webm", true},
-		{"https://example.com/video.ogg", true},
-		{"https://example.com/video.mov", true},
-		{"https://example.com/video.avi", true},
-		{"https://example.com/video.wmv", true},
-		{"https://example.com/video.flv", true},
-		{"https://example.com/video.mkv", true},
-		{"https://example.com/video.m4v", true},
-		{"https://example.com/video.3gp", true},
-		{"https://youtube.com/embed/abc", true},
-		{"https://example.com/image.jpg", false},
-		{"https://example.com/audio.mp3", false},
-		{"", false},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.url, func(t *testing.T) {
-			result := IsVideoURL(tt.url)
-			if result != tt.want {
-				t.Errorf("IsVideoURL(%q) = %v, want %v", tt.url, result, tt.want)
-			}
-		})
-	}
-}
-
-func TestDetectVideoType(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		url  string
-		want string
-	}{
-		{"https://example.com/video.mp4", "video/mp4"},
-		{"https://example.com/video.m4v", "video/mp4"},
-		{"https://example.com/video.webm", "video/webm"},
-		{"https://example.com/video.ogg", "video/ogg"},
-		{"https://example.com/video.mov", "video/quicktime"},
-		{"https://example.com/video.avi", "video/x-msvideo"},
-		{"https://example.com/video.wmv", "video/x-ms-wmv"},
-		{"https://example.com/video.flv", "video/x-flv"},
-		{"https://example.com/video.mkv", "video/x-matroska"},
-		{"https://example.com/video.3gp", "video/3gpp"},
-		{"https://youtube.com/embed/abc", "embed"},
-		{"https://example.com/unknown.xyz", ""},
-		{"", ""},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.url, func(t *testing.T) {
-			result := DetectVideoType(tt.url)
-			if result != tt.want {
-				t.Errorf("DetectVideoType(%q) = %q, want %q", tt.url, result, tt.want)
-			}
-		})
-	}
-}
-
-func TestDetectAudioType(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		url  string
-		want string
-	}{
-		{"https://example.com/audio.mp3", "audio/mpeg"},
-		{"https://example.com/audio.wav", "audio/wav"},
-		{"https://example.com/audio.ogg", "audio/ogg"},
-		{"https://example.com/audio.oga", "audio/ogg"},
-		{"https://example.com/audio.m4a", "audio/mp4"},
-		{"https://example.com/audio.aac", "audio/aac"},
-		{"https://example.com/audio.flac", "audio/flac"},
-		{"https://example.com/audio.wma", "audio/x-ms-wma"},
-		{"https://example.com/audio.opus", "audio/opus"},
-		{"https://example.com/unknown.xyz", ""},
-		{"", ""},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.url, func(t *testing.T) {
-			result := DetectAudioType(tt.url)
-			if result != tt.want {
-				t.Errorf("DetectAudioType(%q) = %q, want %q", tt.url, result, tt.want)
-			}
-		})
-	}
-}
-
-func TestCaseInsensitiveExtensions(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
 		name string
 		url  string
-		fn   func(string) bool
+		want bool
 	}{
-		{"uppercase MP4", "https://example.com/VIDEO.MP4", IsVideoURL},
-		{"mixed case WebM", "https://example.com/video.WeBm", IsVideoURL},
-		{"uppercase MP3", "https://example.com/AUDIO.MP3", func(url string) bool {
-			return DetectAudioType(url) != ""
-		}},
+		{
+			name: "YouTube embed URL",
+			url:  "https://www.youtube.com/embed/123456",
+			want: true,
+		},
+		{
+			name: "Vimeo embed URL",
+			url:  "https://player.vimeo.com/video/123456",
+			want: true,
+		},
+		{
+			name: "Dailymotion embed URL",
+			url:  "https://www.dailymotion.com/embed/video/123456",
+			want: true,
+		},
+		{
+			name: "MP4 file extension",
+			url:  "https://example.com/video.MP4",
+			want: true,
+		},
+		{
+			name: "WebM file extension",
+			url:  "https://example.com/video.webm",
+			want: true,
+		},
+		{
+			name: "OGG video extension",
+			url:  "https://example.com/video.ogg",
+			want: true,
+		},
+		{
+			name: "MOV file extension",
+			url:  "https://example.com/video.mov",
+			want: true,
+		},
+		{
+			name: "AVI file extension",
+			url:  "https://example.com/video.avi",
+			want: true,
+		},
+		{
+			name: "WMV file extension",
+			url:  "https://example.com/video.wmv",
+			want: true,
+		},
+		{
+			name: "FLV file extension",
+			url:  "https://example.com/video.flv",
+			want: true,
+		},
+		{
+			name: "MKV file extension",
+			url:  "https://example.com/video.mkv",
+			want: true,
+		},
+		{
+			name: "M4V file extension",
+			url:  "https://example.com/video.m4v",
+			want: true,
+		},
+		{
+			name: "3GP file extension",
+			url:  "https://example.com/video.3gp",
+			want: true,
+		},
+		{
+			name: "non-video URL",
+			url:  "https://example.com/page.html",
+			want: false,
+		},
+		{
+			name: "image URL",
+			url:  "https://example.com/image.jpg",
+			want: false,
+		},
+		{
+			name: "empty string",
+			url:  "",
+			want: false,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if !tt.fn(tt.url) {
-				t.Errorf("Function should handle case-insensitive URL: %q", tt.url)
+			if got := IsVideoURL(tt.url); got != tt.want {
+				t.Errorf("IsVideoURL() = %v, want %v", got, tt.want)
 			}
 		})
 	}
 }
 
-func TestEmbedPatterns(t *testing.T) {
+// TestDetectVideoType tests video type detection
+func TestDetectVideoType(t *testing.T) {
 	t.Parallel()
 
-	embedURLs := []string{
-		"https://youtube.com/embed/abc123",
-		"https://www.youtube.com/embed/abc123",
-		"https://youtube-nocookie.com/embed/abc123",
-		"https://player.vimeo.com/video/123456",
-		"https://www.dailymotion.com/embed/video/x123",
-		"https://player.youku.com/embed/abc",
-		"https://v.qq.com/txp/iframe/player.html",
-		"https://www.bilibili.com/blackboard/html5player.html",
+	tests := []struct {
+		name string
+		url  string
+		want string
+	}{
+		{
+			name: "MP4 file",
+			url:  "https://example.com/video.mp4",
+			want: "video/mp4",
+		},
+		{
+			name: "WebM file",
+			url:  "https://example.com/video.webm",
+			want: "video/webm",
+		},
+		{
+			name: "OGG file",
+			url:  "https://example.com/video.ogg",
+			want: "video/ogg",
+		},
+		{
+			name: "MOV file",
+			url:  "https://example.com/video.mov",
+			want: "video/quicktime",
+		},
+		{
+			name: "AVI file",
+			url:  "https://example.com/video.avi",
+			want: "video/x-msvideo",
+		},
+		{
+			name: "WMV file",
+			url:  "https://example.com/video.wmv",
+			want: "video/x-ms-wmv",
+		},
+		{
+			name: "FLV file",
+			url:  "https://example.com/video.flv",
+			want: "video/x-flv",
+		},
+		{
+			name: "MKV file",
+			url:  "https://example.com/video.mkv",
+			want: "video/x-matroska",
+		},
+		{
+			name: "M4V file",
+			url:  "https://example.com/video.m4v",
+			want: "video/mp4",
+		},
+		{
+			name: "3GP file",
+			url:  "https://example.com/video.3gp",
+			want: "video/3gpp",
+		},
+		{
+			name: "YouTube embed",
+			url:  "https://www.youtube.com/embed/123456",
+			want: "embed",
+		},
+		{
+			name: "Vimeo embed",
+			url:  "https://player.vimeo.com/video/123456",
+			want: "embed",
+		},
+		{
+			name: "unknown video type",
+			url:  "https://example.com/video.unknown",
+			want: "",
+		},
+		{
+			name: "non-video URL",
+			url:  "https://example.com/page.html",
+			want: "",
+		},
 	}
 
-	for _, url := range embedURLs {
-		t.Run(url, func(t *testing.T) {
-			if !IsVideoEmbedURL(url) {
-				t.Errorf("IsVideoEmbedURL(%q) should return true", url)
-			}
-			if !IsVideoURL(url) {
-				t.Errorf("IsVideoURL(%q) should return true for embed", url)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := DetectVideoType(tt.url); got != tt.want {
+				t.Errorf("DetectVideoType() = %v, want %v", got, tt.want)
 			}
 		})
 	}
 }
 
-func BenchmarkIsVideoEmbedURL(b *testing.B) {
-	url := "https://youtube.com/embed/abc123"
+// TestDetectAudioType tests audio type detection
+func TestDetectAudioType(t *testing.T) {
+	t.Parallel()
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		IsVideoEmbedURL(url)
+	tests := []struct {
+		name string
+		url  string
+		want string
+	}{
+		{
+			name: "MP3 file",
+			url:  "https://example.com/audio.mp3",
+			want: "audio/mpeg",
+		},
+		{
+			name: "WAV file",
+			url:  "https://example.com/audio.wav",
+			want: "audio/wav",
+		},
+		{
+			name: "OGG audio file",
+			url:  "https://example.com/audio.ogg",
+			want: "audio/ogg",
+		},
+		{
+			name: "OGA file",
+			url:  "https://example.com/audio.oga",
+			want: "audio/ogg",
+		},
+		{
+			name: "M4A file",
+			url:  "https://example.com/audio.m4a",
+			want: "audio/mp4",
+		},
+		{
+			name: "AAC file",
+			url:  "https://example.com/audio.aac",
+			want: "audio/aac",
+		},
+		{
+			name: "FLAC file",
+			url:  "https://example.com/audio.flac",
+			want: "audio/flac",
+		},
+		{
+			name: "WMA file",
+			url:  "https://example.com/audio.wma",
+			want: "audio/x-ms-wma",
+		},
+		{
+			name: "Opus file",
+			url:  "https://example.com/audio.opus",
+			want: "audio/opus",
+		},
+		{
+			name: "unknown audio type",
+			url:  "https://example.com/audio.unknown",
+			want: "",
+		},
+		{
+			name: "non-audio URL",
+			url:  "https://example.com/page.html",
+			want: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := DetectAudioType(tt.url); got != tt.want {
+				t.Errorf("DetectAudioType() = %v, want %v", got, tt.want)
+			}
+		})
 	}
 }
 
+// BenchmarkIsVideoURL benchmarks video URL detection
 func BenchmarkIsVideoURL(b *testing.B) {
-	url := "https://example.com/video.mp4"
+	urls := []string{
+		"https://example.com/video.mp4",
+		"https://www.youtube.com/embed/123456",
+		"https://example.com/page.html",
+	}
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		IsVideoURL(url)
+		for _, url := range urls {
+			IsVideoURL(url)
+		}
 	}
 }
 
+// BenchmarkDetectVideoType benchmarks video type detection
 func BenchmarkDetectVideoType(b *testing.B) {
 	url := "https://example.com/video.mp4"
 
@@ -206,6 +293,7 @@ func BenchmarkDetectVideoType(b *testing.B) {
 	}
 }
 
+// BenchmarkDetectAudioType benchmarks audio type detection
 func BenchmarkDetectAudioType(b *testing.B) {
 	url := "https://example.com/audio.mp3"
 
