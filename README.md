@@ -331,7 +331,7 @@ Customize resource limits and behavior:
 
 ```go
 config := html.Config{
-    MaxInputSize:       50 * 1024 * 1024,  // 50MB max input size
+    MaxInputSize:       50 * 1024 * 1024,   // 50MB max input size
     ProcessingTimeout:  30 * time.Second,   // 30s processing timeout
     MaxCacheEntries:    1000,               // Cache up to 1000 results
     CacheTTL:           time.Hour,          // 1 hour cache TTL

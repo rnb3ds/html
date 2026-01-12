@@ -6,19 +6,15 @@ import (
 	"golang.org/x/net/html"
 )
 
-// Content scoring patterns for article detection
+// Scoring constants for content relevance evaluation.
 const (
-	// Positive indicators
-	strongPositiveScore = 400
-	mediumPositiveScore = 200
-
-	// Negative indicators (weak < medium < strong in absolute value)
-	strongNegativeScore = -400
-	mediumNegativeScore = -200
-	weakNegativeScore   = -100
+	strongPositiveScore = 400  // Strong positive indicators (article, main, content)
+	mediumPositiveScore = 200  // Medium positive indicators (blog, news, detail)
+	strongNegativeScore = -400 // Strong negative indicators (comment, sidebar, nav)
+	mediumNegativeScore = -200 // Medium negative indicators (widget, related, share)
+	weakNegativeScore   = -100 // Weak negative indicators (promo, banner, sponsor)
 )
 
-// Pattern registry for content scoring with score values
 var (
 	positiveStrongPatterns = map[string]int{
 		"content": strongPositiveScore, "article": strongPositiveScore, "main": strongPositiveScore,
@@ -43,7 +39,6 @@ var (
 		"promo": weakNegativeScore, "banner": weakNegativeScore, "sponsor": weakNegativeScore,
 	}
 
-	// Consolidated removal patterns
 	removePatterns = map[string]bool{
 		"nav": true, "navigation": true, "menu": true,
 		"sidebar": true, "side-bar": true,
@@ -56,41 +51,38 @@ var (
 		"promo": true, "promotion": true,
 		"banner": true, "sponsor": true,
 	}
+
+	nonContentTags = map[string]bool{
+		"script": true, "style": true, "noscript": true, "nav": true,
+		"aside": true, "footer": true, "header": true, "form": true,
+	}
+
+	blockElements = map[string]bool{
+		"p": true, "div": true, "h1": true, "h2": true, "h3": true, "h4": true, "h5": true, "h6": true,
+		"article": true, "section": true, "blockquote": true, "pre": true, "ul": true, "ol": true,
+		"li": true, "table": true, "tr": true, "td": true, "th": true, "br": true, "hr": true,
+	}
+
+	tagScores = map[string]int{
+		"article": 1000,
+		"main":    900,
+		"section": 300,
+		"body":    100,
+		"div":     50,
+		"p":       0,
+	}
 )
 
-// Non-content elements that should be excluded
-var nonContentTags = map[string]bool{
-	"script": true, "style": true, "noscript": true, "nav": true,
-	"aside": true, "footer": true, "header": true, "form": true,
-}
-
-// Block-level elements for structure detection
-var blockElements = map[string]bool{
-	"p": true, "div": true, "h1": true, "h2": true, "h3": true, "h4": true, "h5": true, "h6": true,
-	"article": true, "section": true, "blockquote": true, "pre": true, "ul": true, "ol": true,
-	"li": true, "table": true, "tr": true, "td": true, "th": true, "br": true, "hr": true,
-}
-
-// Tag-based scoring weights
-var tagScores = map[string]int{
-	"article": 1000,
-	"main":    900,
-	"section": 300,
-	"body":    100,
-	"div":     50,
-	"p":       0,
-}
-
 // ScoreContentNode calculates content relevance score for a node.
-func ScoreContentNode(n *html.Node) int {
-	if n == nil || n.Type != html.ElementNode || IsNonContentElement(n.Data) || n.Data == "p" {
+func ScoreContentNode(node *html.Node) int {
+	if node == nil || node.Type != html.ElementNode || IsNonContentElement(node.Data) || node.Data == "p" {
 		return 0
 	}
 
-	score := tagScores[n.Data] + ScoreAttributes(n)
+	score := tagScores[node.Data] + ScoreAttributes(node)
 
 	// Score based on paragraph count
-	paragraphCount := CountChildElements(n, "p")
+	paragraphCount := CountChildElements(node, "p")
 	if paragraphCount >= 3 {
 		score += paragraphCount * 150
 	} else if paragraphCount > 0 {
@@ -98,15 +90,15 @@ func ScoreContentNode(n *html.Node) int {
 	}
 
 	// Score based on heading count
-	headingCount := CountChildElements(n, "h1") + CountChildElements(n, "h2") +
-		CountChildElements(n, "h3") + CountChildElements(n, "h4") +
-		CountChildElements(n, "h5") + CountChildElements(n, "h6")
+	headingCount := CountChildElements(node, "h1") + CountChildElements(node, "h2") +
+		CountChildElements(node, "h3") + CountChildElements(node, "h4") +
+		CountChildElements(node, "h5") + CountChildElements(node, "h6")
 	if headingCount > 0 {
 		score += headingCount * 100
 	}
 
 	// Score based on text length
-	textLength := GetTextLength(n)
+	textLength := GetTextLength(node)
 	switch {
 	case textLength > 500:
 		score += 500 + (textLength-500)/10
@@ -119,7 +111,7 @@ func ScoreContentNode(n *html.Node) int {
 	}
 
 	// Apply content density multiplier
-	contentDensity := CalculateContentDensity(n)
+	contentDensity := CalculateContentDensity(node)
 	if contentDensity > 0.7 {
 		score = int(float64(score) * 1.2)
 	} else if contentDensity < 0.3 {
@@ -127,7 +119,7 @@ func ScoreContentNode(n *html.Node) int {
 	}
 
 	// Penalize high link density (likely navigation/spam)
-	linkDensity := GetLinkDensity(n)
+	linkDensity := GetLinkDensity(node)
 	if linkDensity > 0.5 {
 		score = int(float64(score) * 0.2)
 	} else if linkDensity > 0.3 {
@@ -136,8 +128,8 @@ func ScoreContentNode(n *html.Node) int {
 		score = int(float64(score) * 0.75)
 	}
 
-	// Bonus for comma-rich content (likely prose) - optimized to avoid GetTextContent()
-	commaCount := countCommas(n)
+	// Bonus for comma-rich content (likely prose)
+	commaCount := countCommas(node)
 	if commaCount > 5 {
 		score += commaCount * 10
 	}
@@ -145,12 +137,12 @@ func ScoreContentNode(n *html.Node) int {
 	return score
 }
 
-// countCommas efficiently counts commas without building full text string
-func countCommas(n *html.Node) int {
+// countCommas efficiently counts commas without building full text string.
+func countCommas(node *html.Node) int {
 	count := 0
-	WalkNodes(n, func(node *html.Node) bool {
-		if node.Type == html.TextNode {
-			count += strings.Count(node.Data, ",") + strings.Count(node.Data, "，")
+	WalkNodes(node, func(n *html.Node) bool {
+		if n.Type == html.TextNode {
+			count += strings.Count(n.Data, ",") + strings.Count(n.Data, "，")
 		}
 		return true
 	})
@@ -168,37 +160,11 @@ func ScoreAttributes(n *html.Node) int {
 		switch attr.Key {
 		case "class", "id":
 			lowerVal := strings.ToLower(attr.Val)
-			// Check all pattern maps for matches
-			for pattern, patternScore := range positiveStrongPatterns {
-				if strings.Contains(lowerVal, pattern) {
-					score += patternScore
-					break
-				}
-			}
-			for pattern, patternScore := range positiveMediumPatterns {
-				if strings.Contains(lowerVal, pattern) {
-					score += patternScore
-					break
-				}
-			}
-			for pattern, patternScore := range negativeStrongPatterns {
-				if strings.Contains(lowerVal, pattern) {
-					score += patternScore
-					break
-				}
-			}
-			for pattern, patternScore := range negativeMediumPatterns {
-				if strings.Contains(lowerVal, pattern) {
-					score += patternScore
-					break
-				}
-			}
-			for pattern, patternScore := range negativeWeakPatterns {
-				if strings.Contains(lowerVal, pattern) {
-					score += patternScore
-					break
-				}
-			}
+			score += checkPatterns(lowerVal, positiveStrongPatterns)
+			score += checkPatterns(lowerVal, positiveMediumPatterns)
+			score += checkPatterns(lowerVal, negativeStrongPatterns)
+			score += checkPatterns(lowerVal, negativeMediumPatterns)
+			score += checkPatterns(lowerVal, negativeWeakPatterns)
 		case "role":
 			lowerVal := strings.ToLower(attr.Val)
 			switch lowerVal {
@@ -207,6 +173,17 @@ func ScoreAttributes(n *html.Node) int {
 			case "navigation", "complementary":
 				score -= 400
 			}
+		}
+	}
+	return score
+}
+
+// checkPatterns returns the sum of all pattern scores that match the value.
+func checkPatterns(value string, patterns map[string]int) int {
+	score := 0
+	for pattern, patternScore := range patterns {
+		if strings.Contains(value, pattern) {
+			score += patternScore
 		}
 	}
 	return score

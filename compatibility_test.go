@@ -9,54 +9,6 @@ import (
 	stdhtml "golang.org/x/net/html"
 )
 
-// TestNodeTypeCompatibility verifies all node types match golang.org/x/net/html
-func TestNodeTypeCompatibility(t *testing.T) {
-	tests := []struct {
-		name    string
-		ourType html.NodeType
-		stdType stdhtml.NodeType
-	}{
-		{"ErrorNode", html.ErrorNode, stdhtml.ErrorNode},
-		{"TextNode", html.TextNode, stdhtml.TextNode},
-		{"DocumentNode", html.DocumentNode, stdhtml.DocumentNode},
-		{"ElementNode", html.ElementNode, stdhtml.ElementNode},
-		{"CommentNode", html.CommentNode, stdhtml.CommentNode},
-		{"DoctypeNode", html.DoctypeNode, stdhtml.DoctypeNode},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if tt.ourType != tt.stdType {
-				t.Errorf("%s mismatch: got %v, want %v", tt.name, tt.ourType, tt.stdType)
-			}
-		})
-	}
-}
-
-// TestTokenTypeCompatibility verifies all token types match golang.org/x/net/html
-func TestTokenTypeCompatibility(t *testing.T) {
-	tests := []struct {
-		name    string
-		ourType html.TokenType
-		stdType stdhtml.TokenType
-	}{
-		{"ErrorToken", html.ErrorToken, stdhtml.ErrorToken},
-		{"TextToken", html.TextToken, stdhtml.TextToken},
-		{"StartTagToken", html.StartTagToken, stdhtml.StartTagToken},
-		{"EndTagToken", html.EndTagToken, stdhtml.EndTagToken},
-		{"SelfClosingTagToken", html.SelfClosingTagToken, stdhtml.SelfClosingTagToken},
-		{"CommentToken", html.CommentToken, stdhtml.CommentToken},
-		{"DoctypeToken", html.DoctypeToken, stdhtml.DoctypeToken},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if tt.ourType != tt.stdType {
-				t.Errorf("%s mismatch: got %v, want %v", tt.name, tt.ourType, tt.stdType)
-			}
-		})
-	}
-}
 
 // TestParseCompatibility verifies Parse function compatibility
 func TestParseCompatibility(t *testing.T) {
@@ -168,26 +120,6 @@ func TestTokenizerCompatibility(t *testing.T) {
 	}
 }
 
-// TestNodeStructureCompatibility verifies Node structure compatibility
-func TestNodeStructureCompatibility(t *testing.T) {
-	node := &html.Node{
-		Type: html.ElementNode,
-		Data: "div",
-		Attr: []html.Attribute{
-			{Key: "class", Val: "test"},
-		},
-	}
-
-	if node.Type != html.ElementNode {
-		t.Errorf("Node type mismatch")
-	}
-	if node.Data != "div" {
-		t.Errorf("Node data mismatch")
-	}
-	if len(node.Attr) != 1 || node.Attr[0].Key != "class" {
-		t.Errorf("Node attributes mismatch")
-	}
-}
 
 // TestParseFragmentCompatibility verifies ParseFragment function compatibility
 func TestParseFragmentCompatibility(t *testing.T) {

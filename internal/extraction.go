@@ -7,54 +7,50 @@ import (
 	"golang.org/x/net/html"
 )
 
-func ExtractTextWithStructure(n *html.Node, sb *strings.Builder, depth int) {
-	ExtractTextWithStructureAndImages(n, sb, depth, nil)
-}
-
-func ExtractTextWithStructureAndImages(n *html.Node, sb *strings.Builder, depth int, imageCounter *int) {
-	if n == nil {
+func ExtractTextWithStructureAndImages(node *html.Node, sb *strings.Builder, depth int, imageCounter *int) {
+	if node == nil {
 		return
 	}
-	if n.Type == html.ElementNode && IsNonContentElement(n.Data) {
+	if node.Type == html.ElementNode && IsNonContentElement(node.Data) {
 		return
 	}
-	if n.Type == html.TextNode {
-		if content := strings.TrimSpace(n.Data); content != "" {
+	if node.Type == html.TextNode {
+		if content := strings.TrimSpace(node.Data); content != "" {
 			ensureSpacing(sb, ' ')
 			sb.WriteString(content)
 		}
 		return
 	}
-	if n.Type == html.ElementNode {
-		if n.Data == "img" && imageCounter != nil {
+	if node.Type == html.ElementNode {
+		if node.Data == "img" && imageCounter != nil {
 			*imageCounter++
 			ensureNewline(sb)
 			fmt.Fprintf(sb, "[IMAGE:%d]\n", *imageCounter)
 			return
 		}
-		if n.Data == "table" {
-			extractTable(n, sb)
+		if node.Data == "table" {
+			extractTable(node, sb)
 			return
 		}
-		isBlockElement := IsBlockElement(n.Data)
+		isBlockElement := IsBlockElement(node.Data)
 		startLen := sb.Len()
 		if isBlockElement && startLen > 0 {
 			ensureNewline(sb)
 			startLen = sb.Len()
 		}
-		for c := n.FirstChild; c != nil; c = c.NextSibling {
-			ExtractTextWithStructureAndImages(c, sb, depth+1, imageCounter)
+		for child := node.FirstChild; child != nil; child = child.NextSibling {
+			ExtractTextWithStructureAndImages(child, sb, depth+1, imageCounter)
 		}
 		hasContent := sb.Len() > startLen
 		if isBlockElement && hasContent {
 			ensureNewline(sb)
 		}
-		if !isBlockElement && hasContent && depth > 0 && n.NextSibling != nil {
+		if !isBlockElement && hasContent && depth > 0 && node.NextSibling != nil {
 			ensureSpacing(sb, ' ')
 		}
 	} else {
-		for c := n.FirstChild; c != nil; c = c.NextSibling {
-			ExtractTextWithStructureAndImages(c, sb, depth+1, imageCounter)
+		for child := node.FirstChild; child != nil; child = child.NextSibling {
+			ExtractTextWithStructureAndImages(child, sb, depth+1, imageCounter)
 		}
 	}
 }
@@ -85,12 +81,12 @@ func extractTable(table *html.Node, sb *strings.Builder) {
 
 	rows := make([][]string, 0, 8)
 	var maxCols int
-	WalkNodes(table, func(n *html.Node) bool {
-		if n.Type == html.ElementNode && n.Data == "tr" {
+	WalkNodes(table, func(node *html.Node) bool {
+		if node.Type == html.ElementNode && node.Data == "tr" {
 			cells := make([]string, 0, 4)
-			for c := n.FirstChild; c != nil; c = c.NextSibling {
-				if c.Type == html.ElementNode && (c.Data == "td" || c.Data == "th") {
-					cellText := strings.TrimSpace(GetTextContent(c))
+			for child := node.FirstChild; child != nil; child = child.NextSibling {
+				if child.Type == html.ElementNode && (child.Data == "td" || child.Data == "th") {
+					cellText := strings.TrimSpace(GetTextContent(child))
 					if cellText == "" {
 						cellText = " "
 					}
@@ -105,7 +101,7 @@ func extractTable(table *html.Node, sb *strings.Builder) {
 			}
 			return false
 		}
-		return n.Data != "tr"
+		return node.Data != "tr"
 	})
 	if len(rows) == 0 {
 		return
@@ -134,26 +130,26 @@ func extractTable(table *html.Node, sb *strings.Builder) {
 	sb.WriteByte('\n')
 }
 
-func CleanContentNode(n *html.Node) *html.Node {
-	if n == nil {
+func CleanContentNode(node *html.Node) *html.Node {
+	if node == nil {
 		return nil
 	}
 	toRemove := make([]*html.Node, 0, 8)
 	var traverse func(*html.Node)
-	traverse = func(node *html.Node) {
-		for c := node.FirstChild; c != nil; c = c.NextSibling {
-			if c.Type == html.ElementNode && ShouldRemoveElement(c) {
-				toRemove = append(toRemove, c)
+	traverse = func(n *html.Node) {
+		for child := n.FirstChild; child != nil; child = child.NextSibling {
+			if child.Type == html.ElementNode && ShouldRemoveElement(child) {
+				toRemove = append(toRemove, child)
 			} else {
-				traverse(c)
+				traverse(child)
 			}
 		}
 	}
-	traverse(n)
-	for _, node := range toRemove {
-		if node.Parent != nil {
-			node.Parent.RemoveChild(node)
+	traverse(node)
+	for _, n := range toRemove {
+		if n.Parent != nil {
+			n.Parent.RemoveChild(n)
 		}
 	}
-	return n
+	return node
 }

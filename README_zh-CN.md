@@ -331,7 +331,7 @@ processor.ClearCache()
 
 ```go
 config := html.Config{
-    MaxInputSize:       50 * 1024 * 1024,  // 50MB 最大输入大小
+    MaxInputSize:       50 * 1024 * 1024,   // 50MB 最大输入大小
     ProcessingTimeout:  30 * time.Second,   // 30s 处理超时
     MaxCacheEntries:    1000,               // 缓存最多 1000 个结果
     CacheTTL:           time.Hour,          // 1 小时缓存 TTL

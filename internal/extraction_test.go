@@ -66,11 +66,11 @@ func TestExtractTextWithStructure(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			doc, _ := html.Parse(strings.NewReader(tt.html))
 			var sb strings.Builder
-			ExtractTextWithStructure(doc, &sb, 0)
+			ExtractTextWithStructureAndImages(doc, &sb, 0, nil)
 			result := strings.TrimSpace(sb.String())
 
 			if result != tt.want {
-				t.Errorf("ExtractTextWithStructure() = %q, want %q", result, tt.want)
+				t.Errorf("ExtractTextWithStructureAndImages() = %q, want %q", result, tt.want)
 			}
 		})
 	}
@@ -182,7 +182,7 @@ func TestExtractTable(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			doc, _ := html.Parse(strings.NewReader(tt.html))
 			var sb strings.Builder
-			ExtractTextWithStructure(doc, &sb, 0)
+			ExtractTextWithStructureAndImages(doc, &sb, 0, nil)
 			result := sb.String()
 
 			if tt.wantRows > 0 {
@@ -214,10 +214,10 @@ func TestExtractTextWithStructureNil(t *testing.T) {
 	t.Parallel()
 
 	var sb strings.Builder
-	ExtractTextWithStructure(nil, &sb, 0)
+	ExtractTextWithStructureAndImages(nil, &sb, 0, nil)
 
 	if sb.Len() != 0 {
-		t.Error("ExtractTextWithStructure(nil) should not write anything")
+		t.Error("ExtractTextWithStructureAndImages(nil) should not write anything")
 	}
 }
 
@@ -245,7 +245,7 @@ func TestExtractTextWithStructureDepth(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			doc, _ := html.Parse(strings.NewReader(tt.html))
 			var sb strings.Builder
-			ExtractTextWithStructure(doc, &sb, 0)
+			ExtractTextWithStructureAndImages(doc, &sb, 0, nil)
 			result := sb.String()
 
 			if !tt.check(result) {
@@ -333,6 +333,6 @@ func BenchmarkExtractTextWithStructure(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		var sb strings.Builder
-		ExtractTextWithStructure(doc, &sb, 0)
+		ExtractTextWithStructureAndImages(doc, &sb, 0, nil)
 	}
 }

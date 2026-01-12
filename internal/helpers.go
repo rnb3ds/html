@@ -45,32 +45,32 @@ func GetTextContent(node *html.Node) string {
 	return sb.String()
 }
 
-func GetTextLength(n *html.Node) int {
+func GetTextLength(node *html.Node) int {
 	length := 0
-	WalkNodes(n, func(node *html.Node) bool {
-		if node.Type == html.TextNode {
-			length += len(strings.TrimSpace(node.Data))
+	WalkNodes(node, func(n *html.Node) bool {
+		if n.Type == html.TextNode {
+			length += len(strings.TrimSpace(n.Data))
 		}
 		return true
 	})
 	return length
 }
 
-func GetLinkDensity(n *html.Node) float64 {
-	if n == nil {
+func GetLinkDensity(node *html.Node) float64 {
+	if node == nil {
 		return 0.0
 	}
 
 	textLength := 0
 	linkTextLength := 0
 
-	WalkNodes(n, func(node *html.Node) bool {
-		if node.Type == html.TextNode {
-			length := len(strings.TrimSpace(node.Data))
+	WalkNodes(node, func(n *html.Node) bool {
+		if n.Type == html.TextNode {
+			length := len(strings.TrimSpace(n.Data))
 			textLength += length
 			// Check if any ancestor is an <a> tag
-			for p := node.Parent; p != nil; p = p.Parent {
-				if p.Type == html.ElementNode && p.Data == "a" {
+			for parent := n.Parent; parent != nil; parent = parent.Parent {
+				if parent.Type == html.ElementNode && parent.Data == "a" {
 					linkTextLength += length
 					break
 				}
