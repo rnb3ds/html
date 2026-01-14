@@ -68,9 +68,10 @@ func TestExtractAllLinks_WithManualBaseURL_Convenience(t *testing.T) {
 	</html>
 	`
 
-	// Manual base URL specification using variadic parameter
-	baseURL := "https://mysite.com/"
-	links, err := html.ExtractAllLinks(htmlContent, baseURL)
+	// Manual base URL specification using config parameter
+	config := html.DefaultLinkExtractionConfig()
+	config.BaseURL = "https://mysite.com/"
+	links, err := html.ExtractAllLinks(htmlContent, config)
 	if err != nil {
 		t.Fatalf("ExtractAllLinks() with manual base URL failed: %v", err)
 	}

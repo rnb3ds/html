@@ -2,40 +2,19 @@ package internal
 
 import (
 	"strings"
-	"sync"
 
 	"golang.org/x/net/html"
 )
 
-// Scoring constants for content relevance evaluation.
 const (
-	strongPositiveScore = 400  // Strong positive indicators (article, main, content)
-	mediumPositiveScore = 200  // Medium positive indicators (blog, news, detail)
-	strongNegativeScore = -400 // Strong negative indicators (comment, sidebar, nav)
-	mediumNegativeScore = -200 // Medium negative indicators (widget, related, share)
-	weakNegativeScore   = -100 // Weak negative indicators (promo, banner, sponsor)
+	strongPositiveScore = 400
+	mediumPositiveScore = 200
+	strongNegativeScore = -400
+	mediumNegativeScore = -200
+	weakNegativeScore   = -100
 )
 
 var (
-	// Thread-safe pattern maps initialized once and read-only after init
-	positiveStrongPatterns map[string]int
-	positiveMediumPatterns map[string]int
-	negativeStrongPatterns map[string]int
-	negativeMediumPatterns map[string]int
-	negativeWeakPatterns   map[string]int
-	removePatterns         map[string]bool
-	nonContentTags         map[string]bool
-	blockElements          map[string]bool
-	tagScores              map[string]int
-
-	// Mutex for protecting concurrent read access to pattern maps
-	scoreMapsMutex sync.RWMutex
-)
-
-func init() {
-	scoreMapsMutex.Lock()
-	defer scoreMapsMutex.Unlock()
-
 	positiveStrongPatterns = map[string]int{
 		"content": strongPositiveScore, "article": strongPositiveScore, "main": strongPositiveScore,
 		"post": strongPositiveScore, "entry": strongPositiveScore, "text": strongPositiveScore,
@@ -58,7 +37,6 @@ func init() {
 	negativeWeakPatterns = map[string]int{
 		"promo": weakNegativeScore, "banner": weakNegativeScore, "sponsor": weakNegativeScore,
 	}
-
 	removePatterns = map[string]bool{
 		"nav": true, "navigation": true, "menu": true,
 		"sidebar": true, "side-bar": true,
@@ -71,18 +49,15 @@ func init() {
 		"promo": true, "promotion": true,
 		"banner": true, "sponsor": true,
 	}
-
 	nonContentTags = map[string]bool{
 		"script": true, "style": true, "noscript": true, "nav": true,
 		"aside": true, "footer": true, "header": true, "form": true,
 	}
-
 	blockElements = map[string]bool{
 		"p": true, "div": true, "h1": true, "h2": true, "h3": true, "h4": true, "h5": true, "h6": true,
 		"article": true, "section": true, "blockquote": true, "pre": true, "ul": true, "ol": true,
 		"li": true, "table": true, "tr": true, "td": true, "th": true, "br": true, "hr": true,
 	}
-
 	tagScores = map[string]int{
 		"article": 1000,
 		"main":    900,
@@ -91,9 +66,8 @@ func init() {
 		"div":     50,
 		"p":       0,
 	}
-}
+)
 
-// ScoreContentNode calculates content relevance score for a node.
 func ScoreContentNode(node *html.Node) int {
 	if node == nil || node.Type != html.ElementNode || IsNonContentElement(node.Data) || node.Data == "p" {
 		return 0
@@ -157,10 +131,7 @@ func ScoreContentNode(node *html.Node) int {
 	return score
 }
 
-// getTagScore thread-safe retrieves tag score.
 func getTagScore(tag string) int {
-	scoreMapsMutex.RLock()
-	defer scoreMapsMutex.RUnlock()
 	return tagScores[tag]
 }
 
@@ -176,7 +147,6 @@ func countCommas(node *html.Node) int {
 	return count
 }
 
-// ScoreAttributes scores node based on class/id attributes.
 func ScoreAttributes(n *html.Node) int {
 	if n == nil {
 		return 0
@@ -187,11 +157,11 @@ func ScoreAttributes(n *html.Node) int {
 		switch attr.Key {
 		case "class", "id":
 			lowerVal := strings.ToLower(attr.Val)
-			score += checkPatterns(lowerVal, positiveStrongPatterns)
-			score += checkPatterns(lowerVal, positiveMediumPatterns)
-			score += checkPatterns(lowerVal, negativeStrongPatterns)
-			score += checkPatterns(lowerVal, negativeMediumPatterns)
-			score += checkPatterns(lowerVal, negativeWeakPatterns)
+			score += calculatePatternScore(lowerVal, positiveStrongPatterns)
+			score += calculatePatternScore(lowerVal, positiveMediumPatterns)
+			score += calculatePatternScore(lowerVal, negativeStrongPatterns)
+			score += calculatePatternScore(lowerVal, negativeMediumPatterns)
+			score += calculatePatternScore(lowerVal, negativeWeakPatterns)
 		case "role":
 			lowerVal := strings.ToLower(attr.Val)
 			switch lowerVal {
@@ -205,11 +175,7 @@ func ScoreAttributes(n *html.Node) int {
 	return score
 }
 
-// checkPatterns returns the sum of all pattern scores that match the value (thread-safe).
-func checkPatterns(value string, patterns map[string]int) int {
-	scoreMapsMutex.RLock()
-	defer scoreMapsMutex.RUnlock()
-
+func calculatePatternScore(value string, patterns map[string]int) int {
 	score := 0
 	for pattern, patternScore := range patterns {
 		if strings.Contains(value, pattern) {
@@ -219,11 +185,7 @@ func checkPatterns(value string, patterns map[string]int) int {
 	return score
 }
 
-// MatchesPattern checks if value contains any of the patterns (thread-safe).
 func MatchesPattern(value string, patterns map[string]bool) bool {
-	scoreMapsMutex.RLock()
-	defer scoreMapsMutex.RUnlock()
-
 	for pattern := range patterns {
 		if strings.Contains(value, pattern) {
 			return true
@@ -251,7 +213,6 @@ func CalculateContentDensity(n *html.Node) float64 {
 	return density
 }
 
-// CountTags counts HTML elements in node tree.
 func CountTags(n *html.Node) int {
 	count := 0
 	WalkNodes(n, func(node *html.Node) bool {
@@ -263,10 +224,7 @@ func CountTags(n *html.Node) int {
 	return count
 }
 
-// IsNonContentElement checks if tag should be excluded from content (thread-safe).
 func IsNonContentElement(tag string) bool {
-	scoreMapsMutex.RLock()
-	defer scoreMapsMutex.RUnlock()
 	return nonContentTags[tag]
 }
 
@@ -282,7 +240,6 @@ func CountChildElements(n *html.Node, tag string) int {
 	return count
 }
 
-// ShouldRemoveElement determines if element should be removed during cleaning (thread-safe).
 func ShouldRemoveElement(n *html.Node) bool {
 	if n == nil || n.Type != html.ElementNode {
 		return false
@@ -314,9 +271,6 @@ func ShouldRemoveElement(n *html.Node) bool {
 	return false
 }
 
-// IsBlockElement checks if tag is a block-level element (thread-safe).
 func IsBlockElement(tag string) bool {
-	scoreMapsMutex.RLock()
-	defer scoreMapsMutex.RUnlock()
 	return blockElements[tag]
 }

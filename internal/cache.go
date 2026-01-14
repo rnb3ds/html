@@ -99,8 +99,6 @@ func (c *Cache) evictOne() {
 	var oldestTime int64 = 1<<63 - 1
 	var expiredKeys []string
 
-	// First pass: collect expired entries and find oldest (all under write lock)
-	// We're already holding the lock from Set(), so we can safely iterate
 	for k, e := range c.entries {
 		if e.isExpired(nowNano) {
 			expiredKeys = append(expiredKeys, k)
@@ -113,16 +111,10 @@ func (c *Cache) evictOne() {
 		}
 	}
 
-	// Delete expired entries first
 	for _, k := range expiredKeys {
 		delete(c.entries, k)
-		if len(expiredKeys) > 1 {
-			// If we deleted multiple expired entries, we're done
-			return
-		}
 	}
 
-	// If no expired entries found, remove the oldest one
 	if len(expiredKeys) == 0 && oldestKey != "" {
 		delete(c.entries, oldestKey)
 	}

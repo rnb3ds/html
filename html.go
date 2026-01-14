@@ -1,11 +1,8 @@
-// Package html provides secure, high-performance HTML content extraction.
-// It is 100% compatible with golang.org/x/net/html and adds enhanced content extraction features.
 package html
 
 import (
 	"context"
 	"crypto/sha256"
-	"encoding/binary"
 	"encoding/hex"
 	"fmt"
 	stdhtml "html"
@@ -21,7 +18,6 @@ import (
 	"golang.org/x/net/html"
 )
 
-// Re-export all types and constants from golang.org/x/net/html for 100% compatibility.
 type (
 	Node      = html.Node
 	NodeType  = html.NodeType
@@ -48,7 +44,6 @@ const (
 	DoctypeToken        = html.DoctypeToken
 )
 
-// Re-export all functions from golang.org/x/net/html for 100% compatibility.
 var (
 	Parse          = html.Parse
 	ParseFragment  = html.ParseFragment
@@ -58,18 +53,16 @@ var (
 	NewTokenizer   = html.NewTokenizer
 )
 
-// Extract extracts content from HTML using default configuration.
-func Extract(htmlContent string) (*Result, error) {
+func Extract(htmlContent string, configs ...ExtractConfig) (*Result, error) {
 	processor := NewWithDefaults()
 	defer processor.Close()
-	return processor.ExtractWithDefaults(htmlContent)
+	return processor.Extract(htmlContent, configs...)
 }
 
-// ExtractFromFile reads and extracts content from an HTML file using defaults.
-func ExtractFromFile(filePath string) (*Result, error) {
+func ExtractFromFile(filePath string, configs ...ExtractConfig) (*Result, error) {
 	processor := NewWithDefaults()
 	defer processor.Close()
-	return processor.ExtractFromFile(filePath, DefaultExtractConfig())
+	return processor.ExtractFromFile(filePath, configs...)
 }
 
 // ExtractText extracts only text content without metadata.
@@ -81,19 +74,10 @@ func ExtractText(htmlContent string) (string, error) {
 	return result.Text, nil
 }
 
-// ExtractAllLinks extracts all resource links from HTML using default configuration.
-// Automatically resolves relative URLs and deduplicates results.
-// Optional baseURL parameter overrides automatic base URL detection.
-func ExtractAllLinks(htmlContent string, baseURL ...string) ([]LinkResource, error) {
+func ExtractAllLinks(htmlContent string, configs ...LinkExtractionConfig) ([]LinkResource, error) {
 	processor := NewWithDefaults()
 	defer processor.Close()
-
-	config := DefaultLinkExtractionConfig()
-	if len(baseURL) > 0 && baseURL[0] != "" {
-		config.BaseURL = baseURL[0]
-	}
-
-	return processor.ExtractAllLinks(htmlContent, config)
+	return processor.ExtractAllLinks(htmlContent, configs...)
 }
 
 // GroupLinksByType groups LinkResource slice by their Type field.
@@ -133,13 +117,10 @@ const (
 )
 
 var (
-	// Package-level regex patterns (compiled once, thread-safe in Go 1.6+)
-	whitespaceRegex = regexp.MustCompile(`\s+`)
-	videoRegex      = regexp.MustCompile(`(?i)https?://[^\s<>"',;)}\]]{1,500}\.(?:mp4|webm|ogg|mov|avi|wmv|flv|mkv|m4v|3gp)`)
-	audioRegex      = regexp.MustCompile(`(?i)https?://[^\s<>"',;)}\]]{1,500}\.(?:mp3|wav|ogg|m4a|aac|flac|wma|opus|oga)`)
+	videoRegex = regexp.MustCompile(`(?i)https?://[^\s<>"',;)}\]]{1,500}\.(?:mp4|webm|ogg|mov|avi|wmv|flv|mkv|m4v|3gp)`)
+	audioRegex = regexp.MustCompile(`(?i)https?://[^\s<>"',;)}\]]{1,500}\.(?:mp3|wav|ogg|m4a|aac|flac|wma|opus|oga)`)
 )
 
-// Processor provides thread-safe HTML content extraction.
 type Processor struct {
 	config *Config
 	cache  *internal.Cache
@@ -153,18 +134,16 @@ type Processor struct {
 	}
 }
 
-// Config holds processor configuration with security and performance settings.
 type Config struct {
-	MaxInputSize       int          // Limit input HTML size (default: 50MB)
-	MaxCacheEntries    int          // Cache size with LRU eviction (default: 1000, 0 disables)
-	CacheTTL           time.Duration // Cache entry expiration (default: 1 hour, 0 = no expiration)
-	WorkerPoolSize     int          // Parallel processing workers (default: 4)
-	EnableSanitization bool         // Remove script/style tags for security (default: true)
-	MaxDepth           int          // Prevent billion laughs attacks (default: 100)
-	ProcessingTimeout  time.Duration // Prevent DoS (default: 30s, 0 disables)
+	MaxInputSize       int
+	MaxCacheEntries    int
+	CacheTTL           time.Duration
+	WorkerPoolSize     int
+	EnableSanitization bool
+	MaxDepth           int
+	ProcessingTimeout  time.Duration
 }
 
-// DefaultConfig returns default configuration.
 func DefaultConfig() Config {
 	return Config{
 		MaxInputSize:       DefaultMaxInputSize,
@@ -177,7 +156,6 @@ func DefaultConfig() Config {
 	}
 }
 
-// validateConfig validates processor configuration for consistency and security.
 func validateConfig(c Config) error {
 	switch {
 	case c.MaxInputSize <= 0:
@@ -203,17 +181,15 @@ func validateConfig(c Config) error {
 	return nil
 }
 
-// ExtractConfig configures content extraction behavior.
 type ExtractConfig struct {
-	ExtractArticle    bool // Enable intelligent article detection
-	PreserveImages    bool // Include image metadata in results
-	PreserveLinks     bool // Include link metadata in results
-	PreserveVideos    bool // Include video metadata in results
-	PreserveAudios    bool // Include audio metadata in results
-	InlineImageFormat string // Format: "none", "placeholder", "markdown", "html"
+	ExtractArticle    bool
+	PreserveImages    bool
+	PreserveLinks     bool
+	PreserveVideos    bool
+	PreserveAudios    bool
+	InlineImageFormat string
 }
 
-// DefaultExtractConfig returns default extraction configuration.
 func DefaultExtractConfig() ExtractConfig {
 	return ExtractConfig{
 		ExtractArticle:    true,
@@ -225,7 +201,6 @@ func DefaultExtractConfig() ExtractConfig {
 	}
 }
 
-// Result contains extraction results.
 type Result struct {
 	Text           string
 	Title          string
@@ -238,7 +213,6 @@ type Result struct {
 	ReadingTime    time.Duration
 }
 
-// ImageInfo contains image metadata.
 type ImageInfo struct {
 	URL          string
 	Alt          string
@@ -249,7 +223,6 @@ type ImageInfo struct {
 	Position     int
 }
 
-// LinkInfo contains link metadata.
 type LinkInfo struct {
 	URL        string
 	Text       string
@@ -258,7 +231,6 @@ type LinkInfo struct {
 	IsNoFollow bool
 }
 
-// VideoInfo contains video metadata.
 type VideoInfo struct {
 	URL      string
 	Type     string
@@ -268,35 +240,31 @@ type VideoInfo struct {
 	Duration string
 }
 
-// AudioInfo contains audio metadata.
 type AudioInfo struct {
 	URL      string
 	Type     string
 	Duration string
 }
 
-// LinkResource represents a comprehensive link resource with metadata.
 type LinkResource struct {
-	URL   string // Complete URL (resolved if originally relative)
-	Title string // Link title or resource name
-	Type  string // Resource type: "link", "image", "video", "audio", "css", "js", "icon"
+	URL   string
+	Title string
+	Type  string
 }
 
-// LinkExtractionConfig configures comprehensive link extraction behavior.
 type LinkExtractionConfig struct {
-	ResolveRelativeURLs  bool // Auto-resolve relative URLs using base URL
-	BaseURL              string // Explicit base URL (overrides auto-detection)
-	IncludeImages        bool // Include image resources
-	IncludeVideos        bool // Include video resources
-	IncludeAudios        bool // Include audio resources
-	IncludeCSS           bool // Include CSS stylesheet links
-	IncludeJS            bool // Include JavaScript resources
-	IncludeContentLinks  bool // Include content navigation links
-	IncludeExternalLinks bool // Include external domain links
-	IncludeIcons         bool // Include favicon and icon links
+	ResolveRelativeURLs  bool
+	BaseURL              string
+	IncludeImages        bool
+	IncludeVideos        bool
+	IncludeAudios        bool
+	IncludeCSS           bool
+	IncludeJS            bool
+	IncludeContentLinks  bool
+	IncludeExternalLinks bool
+	IncludeIcons         bool
 }
 
-// DefaultLinkExtractionConfig returns default link extraction configuration.
 func DefaultLinkExtractionConfig() LinkExtractionConfig {
 	return LinkExtractionConfig{
 		ResolveRelativeURLs:  true,
@@ -312,7 +280,20 @@ func DefaultLinkExtractionConfig() LinkExtractionConfig {
 	}
 }
 
-// Statistics contains processing metrics.
+func resolveExtractConfig(configs ...ExtractConfig) ExtractConfig {
+	if len(configs) > 0 {
+		return configs[0]
+	}
+	return DefaultExtractConfig()
+}
+
+func resolveLinkExtractionConfig(configs ...LinkExtractionConfig) LinkExtractionConfig {
+	if len(configs) > 0 {
+		return configs[0]
+	}
+	return DefaultLinkExtractionConfig()
+}
+
 type Statistics struct {
 	TotalProcessed     int64
 	CacheHits          int64
@@ -321,7 +302,6 @@ type Statistics struct {
 	AverageProcessTime time.Duration
 }
 
-// New creates a Processor with the given configuration.
 func New(config Config) (*Processor, error) {
 	if err := validateConfig(config); err != nil {
 		return nil, err
@@ -332,24 +312,24 @@ func New(config Config) (*Processor, error) {
 	}, nil
 }
 
-// NewWithDefaults creates a Processor with default configuration.
 func NewWithDefaults() *Processor {
 	p, _ := New(DefaultConfig())
 	return p
 }
 
-// Extract extracts content from HTML with the given configuration.
-func (p *Processor) Extract(htmlContent string, config ExtractConfig) (*Result, error) {
+func (p *Processor) Extract(htmlContent string, configs ...ExtractConfig) (*Result, error) {
 	if p.closed.Load() {
 		return nil, ErrProcessorClosed
 	}
 
-	startTime := time.Now()
+	config := resolveExtractConfig(configs...)
 
 	if len(htmlContent) > p.config.MaxInputSize {
 		p.stats.errorCount.Add(1)
 		return nil, fmt.Errorf("%w: size=%d, max=%d", ErrInputTooLarge, len(htmlContent), p.config.MaxInputSize)
 	}
+
+	startTime := time.Now()
 
 	cacheKey := p.generateCacheKey(htmlContent, config)
 	if cached := p.cache.Get(cacheKey); cached != nil {
@@ -387,7 +367,6 @@ func (p *Processor) Extract(htmlContent string, config ExtractConfig) (*Result, 
 	return result, nil
 }
 
-// processWithTimeout processes content with timeout protection using context.
 func (p *Processor) processWithTimeout(htmlContent string, config ExtractConfig) (*Result, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), p.config.ProcessingTimeout)
 	defer cancel()
@@ -414,19 +393,19 @@ func (p *Processor) processWithTimeout(htmlContent string, config ExtractConfig)
 	}
 }
 
-// ExtractWithDefaults extracts content using default extraction configuration.
 func (p *Processor) ExtractWithDefaults(htmlContent string) (*Result, error) {
 	return p.Extract(htmlContent, DefaultExtractConfig())
 }
 
-// ExtractFromFile reads and extracts content from an HTML file.
-func (p *Processor) ExtractFromFile(filePath string, config ExtractConfig) (*Result, error) {
+func (p *Processor) ExtractFromFile(filePath string, configs ...ExtractConfig) (*Result, error) {
 	if p.closed.Load() {
 		return nil, ErrProcessorClosed
 	}
 	if filePath == "" {
 		return nil, fmt.Errorf("%w: empty file path", ErrFileNotFound)
 	}
+
+	config := resolveExtractConfig(configs...)
 
 	data, err := os.ReadFile(filePath)
 	if err != nil {
@@ -439,8 +418,7 @@ func (p *Processor) ExtractFromFile(filePath string, config ExtractConfig) (*Res
 	return p.Extract(string(data), config)
 }
 
-// ExtractBatch processes multiple HTML contents in parallel using a worker pool.
-func (p *Processor) ExtractBatch(htmlContents []string, config ExtractConfig) ([]*Result, error) {
+func (p *Processor) ExtractBatch(htmlContents []string, configs ...ExtractConfig) ([]*Result, error) {
 	if p.closed.Load() {
 		return nil, ErrProcessorClosed
 	}
@@ -448,6 +426,8 @@ func (p *Processor) ExtractBatch(htmlContents []string, config ExtractConfig) ([
 	if len(htmlContents) == 0 {
 		return []*Result{}, nil
 	}
+
+	config := resolveExtractConfig(configs...)
 
 	results := make([]*Result, len(htmlContents))
 	errs := make([]error, len(htmlContents))
@@ -469,8 +449,7 @@ func (p *Processor) ExtractBatch(htmlContents []string, config ExtractConfig) ([
 	return collectResults(results, errs, nil)
 }
 
-// ExtractBatchFiles processes multiple HTML files in parallel using a worker pool.
-func (p *Processor) ExtractBatchFiles(filePaths []string, config ExtractConfig) ([]*Result, error) {
+func (p *Processor) ExtractBatchFiles(filePaths []string, configs ...ExtractConfig) ([]*Result, error) {
 	if p.closed.Load() {
 		return nil, ErrProcessorClosed
 	}
@@ -478,6 +457,8 @@ func (p *Processor) ExtractBatchFiles(filePaths []string, config ExtractConfig) 
 	if len(filePaths) == 0 {
 		return []*Result{}, nil
 	}
+
+	config := resolveExtractConfig(configs...)
 
 	results := make([]*Result, len(filePaths))
 	errs := make([]error, len(filePaths))
@@ -499,18 +480,19 @@ func (p *Processor) ExtractBatchFiles(filePaths []string, config ExtractConfig) 
 	return collectResults(results, errs, filePaths)
 }
 
-// ExtractAllLinks extracts all resource links from HTML with comprehensive metadata.
-func (p *Processor) ExtractAllLinks(htmlContent string, config LinkExtractionConfig) ([]LinkResource, error) {
+func (p *Processor) ExtractAllLinks(htmlContent string, configs ...LinkExtractionConfig) ([]LinkResource, error) {
 	if p.closed.Load() {
 		return nil, ErrProcessorClosed
 	}
 
-	startTime := time.Now()
+	config := resolveLinkExtractionConfig(configs...)
 
 	if len(htmlContent) > p.config.MaxInputSize {
 		p.stats.errorCount.Add(1)
 		return nil, fmt.Errorf("%w: size=%d, max=%d", ErrInputTooLarge, len(htmlContent), p.config.MaxInputSize)
 	}
+
+	startTime := time.Now()
 
 	// Process with timeout if configured
 	var links []LinkResource
@@ -533,7 +515,6 @@ func (p *Processor) ExtractAllLinks(htmlContent string, config LinkExtractionCon
 	return links, nil
 }
 
-// extractLinksWithTimeout processes link extraction with timeout protection using context.
 func (p *Processor) extractLinksWithTimeout(htmlContent string, config LinkExtractionConfig) ([]LinkResource, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), p.config.ProcessingTimeout)
 	defer cancel()
@@ -590,7 +571,6 @@ func collectResults(results []*Result, errs []error, names []string) ([]*Result,
 	}
 }
 
-// GetStatistics returns processing statistics.
 func (p *Processor) GetStatistics() Statistics {
 	totalProcessed := p.stats.totalProcessed.Load()
 	totalTime := time.Duration(p.stats.totalProcessTime.Load())
@@ -607,14 +587,12 @@ func (p *Processor) GetStatistics() Statistics {
 	}
 }
 
-// ClearCache clears the cache and resets cache statistics.
 func (p *Processor) ClearCache() {
 	p.cache.Clear()
 	p.stats.cacheHits.Store(0)
 	p.stats.cacheMisses.Store(0)
 }
 
-// Close releases processor resources.
 func (p *Processor) Close() error {
 	if !p.closed.CompareAndSwap(false, true) {
 		return nil
@@ -624,7 +602,6 @@ func (p *Processor) Close() error {
 }
 
 func (p *Processor) processContent(htmlContent string, opts ExtractConfig) (*Result, error) {
-	// Validate input is not empty
 	if strings.TrimSpace(htmlContent) == "" {
 		return &Result{}, nil
 	}
@@ -679,16 +656,22 @@ func (p *Processor) extractFromDocument(doc *html.Node, htmlContent string, opts
 		format = "none"
 	}
 
-	if format != "none" && opts.PreserveImages {
-		result.Images = p.extractImagesWithPosition(contentNode)
+	if format != "none" {
+		images := p.extractImagesWithPosition(contentNode)
+
+		if opts.PreserveImages {
+			result.Images = images
+		}
+
 		var sb strings.Builder
 		sb.Grow(initialTextSize)
 		imageCounter := 0
 		internal.ExtractTextWithStructureAndImages(contentNode, &sb, 0, &imageCounter)
-		textWithPlaceholders := internal.CleanText(sb.String(), whitespaceRegex)
-		result.Text = p.formatInlineImages(textWithPlaceholders, result.Images, format)
+		textWithPlaceholders := internal.CleanText(sb.String(), nil)
+		result.Text = p.formatInlineImages(textWithPlaceholders, images, format)
 	} else {
 		result.Text = p.extractTextContent(contentNode)
+
 		if opts.PreserveImages {
 			result.Images = p.extractImages(contentNode)
 		}
@@ -748,12 +731,11 @@ func (p *Processor) extractArticleNode(doc *html.Node) *html.Node {
 	return internal.FindElementByTag(doc, "body")
 }
 
-// extractTextContent extracts clean text from HTML node with optimized performance.
 func (p *Processor) extractTextContent(node *html.Node) string {
 	var sb strings.Builder
 	sb.Grow(initialTextSize)
 	internal.ExtractTextWithStructureAndImages(node, &sb, 0, nil)
-	return internal.CleanText(sb.String(), whitespaceRegex)
+	return internal.CleanText(sb.String(), nil)
 }
 
 func (p *Processor) formatInlineImages(textWithPlaceholders string, images []ImageInfo, format string) string {
@@ -1134,10 +1116,13 @@ func isValidURL(url string) bool {
 		return false
 	}
 
-	// Special handling for data URLs
+	// Special handling for data URLs - stricter validation
 	if strings.HasPrefix(url, "data:") {
+		// data: URLs should only contain safe printable ASCII characters
 		for i := 5; i < urlLen; i++ {
-			if b := url[i]; b < 32 || b == 127 {
+			b := url[i]
+			// Allow only printable ASCII (32-126), excluding dangerous chars
+			if b < 32 || b > 126 || b == '<' || b == '>' || b == '"' || b == '\'' || b == '\\' {
 				return false
 			}
 		}
@@ -1176,7 +1161,7 @@ func isValidURL(url string) bool {
 func (p *Processor) generateCacheKey(content string, opts ExtractConfig) string {
 	h := sha256.New()
 
-	// Encode configuration as a simple string for clarity and maintainability
+	// Encode configuration into hash
 	configKey := strconv.FormatBool(opts.ExtractArticle) + "," +
 		strconv.FormatBool(opts.PreserveImages) + "," +
 		strconv.FormatBool(opts.PreserveLinks) + "," +
@@ -1188,19 +1173,14 @@ func (p *Processor) generateCacheKey(content string, opts ExtractConfig) string 
 
 	contentLen := len(content)
 	if contentLen <= maxCacheKeySize {
+		// For small content, hash the entire content
 		h.Write([]byte(content))
 	} else {
-		// Use more robust sampling: start, middle, end with length info
-		sampleSize := cacheKeySample / 3
-		h.Write([]byte(content[:sampleSize]))
-		mid := contentLen >> 1
-		h.Write([]byte(content[mid-sampleSize/2 : mid+sampleSize/2]))
-		h.Write([]byte(content[contentLen-sampleSize:]))
-
-		// Write content length using binary.Write for clarity
-		lenBuf := make([]byte, 8)
-		binary.LittleEndian.PutUint64(lenBuf, uint64(contentLen))
-		h.Write(lenBuf)
+		// For large content, hash beginning and end with length
+		// This provides good cache distribution while avoiding memory pressure
+		h.Write([]byte(content[:cacheKeySample]))
+		h.Write([]byte(content[contentLen-cacheKeySample:]))
+		h.Write([]byte(strconv.Itoa(contentLen)))
 	}
 
 	var buf [32]byte
@@ -1855,28 +1835,20 @@ func (p *Processor) extractEmbedLinks(n *html.Node, baseURL string, linkMap map[
 // Package-Level Convenience Functions
 // ============================================================================
 
-// ExtractToMarkdown extracts HTML content and converts it to Markdown format.
-// Images are preserved as Markdown image syntax with their alt text.
 func ExtractToMarkdown(htmlContent string) (string, error) {
-	result, err := Extract(htmlContent)
+	processor := NewWithDefaults()
+	defer processor.Close()
+
+	config := DefaultExtractConfig()
+	config.InlineImageFormat = "markdown"
+	result, err := processor.Extract(htmlContent, config)
 	if err != nil {
 		return "", err
 	}
 
-	processor := NewWithDefaults()
-	defer processor.Close()
-
-	markdownConfig := DefaultExtractConfig()
-	markdownConfig.InlineImageFormat = "markdown"
-	markdownResult, err := processor.Extract(htmlContent, markdownConfig)
-	if err != nil {
-		return result.Text, nil // Fallback to plain text
-	}
-
-	return markdownResult.Text, nil
+	return result.Text, nil
 }
 
-// jsonBuilderPool reuses builders for JSON generation.
 var jsonBuilderPool = sync.Pool{
 	New: func() any {
 		sb := &strings.Builder{}
@@ -1885,9 +1857,6 @@ var jsonBuilderPool = sync.Pool{
 	},
 }
 
-// ExtractToJSON extracts HTML content and returns it as JSON bytes.
-// The JSON includes all extracted data: title, text, images, links, videos, audios, word count, and reading time.
-// Optimized for Go 1.24+ with sync.Pool and efficient string building.
 func ExtractToJSON(htmlContent string) ([]byte, error) {
 	result, err := Extract(htmlContent)
 	if err != nil {
@@ -1948,12 +1917,9 @@ func ExtractToJSON(htmlContent string) ([]byte, error) {
 
 	buf.WriteString("}")
 
-	resultBytes := make([]byte, buf.Len())
-	copy(resultBytes, []byte(buf.String()))
-	return resultBytes, nil
+	return []byte(buf.String()), nil
 }
 
-// writeJSONStringFast writes a JSON string with optimized escaping for Go 1.24+.
 func writeJSONStringFast(sb *strings.Builder, s string) {
 	sb.WriteByte('"')
 	// Use strings.Builder's internal buffer more efficiently
@@ -1999,7 +1965,6 @@ func writeJSONStringFast(sb *strings.Builder, s string) {
 	sb.WriteByte('"')
 }
 
-// writeImagesJSON efficiently writes image array to JSON.
 func writeImagesJSON(sb *strings.Builder, images []ImageInfo) {
 	for i, img := range images {
 		if i > 0 {
@@ -2023,7 +1988,6 @@ func writeImagesJSON(sb *strings.Builder, images []ImageInfo) {
 	}
 }
 
-// writeLinksJSON efficiently writes link array to JSON.
 func writeLinksJSON(sb *strings.Builder, links []LinkInfo) {
 	for i, link := range links {
 		if i > 0 {
@@ -2043,7 +2007,6 @@ func writeLinksJSON(sb *strings.Builder, links []LinkInfo) {
 	}
 }
 
-// writeVideosJSON efficiently writes video array to JSON.
 func writeVideosJSON(sb *strings.Builder, videos []VideoInfo) {
 	for i, vid := range videos {
 		if i > 0 {
@@ -2065,7 +2028,6 @@ func writeVideosJSON(sb *strings.Builder, videos []VideoInfo) {
 	}
 }
 
-// writeAudiosJSON efficiently writes audio array to JSON.
 func writeAudiosJSON(sb *strings.Builder, audios []AudioInfo) {
 	for i, aud := range audios {
 		if i > 0 {
@@ -2081,14 +2043,6 @@ func writeAudiosJSON(sb *strings.Builder, audios []AudioInfo) {
 	}
 }
 
-// writeJSONString writes a string as JSON to the builder with proper escaping.
-// Deprecated: Use writeJSONStringFast for better performance.
-func writeJSONString(sb *strings.Builder, s string) {
-	writeJSONStringFast(sb, s)
-}
-
-// ExtractWithTitle extracts both the title and text content from HTML.
-// Returns (title, text, error).
 func ExtractWithTitle(htmlContent string) (string, string, error) {
 	result, err := Extract(htmlContent)
 	if err != nil {
@@ -2097,7 +2051,6 @@ func ExtractWithTitle(htmlContent string) (string, string, error) {
 	return result.Title, result.Text, nil
 }
 
-// ExtractImages extracts only image information from HTML content.
 func ExtractImages(htmlContent string) ([]ImageInfo, error) {
 	result, err := Extract(htmlContent)
 	if err != nil {
@@ -2106,7 +2059,6 @@ func ExtractImages(htmlContent string) ([]ImageInfo, error) {
 	return result.Images, nil
 }
 
-// ExtractVideos extracts only video information from HTML content.
 func ExtractVideos(htmlContent string) ([]VideoInfo, error) {
 	result, err := Extract(htmlContent)
 	if err != nil {
@@ -2115,7 +2067,6 @@ func ExtractVideos(htmlContent string) ([]VideoInfo, error) {
 	return result.Videos, nil
 }
 
-// ExtractAudios extracts only audio information from HTML content.
 func ExtractAudios(htmlContent string) ([]AudioInfo, error) {
 	result, err := Extract(htmlContent)
 	if err != nil {
@@ -2124,7 +2075,6 @@ func ExtractAudios(htmlContent string) ([]AudioInfo, error) {
 	return result.Audios, nil
 }
 
-// ExtractLinks extracts only link information from HTML content.
 func ExtractLinks(htmlContent string) ([]LinkInfo, error) {
 	result, err := Extract(htmlContent)
 	if err != nil {
@@ -2133,8 +2083,6 @@ func ExtractLinks(htmlContent string) ([]LinkInfo, error) {
 	return result.Links, nil
 }
 
-// ConfigForRSS returns an ExtractConfig optimized for RSS feed generation.
-// Disables article detection for faster processing.
 func ConfigForRSS() ExtractConfig {
 	return ExtractConfig{
 		ExtractArticle:    false,
@@ -2146,8 +2094,6 @@ func ConfigForRSS() ExtractConfig {
 	}
 }
 
-// ConfigForSearchIndex returns an ExtractConfig optimized for search indexing.
-// Includes all metadata and content for comprehensive indexing.
 func ConfigForSearchIndex() ExtractConfig {
 	return ExtractConfig{
 		ExtractArticle:    true,
@@ -2159,8 +2105,6 @@ func ConfigForSearchIndex() ExtractConfig {
 	}
 }
 
-// ConfigForSummary returns an ExtractConfig optimized for content summaries.
-// Focuses on text content without media or links.
 func ConfigForSummary() ExtractConfig {
 	return ExtractConfig{
 		ExtractArticle:    true,
@@ -2172,8 +2116,6 @@ func ConfigForSummary() ExtractConfig {
 	}
 }
 
-// ConfigForMarkdown returns an ExtractConfig optimized for Markdown output.
-// Preserves images as inline Markdown syntax.
 func ConfigForMarkdown() ExtractConfig {
 	return ExtractConfig{
 		ExtractArticle:    true,
@@ -2185,8 +2127,6 @@ func ConfigForMarkdown() ExtractConfig {
 	}
 }
 
-// Summarize extracts content and returns a summary limited to maxWords.
-// If maxWords is 0 or negative, returns the full text.
 func Summarize(htmlContent string, maxWords int) (string, error) {
 	result, err := Extract(htmlContent)
 	if err != nil {
@@ -2209,15 +2149,13 @@ func Summarize(htmlContent string, maxWords int) (string, error) {
 	return summary, nil
 }
 
-// ExtractAndClean extracts content from HTML and returns thoroughly cleaned text.
-// Removes extra whitespace, normalizes line breaks, and trims leading/trailing space.
 func ExtractAndClean(htmlContent string) (string, error) {
 	result, err := Extract(htmlContent)
 	if err != nil {
 		return "", err
 	}
 
-	cleaned := whitespaceRegex.ReplaceAllString(result.Text, " ")
+	cleaned := internal.WhitespaceRegex.ReplaceAllString(result.Text, " ")
 	lines := strings.Split(cleaned, "\n")
 	var nonEmptyLines []string
 	for _, line := range lines {
@@ -2230,8 +2168,6 @@ func ExtractAndClean(htmlContent string) (string, error) {
 	return strings.Join(nonEmptyLines, "\n\n"), nil
 }
 
-// GetReadingTime estimates reading time for HTML content in minutes.
-// Returns the estimated reading time as a float (minutes).
 func GetReadingTime(htmlContent string) (float64, error) {
 	result, err := Extract(htmlContent)
 	if err != nil {
@@ -2240,7 +2176,6 @@ func GetReadingTime(htmlContent string) (float64, error) {
 	return result.ReadingTime.Minutes(), nil
 }
 
-// GetWordCount returns the word count of HTML content.
 func GetWordCount(htmlContent string) (int, error) {
 	result, err := Extract(htmlContent)
 	if err != nil {
@@ -2249,8 +2184,6 @@ func GetWordCount(htmlContent string) (int, error) {
 	return result.WordCount, nil
 }
 
-// ExtractTitle extracts only the title from HTML content.
-// Searches for <title>, <h1>, then <h2> tags in that order.
 func ExtractTitle(htmlContent string) (string, error) {
 	result, err := Extract(htmlContent)
 	if err != nil {
