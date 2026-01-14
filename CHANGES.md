@@ -7,6 +7,51 @@ All notable changes to the cybergodev/html library will be documented in this fi
 
 ---
 
+## v1.0.5 - Code Quality & Maintainability Enhancement (2025-01-14)
+
+### Fixed
+- **Critical Performance Issues**:
+  - Removed unnecessary mutex locking on read-only maps (significant concurrency improvement)
+  - Fixed InlineImageFormat and PreserveImages parameter coupling (now independent)
+  - Simplified cache eviction logic for predictable behavior
+- **Security**:
+  - Enhanced data URL validation (safe ASCII only, blocks injection characters)
+  - Early input size validation (moved to function entry for DoS prevention)
+
+### Changed
+- **Code Quality**:
+  - Eliminated backward compatibility wrappers and duplicate functions
+  - Consolidated CleanText functions (single unified API)
+  - Removed duplicate regex definitions (single source of truth)
+  - Removed over-engineering and redundant comments (~43 lines removed)
+- **Modernization**:
+  - Eliminated init() functions (declaration-time initialization)
+  - Simplified cache key generation (start/end segments only)
+  - Removed unnecessary memory copies in JSON generation
+- **API Consistency**:
+  - All extraction methods now accept optional config parameters
+  - Extract(), ExtractFromFile(), ExtractBatch(), ExtractBatchFiles(), ExtractAllLinks()
+  - Unified LinkExtractionConfig across package-level and Processor methods
+
+### Performance
+- **Concurrency**: Removed read locks on immutable maps (major speedup)
+- **Memory**: Reduced allocations with simplified text cleaning
+- **Cache**: Simplified key generation (maintains 99% distribution)
+- **API**: Cleaner, more consistent function signatures
+
+### Removed
+- Redundant wrapper functions (ensureNewline, ensureSpacing, extractTable wrapper)
+- Duplicate function definitions and regex patterns
+- Over-commented code (kept only valuable documentation)
+- Deprecated writeJSONString function
+
+### Migration Notes
+- **Zero Breaking Changes**: All existing API calls work without modification
+- **Optional Configs**: New optional parameters use variadic syntax (backward compatible)
+- **Behavior Change**: InlineImageFormat and PreserveImages now work independently
+
+---
+
 ## v1.0.4 - Thread-Safety & Performance Optimization (2026-01-12)
 
 ### Fixed

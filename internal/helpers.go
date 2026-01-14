@@ -7,20 +7,14 @@ import (
 	"golang.org/x/net/html"
 )
 
-var (
-	// Package-level regex for whitespace (compiled once, thread-safe in Go 1.6+)
-	whitespaceRegex = regexp.MustCompile(`\s+`)
-)
+var WhitespaceRegex = regexp.MustCompile(`\s+`)
 
-// CleanTextWithRegex cleans text using provided regex.
-// Note: The regex parameter should be a compiled regex pattern.
-// In Go 1.6+, regexp.Regexp is safe for concurrent use.
-func CleanTextWithRegex(text string, whitespaceRegex *regexp.Regexp) string {
+func CleanText(text string, whitespaceRegex *regexp.Regexp) string {
 	if text == "" {
 		return ""
 	}
 	if whitespaceRegex == nil {
-		return ReplaceHTMLEntities(strings.TrimSpace(text))
+		whitespaceRegex = WhitespaceRegex
 	}
 	textLen := len(text)
 	var result strings.Builder
@@ -104,7 +98,6 @@ func GetLinkDensity(node *html.Node) float64 {
 		if n.Type == html.TextNode {
 			length := len(strings.TrimSpace(n.Data))
 			textLength += length
-			// Check if any ancestor is an <a> tag
 			for parent := n.Parent; parent != nil; parent = parent.Parent {
 				if parent.Type == html.ElementNode && parent.Data == "a" {
 					linkTextLength += length
@@ -119,12 +112,6 @@ func GetLinkDensity(node *html.Node) float64 {
 		return 0.0
 	}
 	return float64(linkTextLength) / float64(textLength)
-}
-
-// CleanText cleans text with optional whitespace regex replacement.
-// For backward compatibility, it accepts an optional regex parameter.
-func CleanText(text string, whitespaceRegex *regexp.Regexp) string {
-	return CleanTextWithRegex(text, whitespaceRegex)
 }
 
 var entityReplacer = strings.NewReplacer(

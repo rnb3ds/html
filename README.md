@@ -11,21 +11,21 @@
 
 #### **[📖 中文文档](README_zh-CN.md)** - User guide
 
-## Features
+## ✨ Core Features
 
-### Content Extraction
+### 🎯 Content Extraction
 - **Article Detection**: Identifies main content using scoring algorithms (text density, link density, semantic tags)
 - **Smart Text Extraction**: Preserves structure, handles newlines, calculates word count and reading time
 - **Media Extraction**: Images, videos, audio with metadata (URL, dimensions, alt text, type detection)
 - **Link Analysis**: External/internal detection, nofollow attributes, anchor text extraction
 
-### Performance
+### ⚡ Performance
 - **Content-Addressable Caching**: SHA256-based keys with TTL and LRU eviction
 - **Batch Processing**: Parallel extraction with configurable worker pools
 - **Thread-Safe**: Concurrent use without external synchronization
 - **Resource Limits**: Configurable input size, nesting depth, and timeout protection
 
-### Use Cases
+### 📖 Use Cases
 - 📰 **News Aggregators**: Extract article content from news sites
 - 🤖 **Web Scrapers**: Get structured data from HTML pages
 - 📝 **Content Management**: Convert HTML to Markdown or other formats
@@ -36,7 +36,7 @@
 
 ---
 
-## Installation
+## 📦 Installation
 
 ```bash
 go get github.com/cybergodev/html
@@ -44,20 +44,20 @@ go get github.com/cybergodev/html
 
 ---
 
-## 5-Minute Quick Start
+## ⚡ 5-Minute Quick Start
 
 ```go
 import "github.com/cybergodev/html"
 
 // Extract clean text from HTML
-text, _ := html.ExtractText(`
+htmlContent, _ := html.ExtractText(`
     <html>
         <nav>Navigation</nav>
         <article><h1>Hello World</h1><p>Content here...</p></article>
         <footer>Footer</footer>
     </html>
 `)
-fmt.Println(text) // "Hello World\nContent here..."
+fmt.Println(htmlContent) // "Hello World\nContent here..."
 ```
 
 **That's it!** The library automatically:
@@ -67,7 +67,7 @@ fmt.Println(text) // "Hello World\nContent here..."
 
 ---
 
-## Quick Guide
+## 🚀 Quick Guide
 
 ### One-Liner Functions
 
@@ -80,22 +80,22 @@ text, _ := html.ExtractText(htmlContent)
 // Extract everything
 result, _ := html.Extract(htmlContent)
 fmt.Println(result.Title)     // Hello World
-fmt.Println(result.Text)      // Clean text
-fmt.Println(result.WordCount) // 5
+fmt.Println(result.Text)      // Content here...
+fmt.Println(result.WordCount) // 4
 
 // Extract only specific elements
-title, _ := html.ExtractTitle(htmlContent)
-images, _ := html.ExtractImages(htmlContent)
-links, _ := html.ExtractLinks(htmlContent)
+title, err := html.ExtractTitle(htmlContent)
+images, err := html.ExtractImages(htmlContent)
+links, err := html.ExtractLinks(htmlContent)
 
 // Convert formats
-markdown, _ := html.ExtractToMarkdown(htmlContent)
-jsonData, _ := html.ExtractToJSON(htmlContent)
+markdown, err := html.ExtractToMarkdown(htmlContent)
+jsonData, err := html.ExtractToJSON(htmlContent)
 
 // Content analysis
-wordCount, _ := html.GetWordCount(htmlContent)
-readingTime, _ := html.GetReadingTime(htmlContent)
-summary, _ := html.Summarize(htmlContent, 50) // max 50 words
+wordCount, err := html.GetWordCount(htmlContent)
+readingTime, err := html.GetReadingTime(htmlContent)
+summary, err := html.Summarize(htmlContent, 50) // max 50 words
 ```
 
 **When to use:** Simple scripts, one-off tasks, quick prototyping
@@ -111,14 +111,14 @@ processor := html.NewWithDefaults()
 defer processor.Close()
 
 // Extract with defaults
-result, _ := processor.ExtractWithDefaults(htmlContent)
+result, err := processor.ExtractWithDefaults(htmlContent)
 
 // Extract from file
-result, _ = processor.ExtractFromFile("page.html", html.DefaultExtractConfig())
+result, err = processor.ExtractFromFile("page.html", html.DefaultExtractConfig())
 
 // Batch processing
 htmlContents := []string{html1, html2, html3}
-results, _ := processor.ExtractBatch(htmlContents, html.DefaultExtractConfig())
+results, err := processor.ExtractBatch(htmlContents, html.DefaultExtractConfig())
 ```
 
 **When to use:** Multiple extractions, processing many files, web scrapers
@@ -142,7 +142,7 @@ config := html.ExtractConfig{
 processor := html.NewWithDefaults()
 defer processor.Close()
 
-result, _ := processor.Extract(htmlContent, config)
+result, err := processor.Extract(htmlContent, config)
 ```
 
 **When to use:** Specific extraction needs, format conversion, custom output
@@ -164,7 +164,7 @@ config := html.Config{
     MaxDepth:           50,    // Prevent deep nesting attacks
 }
 
-processor, _ := html.New(config)
+processor, err := html.New(config)
 defer processor.Close()
 ```
 
@@ -172,7 +172,7 @@ defer processor.Close()
 
 ```go
 // Extract all resource links
-links, _ := html.ExtractAllLinks(htmlContent)
+links, err := html.ExtractAllLinks(htmlContent)
 
 // Group by type
 byType := html.GroupLinksByType(links)
@@ -190,7 +190,7 @@ linkConfig := html.LinkExtractionConfig{
     IncludeCSS:           true,
     IncludeJS:            true,
 }
-links, _ = processor.ExtractAllLinks(htmlContent, linkConfig)
+links, err = processor.ExtractAllLinks(htmlContent, linkConfig)
 ```
 
 #### Caching & Statistics
@@ -200,8 +200,8 @@ processor := html.NewWithDefaults()
 defer processor.Close()
 
 // Automatic caching enabled
-result1, _ := processor.ExtractWithDefaults(htmlContent)
-result2, _ := processor.ExtractWithDefaults(htmlContent) // Cache hit!
+result1, err := processor.ExtractWithDefaults(htmlContent)
+result2, err := processor.ExtractWithDefaults(htmlContent) // Cache hit!
 
 // Check performance
 stats := processor.GetStatistics()
@@ -218,37 +218,37 @@ processor := html.NewWithDefaults()
 defer processor.Close()
 
 // RSS feed generation
-result, _ := processor.Extract(htmlContent, html.ConfigForRSS())
+result, err := processor.Extract(htmlContent, html.ConfigForRSS())
 
 // Summary generation (text only)
-result, _ = processor.Extract(htmlContent, html.ConfigForSummary())
+result, err = processor.Extract(htmlContent, html.ConfigForSummary())
 
 // Search indexing (all metadata)
-result, _ = processor.Extract(htmlContent, html.ConfigForSearchIndex())
+result, err = processor.Extract(htmlContent, html.ConfigForSearchIndex())
 
 // Markdown output
-result, _ = processor.Extract(htmlContent, html.ConfigForMarkdown())
+result, err = processor.Extract(htmlContent, html.ConfigForMarkdown())
 ```
 
 **When to use:** Production applications, performance optimization, specific use cases
 
 ---
 
-## Common Recipes
+## 📖 Common Recipes
 
 Copy-paste solutions for common tasks:
 
 ### Extract Article Text (Clean)
 
 ```go
-text, _ := html.ExtractText(htmlContent)
+text, err := html.ExtractText(htmlContent)
 // Returns clean text without navigation/ads
 ```
 
 ### Extract with Images
 
 ```go
-result, _ := html.Extract(htmlContent)
+result, err := html.Extract(htmlContent)
 for _, img := range result.Images {
     fmt.Printf("Image: %s (alt: %s)\n", img.URL, img.Alt)
 }
@@ -257,14 +257,14 @@ for _, img := range result.Images {
 ### Convert to Markdown
 
 ```go
-markdown, _ := html.ExtractToMarkdown(htmlContent)
+markdown, err := html.ExtractToMarkdown(htmlContent)
 // Images become: ![alt](url)
 ```
 
 ### Extract All Links
 
 ```go
-links, _ := html.ExtractAllLinks(htmlContent)
+links, err := html.ExtractAllLinks(htmlContent)
 for _, link := range links {
     fmt.Printf("%s: %s\n", link.Type, link.URL)
 }
@@ -273,7 +273,7 @@ for _, link := range links {
 ### Get Reading Time
 
 ```go
-minutes, _ := html.GetReadingTime(htmlContent)
+minutes, err := html.GetReadingTime(htmlContent)
 fmt.Printf("Reading time: %.1f min", minutes)
 ```
 
@@ -284,7 +284,7 @@ processor := html.NewWithDefaults()
 defer processor.Close()
 
 files := []string{"page1.html", "page2.html", "page3.html"}
-results, _ := processor.ExtractBatchFiles(files, html.DefaultExtractConfig())
+results, err := processor.ExtractBatchFiles(files, html.DefaultExtractConfig())
 ```
 
 ### Create RSS Feed Content
@@ -293,13 +293,13 @@ results, _ := processor.ExtractBatchFiles(files, html.DefaultExtractConfig())
 processor := html.NewWithDefaults()
 defer processor.Close()
 
-result, _ := processor.Extract(htmlContent, html.ConfigForRSS())
+result, err := processor.Extract(htmlContent, html.ConfigForRSS())
 // Optimized for RSS: fast, includes images/links, no article detection
 ```
 
 ---
 
-## API Quick Reference
+## 🔧 API Quick Reference
 
 ### Package-Level Functions
 
@@ -462,12 +462,14 @@ wg.Wait()
 
 ---
 
-## Contributing
+## 🤝 Contributing
 
-Contributions welcome! Please feel free to submit a Pull Request. For major changes, please open an issue first.
+Contributions, issue reports, and suggestions are welcome!
+
+## 📄 License
+
+MIT License - See [LICENSE](LICENSE) file for details.
 
 ---
 
-## License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+**Crafted with care for the Go community** ❤️ | If this project helps you, please give it a ⭐️ Star!
