@@ -148,6 +148,5 @@ func SelectBestCandidate(candidates map[*html.Node]int) *html.Node {
 			bestNode = node
 		}
 	}
-
 	return bestNode
 }

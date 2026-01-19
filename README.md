@@ -26,13 +26,13 @@
 - **Resource Limits**: Configurable input size, nesting depth, and timeout protection
 
 ### 📖 Use Cases
-- 📰 **News Aggregators**: Extract article content from news sites
-- 🤖 **Web Scrapers**: Get structured data from HTML pages
-- 📝 **Content Management**: Convert HTML to Markdown or other formats
-- 🔍 **Search Engines**: Index main content without navigation/ads
-- 📊 **Data Analysis**: Extract and analyze web content at scale
-- 📱 **RSS/Feed Generators**: Create feeds from HTML content
-- 🎓 **Documentation Tools**: Convert HTML docs to other formats
+- **News Aggregators**: Extract article content from news sites
+- **Web Scrapers**: Get structured data from HTML pages
+- **Content Management**: Convert HTML to Markdown or other formats
+- **Search Engines**: Index main content without navigation/ads
+- **Data Analysis**: Extract and analyze web content at scale
+- **RSS/Feed Generators**: Create feeds from HTML content
+- **Documentation Tools**: Convert HTML docs to other formats
 
 ---
 
@@ -307,7 +307,7 @@ result, err := processor.Extract(htmlContent, html.ConfigForRSS())
 // Extraction
 Extract(htmlContent string) (*Result, error)
 ExtractText(htmlContent string) (string, error)
-ExtractFromFile(path string) (*Result, error)
+ExtractFromFile(path string, configs ...ExtractConfig) (*Result, error)
 
 // Format Conversion
 ExtractToMarkdown(htmlContent string) (string, error)
@@ -328,7 +328,7 @@ Summarize(htmlContent string, maxWords int) (string, error)
 ExtractAndClean(htmlContent string) (string, error)
 
 // Links
-ExtractAllLinks(htmlContent string, baseURL ...string) ([]LinkResource, error)
+ExtractAllLinks(htmlContent string, configs ...LinkExtractionConfig) ([]LinkResource, error)
 GroupLinksByType(links []LinkResource) map[string][]LinkResource
 ```
 
@@ -392,13 +392,36 @@ type ImageInfo struct {
     Width        string  // Width attribute
     Height       string  // Height attribute
     IsDecorative bool    // No alt text
+    Position     int     // Position in document
 }
 
 type LinkInfo struct {
     URL        string  // Link URL
     Text       string  // Anchor text
+    Title      string  // Title attribute
     IsExternal bool    // External domain
     IsNoFollow bool    // rel="nofollow"
+}
+
+type VideoInfo struct {
+    URL      string  // Video URL
+    Type     string  // MIME type or "embed"
+    Poster   string  // Poster image URL
+    Width    string  // Width attribute
+    Height   string  // Height attribute
+    Duration string  // Duration attribute
+}
+
+type AudioInfo struct {
+    URL      string  // Audio URL
+    Type     string  // MIME type
+    Duration string  // Duration attribute
+}
+
+type LinkResource struct {
+    URL   string  // Resource URL
+    Title string  // Resource title
+    Type  string  // Resource type (image, css, js, link, video, audio, icon)
 }
 ```
 

@@ -26,13 +26,13 @@
 - **资源限制**：可配置的输入大小、嵌套深度和超时保护
 
 ### 📖 使用场景
-- 📰 **新闻聚合器**：从新闻网站提取文章内容
-- 🤖 **网页爬虫**：从 HTML 页面获取结构化数据
-- 📝 **内容管理**：将 HTML 转换为 Markdown 或其他格式
-- 🔍 **搜索引擎**：索引主要内容，排除导航和广告
-- 📊 **数据分析**：大规模提取和分析网页内容
-- 📱 **RSS/Feed 生成器**：从 HTML 内容创建 feeds
-- 🎓 **文档工具**：将 HTML 文档转换为其他格式
+- **新闻聚合器**：从新闻网站提取文章内容
+- **网页爬虫**：从 HTML 页面获取结构化数据
+- **内容管理**：将 HTML 转换为 Markdown 或其他格式
+- **搜索引擎**：索引主要内容，排除导航和广告
+- **数据分析**：大规模提取和分析网页内容
+- **RSS/Feed 生成器**：从 HTML 内容创建 feeds
+- **文档工具**：将 HTML 文档转换为其他格式
 
 ---
 
@@ -307,7 +307,7 @@ result, err := processor.Extract(htmlContent, html.ConfigForRSS())
 // 提取
 Extract(htmlContent string) (*Result, error)
 ExtractText(htmlContent string) (string, error)
-ExtractFromFile(path string) (*Result, error)
+ExtractFromFile(path string, configs ...ExtractConfig) (*Result, error)
 
 // 格式转换
 ExtractToMarkdown(htmlContent string) (string, error)
@@ -328,7 +328,7 @@ Summarize(htmlContent string, maxWords int) (string, error)
 ExtractAndClean(htmlContent string) (string, error)
 
 // 链接
-ExtractAllLinks(htmlContent string, baseURL ...string) ([]LinkResource, error)
+ExtractAllLinks(htmlContent string, configs ...LinkExtractionConfig) ([]LinkResource, error)
 GroupLinksByType(links []LinkResource) map[string][]LinkResource
 ```
 
@@ -392,13 +392,36 @@ type ImageInfo struct {
     Width        string  // 宽度属性
     Height       string  // 高度属性
     IsDecorative bool    // 无替代文本
+    Position     int     // 文档中的位置
 }
 
 type LinkInfo struct {
     URL        string  // 链接 URL
     Text       string  // 锚文本
+    Title      string  // 标题属性
     IsExternal bool    // 外部域名
     IsNoFollow bool    // rel="nofollow"
+}
+
+type VideoInfo struct {
+    URL      string  // 视频 URL
+    Type     string  // MIME 类型或 "embed"
+    Poster   string  // 海报图像 URL
+    Width    string  // 宽度属性
+    Height   string  // 高度属性
+    Duration string  // 时长属性
+}
+
+type AudioInfo struct {
+    URL      string  // 音频 URL
+    Type     string  // MIME 类型
+    Duration string  // 时长属性
+}
+
+type LinkResource struct {
+    URL   string  // 资源 URL
+    Title string  // 资源标题
+    Type  string  // 资源类型 (image, css, js, link, video, audio, icon)
 }
 ```
 

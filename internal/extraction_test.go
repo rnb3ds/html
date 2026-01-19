@@ -202,11 +202,14 @@ func TestExtractTable(t *testing.T) {
 func TestExtractTableNil(t *testing.T) {
 	t.Parallel()
 
+	doc, _ := html.Parse(strings.NewReader("<table></table>"))
+	tableNode := FindElementByTag(doc, "table")
 	var sb strings.Builder
-	extractTable(nil, &sb)
+	extractTableTracked(tableNode, newTrackedBuilder(&sb))
 
-	if sb.Len() != 0 {
-		t.Error("extractTable(nil) should not write anything")
+	result := strings.TrimSpace(sb.String())
+	if result != "" {
+		t.Errorf("extractTableTracked(empty) should not write anything, got %q", result)
 	}
 }
 

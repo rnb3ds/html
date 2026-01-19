@@ -1,4 +1,4 @@
-// Package main demonstrates the enhanced convenience API of the html library.
+// Package main demonstrates the enhanced convenience API of the `cybergodev\html` library.
 // This example shows how to use the new package-level convenience functions
 // for common HTML processing tasks.
 package main

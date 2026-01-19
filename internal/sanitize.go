@@ -4,7 +4,10 @@ import (
 	"strings"
 )
 
-var tagsToRemove = []string{"script", "style", "noscript"}
+var tagsToRemove = []string{
+	"script", "style", "noscript", "iframe",
+	"embed", "object", "form", "input", "button",
+}
 
 func SanitizeHTML(htmlContent string) string {
 	if htmlContent == "" {
@@ -16,7 +19,55 @@ func SanitizeHTML(htmlContent string) string {
 			return ""
 		}
 	}
-	return htmlContent
+	return removeDangerousAttributes(htmlContent)
+}
+
+func removeDangerousAttributes(htmlContent string) string {
+	if htmlContent == "" {
+		return ""
+	}
+
+	var result strings.Builder
+	result.Grow(len(htmlContent))
+
+	lowerContent := strings.ToLower(htmlContent)
+	pos := 0
+
+	dangerousPrefixes := []string{
+		" on", "javascript:", "vbscript:", "data:",
+	}
+
+	for pos < len(htmlContent) {
+		earliestDangerous := -1
+
+		for _, prefix := range dangerousPrefixes {
+			if idx := strings.Index(lowerContent[pos:], prefix); idx != -1 {
+				actualPos := pos + idx
+				if earliestDangerous == -1 || actualPos < earliestDangerous {
+					earliestDangerous = actualPos
+				}
+			}
+		}
+
+		if earliestDangerous == -1 {
+			result.WriteString(htmlContent[pos:])
+			break
+		}
+
+		result.WriteString(htmlContent[pos:earliestDangerous])
+
+		endPos := earliestDangerous + 1
+		for endPos < len(htmlContent) {
+			c := htmlContent[endPos]
+			if c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '>' || c == '=' {
+				break
+			}
+			endPos++
+		}
+		pos = endPos
+	}
+
+	return result.String()
 }
 
 func RemoveTagContent(content, tag string) string {
