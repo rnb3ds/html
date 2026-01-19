@@ -28,20 +28,17 @@ func putStringBuilder(sb *strings.Builder) {
 type trackedBuilder struct {
 	*strings.Builder
 	lastChar byte
-	lastLen  int
 }
 
 func newTrackedBuilder(sb *strings.Builder) *trackedBuilder {
 	return &trackedBuilder{
 		Builder:  sb,
 		lastChar: 0,
-		lastLen:  0,
 	}
 }
 
 func (tb *trackedBuilder) WriteByte(c byte) error {
 	tb.lastChar = c
-	tb.lastLen = tb.Builder.Len()
 	return tb.Builder.WriteByte(c)
 }
 
@@ -49,19 +46,18 @@ func (tb *trackedBuilder) WriteString(s string) (int, error) {
 	n, err := tb.Builder.WriteString(s)
 	if n > 0 && err == nil {
 		tb.lastChar = s[len(s)-1]
-		tb.lastLen = tb.Builder.Len()
 	}
 	return n, err
 }
 
 func ensureNewlineTracked(tb *trackedBuilder) {
-	if tb.lastLen > 0 && tb.lastChar != '\n' {
+	if tb.Builder.Len() > 0 && tb.lastChar != '\n' {
 		tb.WriteByte('\n')
 	}
 }
 
 func ensureSpacingTracked(tb *trackedBuilder, char byte) {
-	if tb.lastLen > 0 && tb.lastChar != ' ' && tb.lastChar != '\n' {
+	if tb.Builder.Len() > 0 && tb.lastChar != ' ' && tb.lastChar != '\n' {
 		tb.WriteByte(char)
 	}
 }
@@ -181,14 +177,6 @@ func extractTableTracked(table *html.Node, tb *trackedBuilder) {
 		}
 	}
 	tb.WriteByte('\n')
-}
-
-func extractTable(table *html.Node, sb *strings.Builder) {
-	if table == nil {
-		return
-	}
-	tb := newTrackedBuilder(sb)
-	extractTableTracked(table, tb)
 }
 
 func CleanContentNode(node *html.Node) *html.Node {

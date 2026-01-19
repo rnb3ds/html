@@ -105,15 +105,18 @@ const (
 	DefaultMaxDepth          = 100
 	DefaultProcessingTimeout = 30 * time.Second
 
-	maxURLLength    = 2000
-	maxHTMLForRegex = 1000000
-	maxRegexMatches = 100
-	wordsPerMinute  = 200
-	maxCacheKeySize = 64 * 1024
-	cacheKeySample  = 4096
-	initialTextSize = 4096
-	initialSliceCap = 16
-	initialMapCap   = 8
+	maxURLLength        = 2000
+	maxHTMLForRegex     = 1000000
+	maxRegexMatches     = 100
+	wordsPerMinute      = 200
+	maxCacheKeySize     = 64 * 1024
+	cacheKeySample      = 4096
+	initialTextSize     = 4096
+	initialSliceCap     = 16
+	initialMapCap       = 8
+	maxConfigInputSize  = 50 * 1024 * 1024
+	maxConfigWorkerSize = 1000
+	maxConfigDepth      = 10000
 )
 
 var (
@@ -160,20 +163,20 @@ func validateConfig(c Config) error {
 	switch {
 	case c.MaxInputSize <= 0:
 		return fmt.Errorf("%w: MaxInputSize must be positive, got %d", ErrInvalidConfig, c.MaxInputSize)
-	case c.MaxInputSize > 50*1024*1024: // 50MB limit
-		return fmt.Errorf("%w: MaxInputSize too large (max 50MB), got %d", ErrInvalidConfig, c.MaxInputSize)
+	case c.MaxInputSize > maxConfigInputSize:
+		return fmt.Errorf("%w: MaxInputSize too large (max %d), got %d", ErrInvalidConfig, maxConfigInputSize, c.MaxInputSize)
 	case c.MaxCacheEntries < 0:
 		return fmt.Errorf("%w: MaxCacheEntries cannot be negative, got %d", ErrInvalidConfig, c.MaxCacheEntries)
 	case c.CacheTTL < 0:
 		return fmt.Errorf("%w: CacheTTL cannot be negative, got %v", ErrInvalidConfig, c.CacheTTL)
 	case c.WorkerPoolSize <= 0:
 		return fmt.Errorf("%w: WorkerPoolSize must be positive, got %d", ErrInvalidConfig, c.WorkerPoolSize)
-	case c.WorkerPoolSize > 1000: // Reasonable upper limit
-		return fmt.Errorf("%w: WorkerPoolSize too large (max 1000), got %d", ErrInvalidConfig, c.WorkerPoolSize)
+	case c.WorkerPoolSize > maxConfigWorkerSize:
+		return fmt.Errorf("%w: WorkerPoolSize too large (max %d), got %d", ErrInvalidConfig, maxConfigWorkerSize, c.WorkerPoolSize)
 	case c.MaxDepth <= 0:
 		return fmt.Errorf("%w: MaxDepth must be positive, got %d", ErrInvalidConfig, c.MaxDepth)
-	case c.MaxDepth > 10000: // Prevent excessive nesting
-		return fmt.Errorf("%w: MaxDepth too large (max 10000), got %d", ErrInvalidConfig, c.MaxDepth)
+	case c.MaxDepth > maxConfigDepth:
+		return fmt.Errorf("%w: MaxDepth too large (max %d), got %d", ErrInvalidConfig, maxConfigDepth, c.MaxDepth)
 	case c.ProcessingTimeout < 0:
 		return fmt.Errorf("%w: ProcessingTimeout cannot be negative, got %v", ErrInvalidConfig, c.ProcessingTimeout)
 	}
@@ -313,7 +316,10 @@ func New(config Config) (*Processor, error) {
 }
 
 func NewWithDefaults() *Processor {
-	p, _ := New(DefaultConfig())
+	p, err := New(DefaultConfig())
+	if err != nil {
+		panic(err)
+	}
 	return p
 }
 
@@ -341,7 +347,6 @@ func (p *Processor) Extract(htmlContent string, configs ...ExtractConfig) (*Resu
 	}
 	p.stats.cacheMisses.Add(1)
 
-	// Process with timeout if configured
 	var result *Result
 	var err error
 	if p.config.ProcessingTimeout > 0 {
@@ -608,18 +613,15 @@ func (p *Processor) processContent(htmlContent string, opts ExtractConfig) (*Res
 
 	originalHTML := htmlContent
 
-	// Apply sanitization if enabled
 	if p.config.EnableSanitization {
 		htmlContent = internal.SanitizeHTML(htmlContent)
 	}
 
-	// Parse HTML document
 	doc, err := html.Parse(strings.NewReader(htmlContent))
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrInvalidHTML, err)
 	}
 
-	// Validate document depth to prevent DoS
 	if err := p.validateDepth(doc, 0); err != nil {
 		return nil, err
 	}
@@ -922,6 +924,47 @@ func (p *Processor) extractVideos(node *html.Node, htmlContent string) []VideoIn
 	videos := make([]VideoInfo, 0, initialSliceCap)
 	seen := make(map[string]bool, initialMapCap)
 
+	// First, extract from the HTML content directly for iframe/embed/object tags
+	// These may be removed by sanitization, so we parse them from raw HTML first
+	if len(htmlContent) > 0 && len(htmlContent) <= maxHTMLForRegex*10 {
+		// Parse iframe tags
+		iframeMatches := p.extractTagAttributes(htmlContent, "iframe", "src")
+		for _, url := range iframeMatches {
+			if isValidURL(url) && internal.IsVideoURL(url) && !seen[url] {
+				seen[url] = true
+				videos = append(videos, VideoInfo{
+					URL:  url,
+					Type: internal.DetectVideoType(url),
+				})
+			}
+		}
+
+		// Parse embed tags
+		embedMatches := p.extractTagAttributes(htmlContent, "embed", "src", "data")
+		for _, url := range embedMatches {
+			if isValidURL(url) && internal.IsVideoURL(url) && !seen[url] {
+				seen[url] = true
+				videos = append(videos, VideoInfo{
+					URL:  url,
+					Type: internal.DetectVideoType(url),
+				})
+			}
+		}
+
+		// Parse object tags
+		objectMatches := p.extractTagAttributes(htmlContent, "object", "data")
+		for _, url := range objectMatches {
+			if isValidURL(url) && internal.IsVideoURL(url) && !seen[url] {
+				seen[url] = true
+				videos = append(videos, VideoInfo{
+					URL:  url,
+					Type: internal.DetectVideoType(url),
+				})
+			}
+		}
+	}
+
+	// Then extract from the DOM tree (for video tags and any iframe/embed/object that survived sanitization)
 	internal.WalkNodes(node, func(n *html.Node) bool {
 		if n.Type != html.ElementNode {
 			return true
@@ -949,6 +992,7 @@ func (p *Processor) extractVideos(node *html.Node, htmlContent string) []VideoIn
 		return true
 	})
 
+	// Finally, use regex to find any video URLs in the HTML content
 	if len(htmlContent) <= maxHTMLForRegex {
 		matches := videoRegex.FindAllString(htmlContent, maxRegexMatches)
 		for _, url := range matches {
@@ -1032,6 +1076,97 @@ func (p *Processor) parseEmbedNode(n *html.Node) VideoInfo {
 		}
 	}
 	return VideoInfo{}
+}
+
+// extractTagAttributes extracts attribute values from tags in raw HTML content.
+// This is useful for extracting media URLs that may have been removed by sanitization.
+func (p *Processor) extractTagAttributes(htmlContent, tagName string, attrNames ...string) []string {
+	var results []string
+	lowerHTML := strings.ToLower(htmlContent)
+	lowerTag := "<" + tagName
+
+	pos := 0
+	for {
+		// Find the next occurrence of the tag
+		tagStart := strings.Index(lowerHTML[pos:], lowerTag)
+		if tagStart == -1 {
+			break
+		}
+		tagStart += pos
+
+		// Find the end of the opening tag
+		tagEnd := strings.IndexByte(htmlContent[tagStart:], '>')
+		if tagEnd == -1 {
+			break
+		}
+		tagEnd += tagStart + 1
+
+		// Extract the tag content
+		tagContent := htmlContent[tagStart:tagEnd]
+
+		// Find all specified attributes
+		for _, attrName := range attrNames {
+			attrPattern := attrName + "="
+			attrPos := 0
+
+			for attrPos < len(tagContent) {
+				// Find the attribute
+				attrIndex := strings.Index(strings.ToLower(tagContent[attrPos:]), attrPattern)
+				if attrIndex == -1 {
+					break
+				}
+				attrIndex += attrPos
+
+				// Skip to after the attribute name and '='
+				valueStart := attrIndex + len(attrName) + 1
+
+				// Skip whitespace
+				for valueStart < len(tagContent) && (tagContent[valueStart] == ' ' || tagContent[valueStart] == '\t') {
+					valueStart++
+				}
+
+				if valueStart >= len(tagContent) {
+					break
+				}
+
+				// Get the quote character if present
+				var quote byte
+				if tagContent[valueStart] == '"' || tagContent[valueStart] == '\'' {
+					quote = tagContent[valueStart]
+					valueStart++
+				}
+
+				// Find the end of the attribute value
+				var valueEnd int
+				if quote != 0 {
+					valueEnd = strings.IndexByte(tagContent[valueStart:], quote)
+					if valueEnd == -1 {
+						break
+					}
+					valueEnd += valueStart
+				} else {
+					// No quote, find whitespace or '>'
+					for valueEnd = valueStart; valueEnd < len(tagContent); valueEnd++ {
+						c := tagContent[valueEnd]
+						if c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '>' {
+							break
+						}
+					}
+				}
+
+				// Extract the attribute value
+				if valueStart < valueEnd {
+					results = append(results, tagContent[valueStart:valueEnd])
+				}
+
+				attrPos = valueEnd
+			}
+		}
+
+		pos = tagEnd
+	}
+
+	return results
 }
 
 func (p *Processor) extractAudios(node *html.Node, htmlContent string) []AudioInfo {
@@ -1161,23 +1296,29 @@ func isValidURL(url string) bool {
 func (p *Processor) generateCacheKey(content string, opts ExtractConfig) string {
 	h := sha256.New()
 
-	// Encode configuration into hash
-	configKey := strconv.FormatBool(opts.ExtractArticle) + "," +
-		strconv.FormatBool(opts.PreserveImages) + "," +
-		strconv.FormatBool(opts.PreserveLinks) + "," +
-		strconv.FormatBool(opts.PreserveVideos) + "," +
-		strconv.FormatBool(opts.PreserveAudios) + "," +
-		opts.InlineImageFormat
-	h.Write([]byte(configKey))
-	h.Write([]byte{0}) // separator
+	// Build config key more efficiently
+	boolToByte := func(b bool) byte {
+		if b {
+			return '1'
+		}
+		return '0'
+	}
+
+	configBytes := []byte{
+		boolToByte(opts.ExtractArticle), ',',
+		boolToByte(opts.PreserveImages), ',',
+		boolToByte(opts.PreserveLinks), ',',
+		boolToByte(opts.PreserveVideos), ',',
+		boolToByte(opts.PreserveAudios), ',',
+	}
+	h.Write(configBytes)
+	h.Write([]byte(opts.InlineImageFormat))
+	h.Write([]byte{0})
 
 	contentLen := len(content)
 	if contentLen <= maxCacheKeySize {
-		// For small content, hash the entire content
 		h.Write([]byte(content))
 	} else {
-		// For large content, hash beginning and end with length
-		// This provides good cache distribution while avoiding memory pressure
 		h.Write([]byte(content[:cacheKeySample]))
 		h.Write([]byte(content[contentLen-cacheKeySample:]))
 		h.Write([]byte(strconv.Itoa(contentLen)))
@@ -1188,35 +1329,28 @@ func (p *Processor) generateCacheKey(content string, opts ExtractConfig) string 
 	return hex.EncodeToString(sum)
 }
 
-// extractAllLinksFromContent performs comprehensive link extraction from HTML content.
 func (p *Processor) extractAllLinksFromContent(htmlContent string, config LinkExtractionConfig) ([]LinkResource, error) {
-	// Validate input is not empty
 	if strings.TrimSpace(htmlContent) == "" {
 		return []LinkResource{}, nil
 	}
 
-	// Parse HTML document BEFORE sanitization to preserve all links
 	doc, err := html.Parse(strings.NewReader(htmlContent))
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrInvalidHTML, err)
 	}
 
-	// Validate document depth to prevent DoS
 	if err := p.validateDepth(doc, 0); err != nil {
 		return nil, err
 	}
 
-	// Detect base URL for relative link resolution
 	baseURL := config.BaseURL
 	if config.ResolveRelativeURLs && baseURL == "" {
 		baseURL = p.detectBaseURL(doc)
 	}
 
-	// Extract all links with deduplication
-	linkMap := make(map[string]LinkResource, 64) // Use map for deduplication
+	linkMap := make(map[string]LinkResource, 64)
 	p.extractLinksFromDocument(doc, baseURL, config, linkMap)
 
-	// Convert map to slice
 	links := make([]LinkResource, 0, len(linkMap))
 	for _, link := range linkMap {
 		links = append(links, link)
@@ -1294,41 +1428,39 @@ func (p *Processor) detectBaseURL(doc *html.Node) string {
 	return firstAbsoluteURL
 }
 
-// normalizeBaseURL normalizes base URL for consistent resolution.
 func (p *Processor) normalizeBaseURL(baseURL string) string {
 	if baseURL == "" {
 		return ""
 	}
 
-	// Find last slash position
+	// Skip non-HTTP URLs like data:, javascript:, mailto:, etc.
+	if strings.Contains(baseURL, ":") && !strings.HasPrefix(baseURL, "http://") && !strings.HasPrefix(baseURL, "https://") {
+		return ""
+	}
+
 	lastSlash := strings.LastIndexByte(baseURL, '/')
 	if lastSlash < 0 {
 		return baseURL + "/"
 	}
 
-	// If there's content after last slash, it's a file - return directory
 	if lastSlash < len(baseURL)-1 {
 		return baseURL[:lastSlash+1]
 	}
 
-	// Already ends with slash
 	return baseURL
 }
 
-// isAbsoluteURL checks if URL is absolute.
 func (p *Processor) isAbsoluteURL(url string) bool {
 	return strings.HasPrefix(url, "http://") ||
 		strings.HasPrefix(url, "https://") ||
 		strings.HasPrefix(url, "//")
 }
 
-// extractBaseFromURL extracts base URL from absolute URL.
 func (p *Processor) extractBaseFromURL(url string) string {
 	if !p.isAbsoluteURL(url) {
 		return ""
 	}
 
-	// Find protocol end
 	start := 0
 	if idx := strings.Index(url, "://"); idx >= 0 {
 		start = idx + 3
@@ -1336,7 +1468,6 @@ func (p *Processor) extractBaseFromURL(url string) string {
 		start = 2
 	}
 
-	// Find path start after domain
 	if pathStart := strings.IndexByte(url[start:], '/'); pathStart >= 0 {
 		return url[:start+pathStart+1]
 	}
@@ -1344,7 +1475,6 @@ func (p *Processor) extractBaseFromURL(url string) string {
 	return url + "/"
 }
 
-// isDifferentDomain checks if two URLs have different domains.
 func (p *Processor) isDifferentDomain(baseURL, targetURL string) bool {
 	if !p.isAbsoluteURL(baseURL) || !p.isAbsoluteURL(targetURL) {
 		return false
@@ -1356,9 +1486,7 @@ func (p *Processor) isDifferentDomain(baseURL, targetURL string) bool {
 	return baseDomain != targetDomain
 }
 
-// extractDomain extracts domain from URL.
 func (p *Processor) extractDomain(url string) string {
-	// Remove protocol
 	start := 0
 	if idx := strings.Index(url, "://"); idx >= 0 {
 		start = idx + 3
@@ -1366,7 +1494,6 @@ func (p *Processor) extractDomain(url string) string {
 		start = 2
 	}
 
-	// Find first slash after domain
 	if pathStart := strings.IndexByte(url[start:], '/'); pathStart >= 0 {
 		return url[start : start+pathStart]
 	}
@@ -1374,18 +1501,15 @@ func (p *Processor) extractDomain(url string) string {
 	return url[start:]
 }
 
-// resolveURL resolves relative URL against base URL.
 func (p *Processor) resolveURL(baseURL, relativeURL string) string {
 	if relativeURL == "" || baseURL == "" {
 		return relativeURL
 	}
 
-	// Already absolute
 	if p.isAbsoluteURL(relativeURL) {
 		return relativeURL
 	}
 
-	// Protocol-relative URL (//example.com/path)
 	if len(relativeURL) >= 2 && relativeURL[0] == '/' && relativeURL[1] == '/' {
 		if strings.HasPrefix(baseURL, "https:") {
 			return "https:" + relativeURL
@@ -1393,9 +1517,7 @@ func (p *Processor) resolveURL(baseURL, relativeURL string) string {
 		return "http:" + relativeURL
 	}
 
-	// Root-relative URL (/path)
 	if relativeURL[0] == '/' {
-		// Extract protocol and domain from base URL
 		if idx := strings.Index(baseURL, "://"); idx >= 0 {
 			if domainEnd := strings.IndexByte(baseURL[idx+3:], '/'); domainEnd >= 0 {
 				return baseURL[:idx+3+domainEnd] + relativeURL
@@ -1405,11 +1527,9 @@ func (p *Processor) resolveURL(baseURL, relativeURL string) string {
 		return relativeURL
 	}
 
-	// Relative URL - append to base
 	return baseURL + relativeURL
 }
 
-// extractLinksFromDocument extracts all types of links from HTML document.
 func (p *Processor) extractLinksFromDocument(doc *html.Node, baseURL string, config LinkExtractionConfig, linkMap map[string]LinkResource) {
 	internal.WalkNodes(doc, func(n *html.Node) bool {
 		if n.Type != html.ElementNode {
@@ -1452,7 +1572,6 @@ func (p *Processor) extractLinksFromDocument(doc *html.Node, baseURL string, con
 	})
 }
 
-// extractContentLinks extracts content navigation links from <a> tags.
 func (p *Processor) extractContentLinks(n *html.Node, baseURL string, config LinkExtractionConfig, linkMap map[string]LinkResource) {
 	var href, title string
 	for _, attr := range n.Attr {
@@ -1468,24 +1587,18 @@ func (p *Processor) extractContentLinks(n *html.Node, baseURL string, config Lin
 		return
 	}
 
-	// Determine if external BEFORE URL resolution
 	isExternalOriginal := internal.IsExternalURL(href)
 
-	// Resolve relative URL
 	resolvedURL := href
 	if config.ResolveRelativeURLs && baseURL != "" {
 		resolvedURL = p.resolveURL(baseURL, href)
 	}
 
-	// For classification, use original URL to determine if it's truly external
-	// If original URL was relative or root-relative, it's internal
 	isExternal := isExternalOriginal
 	if !isExternalOriginal && baseURL != "" {
-		// Check if resolved URL points to different domain than base
 		isExternal = p.isDifferentDomain(baseURL, resolvedURL)
 	}
 
-	// Filter based on configuration
 	if isExternal && !config.IncludeExternalLinks {
 		return
 	}
@@ -1493,7 +1606,6 @@ func (p *Processor) extractContentLinks(n *html.Node, baseURL string, config Lin
 		return
 	}
 
-	// Get link text if no title
 	if title == "" {
 		title = strings.TrimSpace(internal.GetTextContent(n))
 		if title == "" {
@@ -1502,8 +1614,6 @@ func (p *Processor) extractContentLinks(n *html.Node, baseURL string, config Lin
 	}
 
 	linkType := "link"
-	// All content links (a tags) are classified as "link" type
-	// regardless of whether they are internal or external
 
 	linkMap[resolvedURL] = LinkResource{
 		URL:   resolvedURL,
@@ -1512,7 +1622,6 @@ func (p *Processor) extractContentLinks(n *html.Node, baseURL string, config Lin
 	}
 }
 
-// extractImageLinks extracts image resource links.
 func (p *Processor) extractImageLinks(n *html.Node, baseURL string, linkMap map[string]LinkResource) {
 	var src, alt, title string
 	for _, attr := range n.Attr {
@@ -1530,19 +1639,16 @@ func (p *Processor) extractImageLinks(n *html.Node, baseURL string, linkMap map[
 		return
 	}
 
-	// Resolve relative URL
 	resolvedURL := src
 	if baseURL != "" {
 		resolvedURL = p.resolveURL(baseURL, src)
 	}
 
-	// Use alt or title as resource name
 	resourceName := title
 	if resourceName == "" {
 		resourceName = alt
 	}
 	if resourceName == "" {
-		// Extract filename from URL
 		if lastSlash := strings.LastIndex(resolvedURL, "/"); lastSlash >= 0 {
 			resourceName = resolvedURL[lastSlash+1:]
 		} else {
@@ -1557,7 +1663,6 @@ func (p *Processor) extractImageLinks(n *html.Node, baseURL string, linkMap map[
 	}
 }
 
-// extractMediaLink extracts video or audio resource links.
 func (p *Processor) extractMediaLink(n *html.Node, baseURL string, linkMap map[string]LinkResource, mediaType string) {
 	var src, title string
 	for _, attr := range n.Attr {
@@ -1592,7 +1697,6 @@ func (p *Processor) extractMediaLink(n *html.Node, baseURL string, linkMap map[s
 	}
 }
 
-// extractSourceLinks extracts source links from <source> tags.
 func (p *Processor) extractSourceLinks(n *html.Node, baseURL string, linkMap map[string]LinkResource) {
 	var src, mediaType string
 	for _, attr := range n.Attr {
@@ -1613,14 +1717,12 @@ func (p *Processor) extractSourceLinks(n *html.Node, baseURL string, linkMap map
 		resolvedURL = p.resolveURL(baseURL, src)
 	}
 
-	// Determine resource type from MIME type or URL
 	resourceType := "media"
 	if strings.HasPrefix(mediaType, "video/") {
 		resourceType = "video"
 	} else if strings.HasPrefix(mediaType, "audio/") {
 		resourceType = "audio"
 	} else {
-		// Detect from URL extension
 		if internal.DetectVideoType(resolvedURL) != "" {
 			resourceType = "video"
 		} else if internal.DetectAudioType(resolvedURL) != "" {
@@ -1640,7 +1742,6 @@ func (p *Processor) extractSourceLinks(n *html.Node, baseURL string, linkMap map
 	}
 }
 
-// extractLinkTagLinks extracts links from <link> tags (CSS, icons, etc.).
 func (p *Processor) extractLinkTagLinks(n *html.Node, baseURL string, config LinkExtractionConfig, linkMap map[string]LinkResource) {
 	var href, rel, linkType, title string
 	for _, attr := range n.Attr {
@@ -1660,7 +1761,6 @@ func (p *Processor) extractLinkTagLinks(n *html.Node, baseURL string, config Lin
 		return
 	}
 
-	// Determine resource type from rel attribute
 	resourceType := "link"
 	include := false
 
@@ -1676,7 +1776,6 @@ func (p *Processor) extractLinkTagLinks(n *html.Node, baseURL string, config Lin
 			include = true
 		}
 	case "preload", "prefetch", "dns-prefetch", "preconnect":
-		// Determine type from 'as' attribute or MIME type
 		for _, attr := range n.Attr {
 			if attr.Key == "as" {
 				switch attr.Val {
@@ -1710,7 +1809,6 @@ func (p *Processor) extractLinkTagLinks(n *html.Node, baseURL string, config Lin
 			}
 		}
 	default:
-		// Check MIME type for other link types
 		if strings.Contains(linkType, "css") && config.IncludeCSS {
 			resourceType = "css"
 			include = true
@@ -1733,7 +1831,6 @@ func (p *Processor) extractLinkTagLinks(n *html.Node, baseURL string, config Lin
 		if lastSlash := strings.LastIndex(resolvedURL, "/"); lastSlash >= 0 {
 			title = resolvedURL[lastSlash+1:]
 		} else {
-			// Capitalize first letter of resource type
 			if len(resourceType) > 0 {
 				title = strings.ToUpper(resourceType[:1]) + resourceType[1:]
 			} else {
@@ -1749,7 +1846,6 @@ func (p *Processor) extractLinkTagLinks(n *html.Node, baseURL string, config Lin
 	}
 }
 
-// extractScriptLinks extracts JavaScript resource links.
 func (p *Processor) extractScriptLinks(n *html.Node, baseURL string, linkMap map[string]LinkResource) {
 	var src, title string
 	for _, attr := range n.Attr {
@@ -1785,7 +1881,6 @@ func (p *Processor) extractScriptLinks(n *html.Node, baseURL string, linkMap map
 	}
 }
 
-// extractEmbedLinks extracts embedded video links from iframe, embed, object tags.
 func (p *Processor) extractEmbedLinks(n *html.Node, baseURL string, linkMap map[string]LinkResource) {
 	var src, title string
 	for _, attr := range n.Attr {
@@ -1830,10 +1925,6 @@ func (p *Processor) extractEmbedLinks(n *html.Node, baseURL string, linkMap map[
 		Type:  "video",
 	}
 }
-
-// ============================================================================
-// Package-Level Convenience Functions
-// ============================================================================
 
 func ExtractToMarkdown(htmlContent string) (string, error) {
 	processor := NewWithDefaults()

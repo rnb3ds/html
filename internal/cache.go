@@ -24,9 +24,11 @@ type Cache struct {
 }
 
 func NewCache(maxEntries int, ttl time.Duration) *Cache {
-	capacity := max(maxEntries, 0)
+	if maxEntries < 0 {
+		maxEntries = 0
+	}
 	return &Cache{
-		entries:    make(map[string]*cacheEntry, capacity),
+		entries:    make(map[string]*cacheEntry, maxEntries),
 		maxEntries: maxEntries,
 		ttl:        ttl,
 	}
@@ -68,19 +70,17 @@ func (c *Cache) Get(key string) any {
 }
 
 func (c *Cache) Set(key string, value any) {
-	if value == nil || key == "" {
+	if value == nil || key == "" || c.maxEntries == 0 {
 		return
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if c.maxEntries == 0 {
-		return
+
+	_, exists := c.entries[key]
+	if !exists && len(c.entries) >= c.maxEntries {
+		c.evictOne()
 	}
-	if len(c.entries) >= c.maxEntries {
-		if _, exists := c.entries[key]; !exists {
-			c.evictOne()
-		}
-	}
+
 	now := time.Now()
 	nowNano := now.UnixNano()
 	entry := &cacheEntry{
@@ -123,6 +123,5 @@ func (c *Cache) evictOne() {
 func (c *Cache) Clear() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	capacity := max(c.maxEntries, 0)
-	c.entries = make(map[string]*cacheEntry, capacity)
+	c.entries = make(map[string]*cacheEntry, c.maxEntries)
 }

@@ -7,6 +7,47 @@ All notable changes to the cybergodev/html library will be documented in this fi
 
 ---
 
+## v1.0.6 - Critical Fixes & Quality Improvements (2026-01-19)
+
+### Fixed
+- **Cache Eviction Logic**
+  - Fixed cache overflow issue - cache now properly respects maxEntries limit in all scenarios
+  - Previously could grow indefinitely when updating existing keys
+- **Test Compilation**
+  - Fixed undefined function call in `internal/extraction_test.go`
+- **URL Handling**
+  - Fixed `normalizeBaseURL` to correctly skip non-HTTP protocol URLs (data:, javascript:, mailto:)
+- **Documentation Accuracy**
+  - Corrected `ExtractFromFile` API signature (was missing `configs` parameter)
+  - Added missing fields to type definitions (ImageInfo.Position, LinkInfo.Title)
+  - Added complete type definitions for VideoInfo, AudioInfo, LinkResource
+  - Updates in both README.md and README_zh-CN.md
+
+### Added
+- New `extractTagAttributes()` helper function for parsing tag attributes from raw HTML content
+- Supports quoted and unquoted attribute values with case-insensitive matching
+
+### Changed
+- **Enhanced Video Extraction** - Three-stage process:
+  1. Parse iframe/embed/object from raw HTML (before sanitization)
+  2. Walk DOM tree for `<video>` tags and survivors
+  3. Use regex for direct video URLs in HTML
+- **Optimized Cache Key Generation** - Reduced allocations with direct byte slice construction
+
+### Security
+- HTML sanitization maintained - removes iframe, embed, object tags for security
+- Videos extracted before sanitization to preserve media information
+
+### Performance
+- Optimized cache key generation (fewer allocations)
+- Minimal performance impact from raw HTML parsing (only when needed)
+
+### Migration Notes
+- **Zero Breaking Changes** - All existing API calls work without modification
+- **Tests**: All previously failing tests now pass (TestIframeExtraction, TestEmbedExtraction)
+
+---
+
 ## v1.0.5 - Code Quality & Maintainability Enhancement (2025-01-14)
 
 ### Fixed

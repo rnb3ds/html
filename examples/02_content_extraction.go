@@ -104,7 +104,7 @@ func main() {
 	}
 
 	fmt.Println("   Content with inline images:")
-	fmt.Println("   " + result2.Text[:200] + "...\n")
+	fmt.Println("   " + result2.Text[:300] + "...\n")
 
 	// Example 3: Inline images with HTML format
 	fmt.Println("3. Inline images (HTML format):")
@@ -120,7 +120,7 @@ func main() {
 	}
 
 	fmt.Println("   Content with HTML images:")
-	fmt.Println("   " + result3.Text[:200] + "...\n")
+	fmt.Println("   " + result3.Text[:300] + "...\n")
 
 	// Example 4: Inline images with placeholder format
 	fmt.Println("4. Inline images (Placeholder format):")
@@ -136,7 +136,7 @@ func main() {
 	}
 
 	fmt.Println("   Content with placeholders:")
-	fmt.Println("   " + result4.Text[:200] + "...\n")
+	fmt.Println("   " + result4.Text[:300] + "...\n")
 
 	// Example 5: Minimal extraction (text only, no metadata)
 	fmt.Println("5. Minimal extraction (text only):")
@@ -153,7 +153,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	fmt.Printf("   Text: %s\n", result5.Text[:150]+"...")
+	fmt.Printf("   Text: %s\n", result5.Text[:300]+"...")
 	fmt.Printf("   Images: %d, Links: %d\n\n", len(result5.Images), len(result5.Links))
 
 	fmt.Println("✓ Content extraction complete!")

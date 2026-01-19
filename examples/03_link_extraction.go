@@ -162,12 +162,20 @@ func main() {
 		</html>
 	`
 
-	// Without manual base URL (may be inaccurate)
+	// Without manual base URL (maybe inaccurate)
 	autoLinks, _ := html.ExtractAllLinks(cdnHTML)
 	fmt.Printf("   Auto-detected: %d links\n", len(autoLinks))
 
 	// With manual base URL (accurate)
-	manualLinks, _ := html.ExtractAllLinks(cdnHTML, "https://mycompany.com/")
+	manualConfig := html.LinkExtractionConfig{
+		ResolveRelativeURLs: true,
+		BaseURL:             "https://mycompany.com/",
+		IncludeImages:       true,
+		IncludeContentLinks: true,
+		IncludeCSS:          true,
+		IncludeJS:           true,
+	}
+	manualLinks, _ := html.ExtractAllLinks(cdnHTML, manualConfig)
 	fmt.Printf("   Manual base URL: %d links\n", len(manualLinks))
 	for _, link := range manualLinks {
 		if link.Type == "link" || link.Type == "image" {
