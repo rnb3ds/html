@@ -7,9 +7,9 @@ import (
 )
 
 type cacheEntry struct {
-	value     any
-	expiresAt int64
 	lastUsed  int64
+	expiresAt int64
+	value     any
 }
 
 func (e *cacheEntry) isExpired(now int64) bool {
@@ -47,12 +47,9 @@ func (c *Cache) Get(key string) any {
 		return nil
 	}
 
-	// Check expiration under read lock
 	if entry.isExpired(now) {
 		c.mu.RUnlock()
-		// Upgrade to write lock to delete expired entry
 		c.mu.Lock()
-		// Double-check after acquiring write lock
 		if entry := c.entries[key]; entry != nil && entry.isExpired(now) {
 			delete(c.entries, key)
 		}
@@ -60,9 +57,7 @@ func (c *Cache) Get(key string) any {
 		return nil
 	}
 
-	// Entry exists and not expired - get value under read lock
 	value := entry.value
-	// Update lastUsed with atomic operation (safe even after RUnlock)
 	atomic.StoreInt64(&entry.lastUsed, now)
 	c.mu.RUnlock()
 
@@ -97,25 +92,22 @@ func (c *Cache) evictOne() {
 	nowNano := time.Now().UnixNano()
 	var oldestKey string
 	var oldestTime int64 = 1<<63 - 1
-	var expiredKeys []string
 
+	// First pass: collect and remove all expired entries
 	for k, e := range c.entries {
 		if e.isExpired(nowNano) {
-			expiredKeys = append(expiredKeys, k)
-		} else {
-			lastUsed := atomic.LoadInt64(&e.lastUsed)
-			if lastUsed < oldestTime {
-				oldestKey = k
-				oldestTime = lastUsed
-			}
+			delete(c.entries, k)
+			return
+		}
+		lastUsed := atomic.LoadInt64(&e.lastUsed)
+		if lastUsed < oldestTime {
+			oldestKey = k
+			oldestTime = lastUsed
 		}
 	}
 
-	for _, k := range expiredKeys {
-		delete(c.entries, k)
-	}
-
-	if len(expiredKeys) == 0 && oldestKey != "" {
+	// Second pass: evict oldest entry if no expired entries found
+	if oldestKey != "" {
 		delete(c.entries, oldestKey)
 	}
 }

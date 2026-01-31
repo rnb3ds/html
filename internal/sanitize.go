@@ -1,7 +1,10 @@
 package internal
 
 import (
+	"bytes"
 	"strings"
+
+	"golang.org/x/net/html"
 )
 
 var tagsToRemove = []string{
@@ -9,65 +12,96 @@ var tagsToRemove = []string{
 	"embed", "object", "form", "input", "button",
 }
 
+var dangerousAttributes = map[string]bool{
+	"onclick":     true,
+	"onerror":     true,
+	"onload":      true,
+	"onmouseover": true,
+	"onmouseout":  true,
+	"onfocus":     true,
+	"onblur":      true,
+	"onchange":    true,
+	"onsubmit":    true,
+	"onreset":     true,
+	"ondblclick":  true,
+}
+
+var uriAttributes = map[string]bool{
+	"href":        true,
+	"src":         true,
+	"cite":        true,
+	"action":      true,
+	"data":        true,
+	"formaction":  true,
+	"poster":      true,
+	"background":  true,
+	"longdesc":    true,
+	"usemap":      true,
+	"profile":     true,
+}
+
 func SanitizeHTML(htmlContent string) string {
 	if htmlContent == "" {
 		return ""
 	}
-	for _, tag := range tagsToRemove {
-		htmlContent = RemoveTagContent(htmlContent, tag)
-		if htmlContent == "" {
-			return ""
-		}
-	}
-	return removeDangerousAttributes(htmlContent)
-}
 
-func removeDangerousAttributes(htmlContent string) string {
-	if htmlContent == "" {
+	doc, err := html.Parse(strings.NewReader(htmlContent))
+	if err != nil {
 		return ""
 	}
 
-	var result strings.Builder
-	result.Grow(len(htmlContent))
+	sanitizeNode(doc)
 
-	lowerContent := strings.ToLower(htmlContent)
-	pos := 0
-
-	dangerousPrefixes := []string{
-		" on", "javascript:", "vbscript:", "data:",
+	var buf bytes.Buffer
+	if err := html.Render(&buf, doc); err != nil {
+		return ""
 	}
 
-	for pos < len(htmlContent) {
-		earliestDangerous := -1
+	result := buf.String()
 
-		for _, prefix := range dangerousPrefixes {
-			if idx := strings.Index(lowerContent[pos:], prefix); idx != -1 {
-				actualPos := pos + idx
-				if earliestDangerous == -1 || actualPos < earliestDangerous {
-					earliestDangerous = actualPos
+	result = strings.ReplaceAll(result, "<html><head></head><body>", "")
+	result = strings.ReplaceAll(result, "</body></html>", "")
+
+	return result
+}
+
+func sanitizeNode(n *html.Node) {
+	if n.Type == html.ElementNode {
+		for _, tag := range tagsToRemove {
+			if strings.EqualFold(n.Data, tag) {
+				removeNode(n)
+				return
+			}
+		}
+
+		var filteredAttrs []html.Attribute
+		for _, attr := range n.Attr {
+			attrKey := strings.ToLower(attr.Key)
+			if dangerousAttributes[attrKey] {
+				continue
+			}
+			if uriAttributes[attrKey] {
+				if !isSafeURI(attr.Val) {
+					continue
 				}
 			}
+			filteredAttrs = append(filteredAttrs, attr)
 		}
-
-		if earliestDangerous == -1 {
-			result.WriteString(htmlContent[pos:])
-			break
-		}
-
-		result.WriteString(htmlContent[pos:earliestDangerous])
-
-		endPos := earliestDangerous + 1
-		for endPos < len(htmlContent) {
-			c := htmlContent[endPos]
-			if c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '>' || c == '=' {
-				break
-			}
-			endPos++
-		}
-		pos = endPos
+		n.Attr = filteredAttrs
 	}
 
-	return result.String()
+	child := n.FirstChild
+	for child != nil {
+		next := child.NextSibling
+		sanitizeNode(child)
+		child = next
+	}
+}
+
+func removeNode(n *html.Node) {
+	if n.Parent != nil {
+		n.Parent.RemoveChild(n)
+	}
 }
 
 func RemoveTagContent(content, tag string) string {
@@ -95,6 +129,15 @@ func RemoveTagContent(content, tag string) string {
 		}
 		start += pos
 
+		if start+len(openTag) < len(content) {
+			nextChar := content[start+len(openTag)]
+			if nextChar != ' ' && nextChar != '>' && nextChar != '\t' && nextChar != '\n' && nextChar != '/' {
+				result.WriteString(content[pos : start+len(openTag)])
+				pos = start + len(openTag)
+				continue
+			}
+		}
+
 		result.WriteString(content[pos:start])
 
 		tagEnd := strings.IndexByte(content[start:], '>')
@@ -112,4 +155,109 @@ func RemoveTagContent(content, tag string) string {
 	}
 
 	return result.String()
+}
+
+func isSafeURI(uri string) bool {
+	if uri == "" {
+		return true
+	}
+
+	trimmed := strings.TrimSpace(uri)
+	lowerURI := strings.ToLower(trimmed)
+
+	if strings.Contains(lowerURI, "javascript:") {
+		return false
+	}
+
+	if strings.HasPrefix(lowerURI, "data:") {
+		if !isValidDataURL(trimmed) {
+			return false
+		}
+	}
+
+	if strings.HasPrefix(lowerURI, "vbscript:") {
+		return false
+	}
+
+	if strings.HasPrefix(lowerURI, "file:") {
+		return false
+	}
+
+	return true
+}
+
+func isValidDataURL(url string) bool {
+	if !strings.HasPrefix(url, "data:") {
+		return false
+	}
+
+	commaIdx := strings.Index(url, ",")
+	if commaIdx == -1 || commaIdx == 5 {
+		return false
+	}
+
+	mediaPart := url[5:commaIdx]
+	dataPart := url[commaIdx+1:]
+
+	if mediaPart != "" {
+		if strings.HasSuffix(mediaPart, ";base64") {
+			mediaType := strings.TrimSuffix(mediaPart, ";base64")
+			if mediaType != "" && !isValidMediaType(mediaType) {
+				return false
+			}
+		} else if strings.Contains(mediaPart, ";") {
+			semicolonIdx := strings.Index(mediaPart, ";")
+			mediaType := mediaPart[:semicolonIdx]
+			if mediaType != "" && !isValidMediaType(mediaType) {
+				return false
+			}
+		} else {
+			if !isValidMediaType(mediaPart) {
+				return false
+			}
+		}
+	}
+
+	for i := 0; i < len(dataPart); i++ {
+		b := dataPart[i]
+		if b < 32 || b > 126 {
+			return false
+		}
+		if strings.HasPrefix(mediaPart, ";base64") || strings.Contains(mediaPart, ";base64") {
+			if !(isBase64Char(b) || b == '=' || b == '\r' || b == '\n') {
+				return false
+			}
+		}
+	}
+
+	return true
+}
+
+func isValidMediaType(mediaType string) bool {
+	if mediaType == "" {
+		return false
+	}
+
+	slashIdx := strings.Index(mediaType, "/")
+	if slashIdx <= 0 || slashIdx == len(mediaType)-1 {
+		return false
+	}
+
+	for i := 0; i < len(mediaType); i++ {
+		c := mediaType[i]
+		if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+			(c >= '0' && c <= '9') || c == '-' || c == '+' ||
+			c == '/' || c == '.' || c == '_') {
+			return false
+		}
+	}
+
+	return true
+}
+
+func isBase64Char(b byte) bool {
+	return (b >= 'a' && b <= 'z') ||
+		(b >= 'A' && b <= 'Z') ||
+		(b >= '0' && b <= '9') ||
+		b == '+' || b == '/'
 }

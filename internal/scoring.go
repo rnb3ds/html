@@ -12,6 +12,29 @@ const (
 	strongNegativeScore = -400
 	mediumNegativeScore = -200
 	weakNegativeScore   = -100
+
+	minParagraphsForBonus        = 3
+	manyParagraphsMultiplier     = 150
+	fewParagraphsMultiplier      = 80
+	headingMultiplier            = 100
+	veryLongTextThreshold        = 500
+	longTextThreshold            = 200
+	mediumTextThreshold          = 100
+	shortTextThreshold           = 50
+	veryLongTextBonusMultiplier  = 10
+	longTextBonusDivider         = 2
+	mediumTextBonusDivider       = 3
+	shortTextPenalty              = -300
+	highLinkDensityThreshold      = 0.5
+	mediumLinkDensityThreshold   = 0.3
+	lowLinkDensityThreshold      = 0.15
+	highDensityMultiplier        = 1.2
+	lowDensityMultiplier         = 0.7
+	highLinkDensityPenalty       = 0.2
+	mediumLinkDensityPenalty     = 0.5
+	lowLinkDensityPenalty        = 0.75
+	commaBonusThreshold          = 5
+	commaBonusMultiplier         = 10
 )
 
 var (
@@ -68,6 +91,8 @@ var (
 	}
 )
 
+// ScoreContentNode calculates a relevance score for content extraction.
+// Higher scores indicate more likely main content. Negative scores suggest non-content elements.
 func ScoreContentNode(node *html.Node) int {
 	if node == nil || node.Type != html.ElementNode || IsNonContentElement(node.Data) || node.Data == "p" {
 		return 0
@@ -77,10 +102,10 @@ func ScoreContentNode(node *html.Node) int {
 
 	// Score based on paragraph count
 	paragraphCount := CountChildElements(node, "p")
-	if paragraphCount >= 3 {
-		score += paragraphCount * 150
+	if paragraphCount >= minParagraphsForBonus {
+		score += paragraphCount * manyParagraphsMultiplier
 	} else if paragraphCount > 0 {
-		score += paragraphCount * 80
+		score += paragraphCount * fewParagraphsMultiplier
 	}
 
 	// Score based on heading count
@@ -88,44 +113,44 @@ func ScoreContentNode(node *html.Node) int {
 		CountChildElements(node, "h3") + CountChildElements(node, "h4") +
 		CountChildElements(node, "h5") + CountChildElements(node, "h6")
 	if headingCount > 0 {
-		score += headingCount * 100
+		score += headingCount * headingMultiplier
 	}
 
 	// Score based on text length
 	textLength := GetTextLength(node)
 	switch {
-	case textLength > 500:
-		score += 500 + (textLength-500)/10
-	case textLength > 200:
+	case textLength > veryLongTextThreshold:
+		score += veryLongTextThreshold + (textLength-veryLongTextThreshold)/veryLongTextBonusMultiplier
+	case textLength > longTextThreshold:
 		score += textLength >> 1
-	case textLength > 100:
-		score += textLength / 3
-	case textLength < 50:
-		score -= 300
+	case textLength > mediumTextThreshold:
+		score += textLength / mediumTextBonusDivider
+	case textLength < shortTextThreshold:
+		score += shortTextPenalty
 	}
 
 	// Apply content density multiplier
 	contentDensity := CalculateContentDensity(node)
 	if contentDensity > 0.7 {
-		score = int(float64(score) * 1.2)
+		score = int(float64(score) * highDensityMultiplier)
 	} else if contentDensity < 0.3 {
-		score = int(float64(score) * 0.7)
+		score = int(float64(score) * lowDensityMultiplier)
 	}
 
 	// Penalize high link density (likely navigation/spam)
 	linkDensity := GetLinkDensity(node)
-	if linkDensity > 0.5 {
-		score = int(float64(score) * 0.2)
-	} else if linkDensity > 0.3 {
-		score = int(float64(score) * 0.5)
-	} else if linkDensity > 0.15 {
-		score = int(float64(score) * 0.75)
+	if linkDensity > highLinkDensityThreshold {
+		score = int(float64(score) * highLinkDensityPenalty)
+	} else if linkDensity > mediumLinkDensityThreshold {
+		score = int(float64(score) * mediumLinkDensityPenalty)
+	} else if linkDensity > lowLinkDensityThreshold {
+		score = int(float64(score) * lowLinkDensityPenalty)
 	}
 
 	// Bonus for comma-rich content (likely prose)
 	commaCount := countCommas(node)
-	if commaCount > 5 {
-		score += commaCount * 10
+	if commaCount > commaBonusThreshold {
+		score += commaCount * commaBonusMultiplier
 	}
 
 	return score
@@ -135,7 +160,6 @@ func getTagScore(tag string) int {
 	return tagScores[tag]
 }
 
-// countCommas efficiently counts commas without building full text string.
 func countCommas(node *html.Node) int {
 	count := 0
 	WalkNodes(node, func(n *html.Node) bool {

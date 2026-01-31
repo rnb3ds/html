@@ -4,157 +4,123 @@ package main
 
 import (
 	"fmt"
-	"log"
+	"strings"
 
 	"github.com/cybergodev/html"
 )
 
-// ContentExtraction demonstrates comprehensive content extraction features
-// including article detection, inline images, and metadata extraction.
+// ContentExtraction demonstrates various content extraction options.
 func main() {
-	processor := html.NewWithDefaults()
-	defer processor.Close()
+	fmt.Println("=== Content Extraction Options ===\n ")
 
-	// Realistic blog post HTML with navigation, sidebar, ads
 	blogHTML := `
 		<html>
-		<head>
-			<title>Understanding Go Interfaces | Tech Blog</title>
-		</head>
+		<head><title>Go Interfaces Guide</title></head>
 		<body>
-			<nav>
-				<ul>
-					<li><a href="/">Home</a></li>
-					<li><a href="/about">About</a></li>
-					<li><a href="/contact">Contact</a></li>
-				</ul>
-			</nav>
-			
-			<aside class="sidebar">
-				<div class="ad">
-					<h3>Advertisement</h3>
-					<p>Buy our amazing product now!</p>
-				</div>
-				<div class="related">
-					<h3>Related Posts</h3>
-					<ul>
-						<li><a href="/post1">Post 1</a></li>
-						<li><a href="/post2">Post 2</a></li>
-					</ul>
-				</div>
-			</aside>
-			
+			<nav>Navigation Menu</nav>
+			<aside class="sidebar"><div class="ad">Advertisement</div></aside>
 			<main>
 				<article>
 					<h1>Understanding Go Interfaces</h1>
-					<p class="meta">Published on January 15, 2024 by John Doe</p>
-					
-					<p>Interfaces are one of Go's most powerful features. They provide a way to specify the behavior of an object.</p>
-					
-					<img src="https://example.com/interface-diagram.png" alt="Go Interface Diagram" width="800" height="400">
-					
-					<p>As shown in the diagram above, interfaces provide abstraction and polymorphism in Go.</p>
-					
+					<p>Interfaces provide abstraction and polymorphism.</p>
+					<img src="interface-diagram.png" alt="Interface Diagram">
 					<h2>Key Concepts</h2>
-					<p>An interface type is defined as a set of method signatures. A value of interface type can hold any value that implements those methods.</p>
-					
-					<p>For more information, visit the <a href="https://golang.org/doc/effective_go#interfaces">official Go documentation</a>.</p>
+					<p>An interface type is defined as a set of method signatures.</p>
+					<p>For more info, visit the <a href="https://golang.org">Go website</a>.</p>
 				</article>
 			</main>
-			
-			<footer>
-				<p>© 2024 Tech Blog. All rights reserved.</p>
-				<p><a href="/privacy">Privacy Policy</a> | <a href="/terms">Terms of Service</a></p>
-			</footer>
+			<footer>Copyright 2024</footer>
 		</body>
 		</html>
 	`
 
-	fmt.Println("=== Content Extraction Example ===\n ")
+	processor := html.NewWithDefaults()
+	defer processor.Close()
 
-	// Example 1: Smart article detection (removes navigation, ads, sidebar, footer)
-	fmt.Println("1. Smart article detection:")
-	config1 := html.ExtractConfig{
-		ExtractArticle: true, // Automatically removes noise
-		PreserveImages: true,
-		PreserveLinks:  true,
-	}
-
-	result1, err := processor.Extract(blogHTML, config1)
-	if err != nil {
-		log.Fatal(err)
-	}
-
+	// Example 1: Article extraction (removes navigation, ads, footer)
+	fmt.Println("1. Smart article extraction:")
+	config1 := html.DefaultExtractConfig()
+	result1, _ := processor.Extract(blogHTML, config1)
 	fmt.Printf("   Title: %s\n", result1.Title)
-	fmt.Printf("   Word Count: %d\n", result1.WordCount)
-	fmt.Printf("   Reading Time: %v\n", result1.ReadingTime)
-	fmt.Printf("   Images: %d, Links: %d\n\n", len(result1.Images), len(result1.Links))
+	fmt.Printf("   Text: %s\n\n", truncate2(result1.Text, 150))
 
-	// Example 2: Inline images with Markdown format
-	fmt.Println("2. Inline images (Markdown format):")
-	config2 := html.ExtractConfig{
-		ExtractArticle:    true,
-		PreserveImages:    true,
-		InlineImageFormat: "markdown",
+	// Example 2: Inline images - Markdown format
+	fmt.Println("2. Inline images (Markdown):")
+	config2 := html.DefaultExtractConfig()
+	config2.InlineImageFormat = "markdown"
+	result2, _ := processor.Extract(blogHTML, config2)
+	fmt.Printf("   %s\n\n", truncate2(result2.Text, 150))
+
+	// Example 3: Inline images - HTML format
+	fmt.Println("3. Inline images (HTML):")
+	config3 := html.DefaultExtractConfig()
+	config3.InlineImageFormat = "html"
+	result3, _ := processor.Extract(blogHTML, config3)
+	fmt.Printf("   %s\n\n", truncate2(result3.Text, 150))
+
+	// Example 4: Inline images - Placeholder format
+	fmt.Println("4. Inline images (Placeholder):")
+	config4 := html.DefaultExtractConfig()
+	config4.InlineImageFormat = "placeholder"
+	result4, _ := processor.Extract(blogHTML, config4)
+	fmt.Printf("   %s\n\n", truncate2(result4.Text, 150))
+
+	// Example 5: Table formats
+	fmt.Println("5. Table formats:")
+	tableHTML := `
+		<html><body>
+			<table>
+				<tr><th>Name</th><th>Value</th></tr>
+				<tr><td>A</td><td>100</td></tr>
+			</table>
+		</body></html>
+	`
+
+	// Markdown tables (default)
+	config5a := html.DefaultExtractConfig()
+	config5a.TableFormat = "markdown"
+	result5a, _ := processor.Extract(tableHTML, config5a)
+	fmt.Println("   Markdown format:")
+	fmt.Println("   " + result5a.Text)
+	fmt.Println()
+
+	// HTML tables
+	config5b := html.DefaultExtractConfig()
+	config5b.TableFormat = "html"
+	result5b, _ := processor.Extract(tableHTML, config5b)
+	fmt.Println("   HTML format:")
+	fmt.Println("   " + result5b.Text)
+	fmt.Println()
+
+	// Example 6: Minimal extraction (no article detection)
+	fmt.Println("6. Minimal extraction (all content):")
+	config6 := html.ExtractConfig{
+		ExtractArticle:    false, // Don't detect article
+		PreserveImages:    false,
+		PreserveLinks:     false,
+		InlineImageFormat: "none",
 	}
+	result6, _ := processor.Extract(blogHTML, config6)
+	fmt.Printf("   Text: %s\n\n", truncate2(result6.Text, 150))
 
-	result2, err := processor.Extract(blogHTML, config2)
-	if err != nil {
-		log.Fatal(err)
+	// Example 7: Preserve all media
+	fmt.Println("7. Preserve all media and links:")
+	config7 := html.DefaultExtractConfig()
+	result7, _ := processor.Extract(blogHTML, config7)
+	fmt.Printf("   Images: %d, Links: %d\n", len(result7.Images), len(result7.Links))
+	for i, img := range result7.Images {
+		if i >= 2 {
+			fmt.Printf("   ... and %d more\n", len(result7.Images)-2)
+			break
+		}
+		fmt.Printf("   - %s (alt: %s)\n", img.URL, img.Alt)
 	}
+}
 
-	fmt.Println("   Content with inline images:")
-	fmt.Println("   " + result2.Text[:300] + "...\n")
-
-	// Example 3: Inline images with HTML format
-	fmt.Println("3. Inline images (HTML format):")
-	config3 := html.ExtractConfig{
-		ExtractArticle:    true,
-		PreserveImages:    true,
-		InlineImageFormat: "html",
+func truncate2(s string, maxLen int) string {
+	s = strings.ReplaceAll(s, "\n", " ")
+	if len(s) <= maxLen {
+		return s
 	}
-
-	result3, err := processor.Extract(blogHTML, config3)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	fmt.Println("   Content with HTML images:")
-	fmt.Println("   " + result3.Text[:300] + "...\n")
-
-	// Example 4: Inline images with placeholder format
-	fmt.Println("4. Inline images (Placeholder format):")
-	config4 := html.ExtractConfig{
-		ExtractArticle:    true,
-		PreserveImages:    true,
-		InlineImageFormat: "placeholder",
-	}
-
-	result4, err := processor.Extract(blogHTML, config4)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	fmt.Println("   Content with placeholders:")
-	fmt.Println("   " + result4.Text[:300] + "...\n")
-
-	// Example 5: Minimal extraction (text only, no metadata)
-	fmt.Println("5. Minimal extraction (text only):")
-	config5 := html.ExtractConfig{
-		ExtractArticle: false,
-		PreserveImages: false,
-		PreserveLinks:  false,
-		PreserveVideos: false,
-		PreserveAudios: false,
-	}
-
-	result5, err := processor.Extract(blogHTML, config5)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	fmt.Printf("   Text: %s\n", result5.Text[:300]+"...")
-	fmt.Printf("   Images: %d, Links: %d\n\n", len(result5.Images), len(result5.Links))
-
-	fmt.Println("✓ Content extraction complete!")
+	return s[:maxLen] + "..."
 }

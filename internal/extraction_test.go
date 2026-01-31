@@ -23,12 +23,12 @@ func TestExtractTextWithStructure(t *testing.T) {
 		{
 			name: "nested elements",
 			html: `<div><p>First</p><p>Second</p></div>`,
-			want: "First\nSecond",
+			want: "First\n\nSecond", // Paragraphs separated by double newlines
 		},
 		{
 			name: "block elements add newlines",
 			html: `<div>Text1</div><div>Text2</div>`,
-			want: "Text1\nText2",
+			want: "Text1\n\nText2", // Divs separated by double newlines
 		},
 		{
 			name: "inline elements add spaces",
@@ -66,7 +66,7 @@ func TestExtractTextWithStructure(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			doc, _ := html.Parse(strings.NewReader(tt.html))
 			var sb strings.Builder
-			ExtractTextWithStructureAndImages(doc, &sb, 0, nil)
+			ExtractTextWithStructureAndImages(doc, &sb, 0, nil, "markdown")
 			result := strings.TrimSpace(sb.String())
 
 			if result != tt.want {
@@ -116,7 +116,7 @@ func TestExtractTextWithStructureAndImages(t *testing.T) {
 			doc, _ := html.Parse(strings.NewReader(tt.html))
 			var sb strings.Builder
 			imageCounter := 0
-			ExtractTextWithStructureAndImages(doc, &sb, 0, &imageCounter)
+			ExtractTextWithStructureAndImages(doc, &sb, 0, &imageCounter, "markdown")
 			result := strings.TrimSpace(sb.String())
 
 			if result != tt.wantText {
@@ -133,7 +133,7 @@ func TestExtractTextWithStructureAndImagesNil(t *testing.T) {
 	t.Parallel()
 
 	var sb strings.Builder
-	ExtractTextWithStructureAndImages(nil, &sb, 0, nil)
+	ExtractTextWithStructureAndImages(nil, &sb, 0, nil, "markdown")
 
 	if sb.Len() != 0 {
 		t.Error("ExtractTextWithStructureAndImages(nil) should not write anything")
@@ -182,7 +182,7 @@ func TestExtractTable(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			doc, _ := html.Parse(strings.NewReader(tt.html))
 			var sb strings.Builder
-			ExtractTextWithStructureAndImages(doc, &sb, 0, nil)
+			ExtractTextWithStructureAndImages(doc, &sb, 0, nil, "markdown")
 			result := sb.String()
 
 			if tt.wantRows > 0 {
@@ -205,7 +205,7 @@ func TestExtractTableNil(t *testing.T) {
 	doc, _ := html.Parse(strings.NewReader("<table></table>"))
 	tableNode := FindElementByTag(doc, "table")
 	var sb strings.Builder
-	extractTableTracked(tableNode, newTrackedBuilder(&sb))
+	extractTableTracked(tableNode, newTrackedBuilder(&sb), "markdown")
 
 	result := strings.TrimSpace(sb.String())
 	if result != "" {
@@ -217,7 +217,7 @@ func TestExtractTextWithStructureNil(t *testing.T) {
 	t.Parallel()
 
 	var sb strings.Builder
-	ExtractTextWithStructureAndImages(nil, &sb, 0, nil)
+	ExtractTextWithStructureAndImages(nil, &sb, 0, nil, "markdown")
 
 	if sb.Len() != 0 {
 		t.Error("ExtractTextWithStructureAndImages(nil) should not write anything")
@@ -248,7 +248,7 @@ func TestExtractTextWithStructureDepth(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			doc, _ := html.Parse(strings.NewReader(tt.html))
 			var sb strings.Builder
-			ExtractTextWithStructureAndImages(doc, &sb, 0, nil)
+			ExtractTextWithStructureAndImages(doc, &sb, 0, nil, "markdown")
 			result := sb.String()
 
 			if !tt.check(result) {
@@ -336,6 +336,58 @@ func BenchmarkExtractTextWithStructure(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		var sb strings.Builder
-		ExtractTextWithStructureAndImages(doc, &sb, 0, nil)
+		ExtractTextWithStructureAndImages(doc, &sb, 0, nil, "markdown")
+	}
+}
+
+// TestExtractTableAsHTML tests HTML table format extraction
+func TestExtractTableAsHTML(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		html string
+		want []string // Substrings that should be in the output
+	}{
+		{
+			name: "simple table",
+			html:  `<table><tr><th>Header</th></tr><tr><td>Data</td></tr></table>`,
+			want: []string{"<table>", "<th>Header</th>", "<td>Data</td>", "</table>"},
+		},
+		{
+			name: "table with alignment",
+			html:  `<table><tr><th align="left">Left</th><th align="center">Center</th><th align="right">Right</th></tr></table>`,
+			want: []string{"text-align:left", "text-align:center", "text-align:right"},
+		},
+		{
+			name: "table with width",
+			html:  `<table><tr><th style="width:50%">Header</th></tr></table>`,
+			want: []string{"width:50%"},
+		},
+		{
+			name: "table with colspan",
+			html:  `<table><tr><th colspan="2">Merged</th></tr></table>`,
+			want: []string{`colspan="2"`},
+		},
+		{
+			name: "table with rowspan",
+			html:  `<table><tr><td rowspan="2">Span</td></tr></table>`,
+			want: []string{`rowspan="2"`},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			doc, _ := html.Parse(strings.NewReader(tt.html))
+			var sb strings.Builder
+			ExtractTextWithStructureAndImages(doc, &sb, 0, nil, "html")
+
+			result := sb.String()
+			for _, want := range tt.want {
+				if !strings.Contains(result, want) {
+					t.Errorf("Output should contain %q, got:\n%s", want, result)
+				}
+			}
+		})
 	}
 }

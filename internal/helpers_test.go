@@ -135,6 +135,26 @@ func TestGetTextContent(t *testing.T) {
 			html: `<p>   </p>`,
 			want: "",
 		},
+		{
+			name: "inline elements without space",
+			html: `<span>F-<a href="#">2</a></span>`,
+			want: "F-2",
+		},
+		{
+			name: "inline elements with space in HTML",
+			html: `<span>F- <a href="#">2</a></span>`,
+			want: "F- 2",
+		},
+		{
+			name: "nested span without space",
+			html: `<div><span>Hello</span><span>World</span></div>`,
+			want: "HelloWorld",
+		},
+		{
+			name: "nested span with space in HTML",
+			html: `<div><span>Hello</span> <span>World</span></div>`,
+			want: "Hello World",
+		},
 	}
 
 	for _, tt := range tests {
@@ -330,9 +350,9 @@ func TestCleanText(t *testing.T) {
 				want:  "Hello",
 			},
 			{
-				name:  "multiple newlines collapsed",
+				name:  "multiple newlines collapsed to one blank line",
 				input: "Line1\n\n\nLine2",
-				want:  "Line1\nLine2",
+				want:  "Line1\n\nLine2", // Preserves paragraph spacing with one blank line
 			},
 			{
 				name:  "only whitespace",
@@ -390,8 +410,13 @@ func TestReplaceHTMLEntities(t *testing.T) {
 		{"&gt;", ">"},
 		{"&quot;", "\""},
 		{"&apos;", "'"},
-		{"&mdash;", "-"},
-		{"&ndash;", "-"},
+		{"&mdash;", "—"},
+		{"&ndash;", "–"},
+		{"&#8212;", "—"},
+		{"&#x2014;", "—"},
+		{"&#160;", "\u00a0"},
+		{"&hellip;", "…"},
+		{"&copy;", "©"},
 		{"no entities", "no entities"},
 		{"", ""},
 	}
@@ -544,16 +569,19 @@ func TestPostProcessText(t *testing.T) {
 				},
 			},
 			{
-				name:  "empty lines removed",
+				name:  "excessive empty lines collapsed to single blank line",
 				input: "Line1\n\n\nLine2",
 				check: func(s string) bool {
+					// Should preserve ONE blank line (two newlines total) for paragraph spacing
 					lines := strings.Split(s, "\n")
+					emptyCount := 0
 					for _, line := range lines {
 						if strings.TrimSpace(line) == "" {
-							return false
+							emptyCount++
 						}
 					}
-					return true
+					// Should have exactly 2 lines ("Line1" and "Line2") with ONE empty line between them
+					return len(lines) == 3 && emptyCount == 1
 				},
 			},
 			{

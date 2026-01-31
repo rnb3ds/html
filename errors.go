@@ -24,4 +24,7 @@ var (
 
 	// ErrFileNotFound is returned when specified file cannot be read.
 	ErrFileNotFound = errors.New("html: file not found")
+
+	// ErrInvalidFilePath is returned when file path validation fails.
+	ErrInvalidFilePath = errors.New("html: invalid file path")
 )
