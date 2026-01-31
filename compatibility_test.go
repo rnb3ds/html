@@ -9,7 +9,6 @@ import (
 	stdhtml "golang.org/x/net/html"
 )
 
-
 // TestParseCompatibility verifies Parse function compatibility
 func TestParseCompatibility(t *testing.T) {
 	htmlContent := "<html><head><title>Test</title></head><body><p>Content</p></body></html>"
@@ -114,18 +113,17 @@ func TestTokenizerCompatibility(t *testing.T) {
 			break
 		}
 
-		if ourTT == html.ErrorToken {
+		if ourTT == stdhtml.ErrorToken {
 			break
 		}
 	}
 }
 
-
 // TestParseFragmentCompatibility verifies ParseFragment function compatibility
 func TestParseFragmentCompatibility(t *testing.T) {
 	htmlContent := "<p>Fragment</p><span>Test</span>"
-	context := &html.Node{
-		Type: html.ElementNode,
+	context := &stdhtml.Node{
+		Type: stdhtml.ElementNode,
 		Data: "body",
 	}
 
@@ -185,7 +183,7 @@ func TestDropInReplacement(t *testing.T) {
 	tokenCount := 0
 	for {
 		tt := tokenizer.Next()
-		if tt == html.ErrorToken {
+		if tt == stdhtml.ErrorToken {
 			break
 		}
 		tokenCount++

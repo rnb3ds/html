@@ -7,30 +7,38 @@ import (
 	"golang.org/x/net/html"
 )
 
-var WhitespaceRegex = regexp.MustCompile(`\s+`)
+var defaultWhitespaceRegex = regexp.MustCompile(`\s+`)
 
 func CleanText(text string, whitespaceRegex *regexp.Regexp) string {
 	if text == "" {
 		return ""
 	}
 	if whitespaceRegex == nil {
-		whitespaceRegex = WhitespaceRegex
+		whitespaceRegex = defaultWhitespaceRegex
 	}
 	textLen := len(text)
 	var result strings.Builder
 	result.Grow(textLen >> 1)
 	start := 0
+	previousWasEmpty := false
+
 	for i := 0; i <= textLen; i++ {
 		if i == textLen || text[i] == '\n' {
 			line := whitespaceRegex.ReplaceAllString(text[start:i], " ")
+			isEmpty := true
 			if line != "" {
 				if line = strings.TrimSpace(line); line != "" {
+					isEmpty = false
 					if result.Len() > 0 {
+						if previousWasEmpty {
+							result.WriteByte('\n')
+						}
 						result.WriteByte('\n')
 					}
 					result.WriteString(line)
 				}
 			}
+			previousWasEmpty = isEmpty
 			start = i + 1
 		}
 	}
@@ -61,14 +69,32 @@ func FindElementByTag(doc *html.Node, tagName string) *html.Node {
 func GetTextContent(node *html.Node) string {
 	var sb strings.Builder
 	sb.Grow(256)
+	prevEndedWithSpace := false
+
 	WalkNodes(node, func(n *html.Node) bool {
 		if n.Type == html.TextNode {
-			if text := strings.TrimSpace(n.Data); text != "" {
-				if sb.Len() > 0 {
+			originalData := n.Data
+			// Replace internal newlines with spaces to handle multi-line text in HTML
+			originalData = strings.ReplaceAll(originalData, "\n", " ")
+
+			// Check if the original text ends/starts with whitespace (before trimming)
+			endedWithSpace := len(originalData) > 0 && (originalData[len(originalData)-1] == ' ' || originalData[len(originalData)-1] == '\t')
+			startedWithSpace := len(originalData) > 0 && (originalData[0] == ' ' || originalData[0] == '\t')
+
+			text := strings.TrimSpace(originalData)
+			if text != "" {
+				// Add space only if previous node ended with space OR current node started with space
+				needsSpace := prevEndedWithSpace
+				if !needsSpace && sb.Len() > 0 {
+					needsSpace = startedWithSpace
+				}
+
+				if sb.Len() > 0 && needsSpace {
 					sb.WriteByte(' ')
 				}
 				sb.WriteString(text)
 			}
+			prevEndedWithSpace = endedWithSpace
 		}
 		return true
 	})

@@ -191,6 +191,7 @@ type ExtractConfig struct {
 	PreserveVideos    bool
 	PreserveAudios    bool
 	InlineImageFormat string
+	TableFormat       string
 }
 
 func DefaultExtractConfig() ExtractConfig {
@@ -201,6 +202,7 @@ func DefaultExtractConfig() ExtractConfig {
 		PreserveVideos:    true,
 		PreserveAudios:    true,
 		InlineImageFormat: "none",
+		TableFormat:       "markdown",
 	}
 }
 
@@ -285,7 +287,14 @@ func DefaultLinkExtractionConfig() LinkExtractionConfig {
 
 func resolveExtractConfig(configs ...ExtractConfig) ExtractConfig {
 	if len(configs) > 0 {
-		return configs[0]
+		cfg := configs[0]
+		// Validate and normalize TableFormat
+		format := strings.ToLower(strings.TrimSpace(cfg.TableFormat))
+		if format != "markdown" && format != "html" {
+			format = "markdown"
+		}
+		cfg.TableFormat = format
+		return cfg
 	}
 	return DefaultExtractConfig()
 }
@@ -668,11 +677,11 @@ func (p *Processor) extractFromDocument(doc *html.Node, htmlContent string, opts
 		var sb strings.Builder
 		sb.Grow(initialTextSize)
 		imageCounter := 0
-		internal.ExtractTextWithStructureAndImages(contentNode, &sb, 0, &imageCounter)
+		internal.ExtractTextWithStructureAndImages(contentNode, &sb, 0, &imageCounter, opts.TableFormat)
 		textWithPlaceholders := internal.CleanText(sb.String(), nil)
 		result.Text = p.formatInlineImages(textWithPlaceholders, images, format)
 	} else {
-		result.Text = p.extractTextContent(contentNode)
+		result.Text = p.extractTextContent(contentNode, opts.TableFormat)
 
 		if opts.PreserveImages {
 			result.Images = p.extractImages(contentNode)
@@ -733,10 +742,10 @@ func (p *Processor) extractArticleNode(doc *html.Node) *html.Node {
 	return internal.FindElementByTag(doc, "body")
 }
 
-func (p *Processor) extractTextContent(node *html.Node) string {
+func (p *Processor) extractTextContent(node *html.Node, tableFormat string) string {
 	var sb strings.Builder
 	sb.Grow(initialTextSize)
-	internal.ExtractTextWithStructureAndImages(node, &sb, 0, nil)
+	internal.ExtractTextWithStructureAndImages(node, &sb, 0, nil, tableFormat)
 	return internal.CleanText(sb.String(), nil)
 }
 
@@ -2246,7 +2255,7 @@ func ExtractAndClean(htmlContent string) (string, error) {
 		return "", err
 	}
 
-	cleaned := internal.WhitespaceRegex.ReplaceAllString(result.Text, " ")
+	cleaned := internal.CleanText(result.Text, nil)
 	lines := strings.Split(cleaned, "\n")
 	var nonEmptyLines []string
 	for _, line := range lines {
