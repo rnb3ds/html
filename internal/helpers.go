@@ -2,12 +2,19 @@ package internal
 
 import (
 	"regexp"
+	"strconv"
 	"strings"
 
 	"golang.org/x/net/html"
 )
 
 var defaultWhitespaceRegex = regexp.MustCompile(`\s+`)
+
+var unwantedCharReplacer = strings.NewReplacer(
+	"☒", "[X]",
+	"☐", "[ ]",
+	"☑", "[X]",
+)
 
 func CleanText(text string, whitespaceRegex *regexp.Regexp) string {
 	if text == "" {
@@ -42,7 +49,7 @@ func CleanText(text string, whitespaceRegex *regexp.Regexp) string {
 			start = i + 1
 		}
 	}
-	return ReplaceHTMLEntities(result.String())
+	return ReplaceHTMLEntities(unwantedCharReplacer.Replace(result.String()))
 }
 
 func WalkNodes(node *html.Node, fn func(*html.Node) bool) {
@@ -147,15 +154,86 @@ var entityReplacer = strings.NewReplacer(
 	"&gt;", ">",
 	"&quot;", "\"",
 	"&apos;", "'",
-	"&mdash;", "-",
-	"&ndash;", "-",
+	"&mdash;", "—",
+	"&ndash;", "–",
+	"&hellip;", "…",
+	"&copy;", "©",
+	"&reg;", "®",
+	"&trade;", "™",
+	"&euro;", "€",
+	"&pound;", "£",
+	"&cent;", "¢",
+	"&yen;", "¥",
+	"&sect;", "§",
+	"&para;", "¶",
+	"&plusmn;", "±",
+	"&times;", "×",
+	"&divide;", "÷",
+	"&frac12;", "½",
+	"&frac14;", "¼",
+	"&frac34;", "¾",
+	"&deg;", "°",
+	"&prime;", "'",
+	"&Prime;", "\"",
 )
 
 func ReplaceHTMLEntities(text string) string {
 	if !strings.ContainsRune(text, '&') {
 		return text
 	}
-	return entityReplacer.Replace(text)
+	text = entityReplacer.Replace(text)
+
+	// Handle numeric entities like &#8212; and &#x2014;
+	result := strings.Builder{}
+	result.Grow(len(text))
+	i := 0
+	for i < len(text) {
+		if text[i] == '&' && i+1 < len(text) && text[i+1] == '#' {
+			// Found numeric entity
+			semi := strings.IndexByte(text[i:], ';')
+			if semi == -1 {
+				result.WriteByte(text[i])
+				i++
+				continue
+			}
+			semi += i
+			entity := text[i+2 : semi]
+			var r rune
+			var base int
+			if len(entity) > 0 && (entity[0] == 'x' || entity[0] == 'X') {
+				base = 16
+				entity = entity[1:]
+			} else {
+				base = 10
+			}
+			_, err := strconv.ParseInt(entity, base, 32)
+			if err == nil {
+				for _, c := range entity {
+					if !((c >= '0' && c <= '9') ||
+						(base == 16 && ((c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')))) {
+						result.WriteString(text[i : semi+1])
+						i = semi + 1
+						goto next
+					}
+				}
+			}
+			if len(entity) > 0 && len(entity) <= 8 {
+				if num, err := strconv.ParseInt(entity, base, 32); err == nil && num > 0 && num <= 0x10FFFF {
+					r = rune(num)
+					result.WriteRune(r)
+					i = semi + 1
+					goto next
+				}
+			}
+			result.WriteString(text[i : semi+1])
+			i = semi + 1
+		} else {
+			result.WriteByte(text[i])
+			i++
+		}
+	next:
+	}
+	return result.String()
 }
 
 func IsExternalURL(url string) bool {

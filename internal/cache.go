@@ -7,7 +7,7 @@ import (
 )
 
 type cacheEntry struct {
-	lastUsed  int64 // Must be first for 64-bit alignment on 32-bit systems
+	lastUsed  int64
 	expiresAt int64
 	value     any
 }

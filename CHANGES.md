@@ -7,6 +7,74 @@ All notable changes to the cybergodev/html library will be documented in this fi
 
 ---
 
+## v1.1.0 - Table Extraction Enhancement & Documentation Update (2026-02-01)
+
+### Added
+- **Table Extraction Features**:
+  - Colspan expansion for Markdown tables with proper structure preservation
+  - HTML format support with original colspan structure maintained
+  - Visual alignment with automatic column width calculation
+  - Column width preservation from both `style` and `width` attributes
+  - Structure row detection (rows with width definitions only)
+  - Multi-line text normalization in table cells
+  - Support for all CSS text alignment values (left, center, right, justify)
+  - Alignment detection from all rows (not just header)
+- **Stdlib Compatibility**:
+  - 100% API coverage with golang.org/x/net/html
+  - Re-exported all ParseOption types and constants
+
+### Changed
+- **Text Extraction**:
+  - Paragraph spacing optimization (double newlines for Markdown)
+  - Inline element text extraction with multi-line handling
+  - Improved HTML entity decoding
+- **Examples**:
+  - Restructured from 12 to 8 progressive examples
+  - Added quick start guide
+  - Added real-world use cases
+  - Improved error handling demonstrations
+- **Code Quality**:
+  - Eliminated over-engineering and redundant comments
+  - Removed magic numbers, added named constants
+  - Enhanced input validation and security
+  - Improved variable naming throughout
+
+### Fixed
+- **Critical Bugs**:
+  - TableFormat cache key generation bug
+  - HTML format colspan preservation
+  - Structure row detection issues
+  - Mixed alignment column handling
+  - Data URI size limit (100KB max)
+- **Documentation**:
+  - Processor Methods API reference
+  - LinkExtractionConfig completeness
+  - Result structure JSON field names
+
+### Performance
+- Optimized large document handling (3MB+)
+- Reduced allocations in text extraction
+- Improved cache key generation
+- Enhanced memory pooling
+
+### Test Coverage
+- Added comprehensive table extraction tests
+- Enhanced URL validation tests
+- Improved edge case handling
+
+### Security
+- Enhanced data URL validation
+- Early input size validation
+- Improved DoS prevention
+- Safe HTML entity handling
+
+### Migration Notes
+- **Zero Breaking Changes** - All existing API calls work without modification
+- **New Features** - Table extraction enhancements are opt-in via `TableFormat` config
+- **Tests** - All previously failing tests now pass
+
+---
+
 ## v1.0.6 - Critical Fixes & Quality Improvements (2026-01-19)
 
 ### Fixed

@@ -3,8 +3,8 @@
 [![Go Version](https://img.shields.io/badge/Go-1.24+-00ADD8?logo=go)](https://golang.org)
 [![pkg.go.dev](https://pkg.go.dev/badge/github.com/cybergodev/html.svg)](https://pkg.go.dev/github.com/cybergodev/html)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Performance](https://img.shields.io/badge/performance-high%20performance-green.svg)](https://github.com/cybergodev/json)
-[![Thread Safe](https://img.shields.io/badge/thread%20safe-yes-brightgreen.svg)](https://github.com/cybergodev/json)
+[![Performance](https://img.shields.io/badge/performance-high%20performance-green.svg)](https://github.com/cybergodev/html)
+[![Thread Safe](https://img.shields.io/badge/thread%20safe-yes-brightgreen.svg)](https://github.com/cybergodev/html)
 
 
 **A Go library for intelligent HTML content extraction.** Compatible with `golang.org/x/net/html` — use it as a drop-in replacement, plus get enhanced content extraction features.
@@ -83,19 +83,12 @@ fmt.Println(result.Title)     // Hello World
 fmt.Println(result.Text)      // Content here...
 fmt.Println(result.WordCount) // 4
 
-// Extract only specific elements
-title, err := html.ExtractTitle(htmlContent)
-images, err := html.ExtractImages(htmlContent)
-links, err := html.ExtractLinks(htmlContent)
+// Extract all resource links
+links, _ := html.ExtractAllLinks(htmlContent)
 
 // Convert formats
-markdown, err := html.ExtractToMarkdown(htmlContent)
-jsonData, err := html.ExtractToJSON(htmlContent)
-
-// Content analysis
-wordCount, err := html.GetWordCount(htmlContent)
-readingTime, err := html.GetReadingTime(htmlContent)
-summary, err := html.Summarize(htmlContent, 50) // max 50 words
+markdown, _ := html.ExtractToMarkdown(htmlContent)
+jsonData, _ := html.ExtractToJSON(htmlContent)
 ```
 
 **When to use:** Simple scripts, one-off tasks, quick prototyping
@@ -104,21 +97,21 @@ summary, err := html.Summarize(htmlContent, 50) // max 50 words
 
 ### Basic Processor Usage
 
-Need more control, Create a processor:
+Need more control? Create a processor:
 
 ```go
 processor := html.NewWithDefaults()
 defer processor.Close()
 
 // Extract with defaults
-result, err := processor.ExtractWithDefaults(htmlContent)
+result, _ := processor.ExtractWithDefaults(htmlContent)
 
 // Extract from file
-result, err = processor.ExtractFromFile("page.html", html.DefaultExtractConfig())
+result, _ = processor.ExtractFromFile("page.html", html.DefaultExtractConfig())
 
 // Batch processing
 htmlContents := []string{html1, html2, html3}
-results, err := processor.ExtractBatch(htmlContents, html.DefaultExtractConfig())
+results, _ := processor.ExtractBatch(htmlContents, html.DefaultExtractConfig())
 ```
 
 **When to use:** Multiple extractions, processing many files, web scrapers
@@ -131,18 +124,19 @@ Fine-tune what gets extracted:
 
 ```go
 config := html.ExtractConfig{
-    ExtractArticle:    true,   // Auto-detect main content
-    PreserveImages:    true,   // Extract image metadata
-    PreserveLinks:     true,   // Extract link metadata
-    PreserveVideos:    false,  // Skip videos
-    PreserveAudios:    false,  // Skip audio
-    InlineImageFormat: "none", // Options: "none", "placeholder", "markdown", "html"
+    ExtractArticle:    true,       // Auto-detect main content
+    PreserveImages:    true,       // Extract image metadata
+    PreserveLinks:     true,       // Extract link metadata
+    PreserveVideos:    false,      // Skip videos
+    PreserveAudios:    false,      // Skip audio
+    InlineImageFormat: "none",     // Options: "none", "placeholder", "markdown", "html"
+    TableFormat:       "markdown", // Options: "markdown", "html"
 }
 
 processor := html.NewWithDefaults()
 defer processor.Close()
 
-result, err := processor.Extract(htmlContent, config)
+result, _ := processor.Extract(htmlContent, config)
 ```
 
 **When to use:** Specific extraction needs, format conversion, custom output
@@ -164,7 +158,7 @@ config := html.Config{
     MaxDepth:           50,    // Prevent deep nesting attacks
 }
 
-processor, err := html.New(config)
+processor, _ := html.New(config)
 defer processor.Close()
 ```
 
@@ -172,7 +166,7 @@ defer processor.Close()
 
 ```go
 // Extract all resource links
-links, err := html.ExtractAllLinks(htmlContent)
+links, _ := html.ExtractAllLinks(htmlContent)
 
 // Group by type
 byType := html.GroupLinksByType(links)
@@ -183,14 +177,18 @@ images := byType["image"]
 // Advanced configuration
 processor := html.NewWithDefaults()
 linkConfig := html.LinkExtractionConfig{
-    BaseURL:              "https://example.com",
-    ResolveRelativeURLs:  true,
-    IncludeImages:        true,
-    IncludeVideos:        true,
-    IncludeCSS:           true,
-    IncludeJS:            true,
+    BaseURL:               "https://example.com",
+    ResolveRelativeURLs:   true,
+    IncludeImages:         true,
+    IncludeVideos:         true,
+    IncludeAudios:         true,
+    IncludeCSS:            true,
+    IncludeJS:             true,
+    IncludeContentLinks:   true,
+    IncludeExternalLinks:  true,
+    IncludeIcons:          true,
 }
-links, err = processor.ExtractAllLinks(htmlContent, linkConfig)
+links, _ = processor.ExtractAllLinks(htmlContent, linkConfig)
 ```
 
 #### Caching & Statistics
@@ -200,8 +198,8 @@ processor := html.NewWithDefaults()
 defer processor.Close()
 
 // Automatic caching enabled
-result1, err := processor.ExtractWithDefaults(htmlContent)
-result2, err := processor.ExtractWithDefaults(htmlContent) // Cache hit!
+result1, _ := processor.ExtractWithDefaults(htmlContent)
+result2, _ := processor.ExtractWithDefaults(htmlContent) // Cache hit!
 
 // Check performance
 stats := processor.GetStatistics()
@@ -209,25 +207,6 @@ fmt.Printf("Cache hits: %d/%d\n", stats.CacheHits, stats.TotalProcessed)
 
 // Clear cache if needed
 processor.ClearCache()
-```
-
-#### Configuration Presets
-
-```go
-processor := html.NewWithDefaults()
-defer processor.Close()
-
-// RSS feed generation
-result, err := processor.Extract(htmlContent, html.ConfigForRSS())
-
-// Summary generation (text only)
-result, err = processor.Extract(htmlContent, html.ConfigForSummary())
-
-// Search indexing (all metadata)
-result, err = processor.Extract(htmlContent, html.ConfigForSearchIndex())
-
-// Markdown output
-result, err = processor.Extract(htmlContent, html.ConfigForMarkdown())
 ```
 
 **When to use:** Production applications, performance optimization, specific use cases
@@ -241,14 +220,14 @@ Copy-paste solutions for common tasks:
 ### Extract Article Text (Clean)
 
 ```go
-text, err := html.ExtractText(htmlContent)
+text, _ := html.ExtractText(htmlContent)
 // Returns clean text without navigation/ads
 ```
 
 ### Extract with Images
 
 ```go
-result, err := html.Extract(htmlContent)
+result, _ := html.Extract(htmlContent)
 for _, img := range result.Images {
     fmt.Printf("Image: %s (alt: %s)\n", img.URL, img.Alt)
 }
@@ -257,14 +236,14 @@ for _, img := range result.Images {
 ### Convert to Markdown
 
 ```go
-markdown, err := html.ExtractToMarkdown(htmlContent)
+markdown, _ := html.ExtractToMarkdown(htmlContent)
 // Images become: ![alt](url)
 ```
 
 ### Extract All Links
 
 ```go
-links, err := html.ExtractAllLinks(htmlContent)
+links, _ := html.ExtractAllLinks(htmlContent)
 for _, link := range links {
     fmt.Printf("%s: %s\n", link.Type, link.URL)
 }
@@ -273,7 +252,8 @@ for _, link := range links {
 ### Get Reading Time
 
 ```go
-minutes, err := html.GetReadingTime(htmlContent)
+result, _ := html.Extract(htmlContent)
+minutes := result.ReadingTime.Minutes()
 fmt.Printf("Reading time: %.1f min", minutes)
 ```
 
@@ -284,17 +264,7 @@ processor := html.NewWithDefaults()
 defer processor.Close()
 
 files := []string{"page1.html", "page2.html", "page3.html"}
-results, err := processor.ExtractBatchFiles(files, html.DefaultExtractConfig())
-```
-
-### Create RSS Feed Content
-
-```go
-processor := html.NewWithDefaults()
-defer processor.Close()
-
-result, err := processor.Extract(htmlContent, html.ConfigForRSS())
-// Optimized for RSS: fast, includes images/links, no article detection
+results, _ := processor.ExtractBatchFiles(files, html.DefaultExtractConfig())
 ```
 
 ---
@@ -305,40 +275,27 @@ result, err := processor.Extract(htmlContent, html.ConfigForRSS())
 
 ```go
 // Extraction
-Extract(htmlContent string) (*Result, error)
-ExtractText(htmlContent string) (string, error)
-ExtractFromFile(path string, configs ...ExtractConfig) (*Result, error)
+html.Extract(htmlContent string, configs ...ExtractConfig) (*Result, error)
+html.ExtractText(htmlContent string) (string, error)
+html.ExtractFromFile(path string, configs ...ExtractConfig) (*Result, error)
 
 // Format Conversion
-ExtractToMarkdown(htmlContent string) (string, error)
-ExtractToJSON(htmlContent string) ([]byte, error)
-
-// Specific Elements
-ExtractTitle(htmlContent string) (string, error)
-ExtractImages(htmlContent string) ([]ImageInfo, error)
-ExtractVideos(htmlContent string) ([]VideoInfo, error)
-ExtractAudios(htmlContent string) ([]AudioInfo, error)
-ExtractLinks(htmlContent string) ([]LinkInfo, error)
-ExtractWithTitle(htmlContent string) (string, string, error)
-
-// Analysis
-GetWordCount(htmlContent string) (int, error)
-GetReadingTime(htmlContent string) (float64, error)
-Summarize(htmlContent string, maxWords int) (string, error)
-ExtractAndClean(htmlContent string) (string, error)
+html.ExtractToMarkdown(htmlContent string) (string, error)
+html.ExtractToJSON(htmlContent string) ([]byte, error)
 
 // Links
-ExtractAllLinks(htmlContent string, configs ...LinkExtractionConfig) ([]LinkResource, error)
-GroupLinksByType(links []LinkResource) map[string][]LinkResource
+html.ExtractAllLinks(htmlContent string, configs ...LinkExtractionConfig) ([]LinkResource, error)
+html.GroupLinksByType(links []LinkResource) map[string][]LinkResource
 ```
 
 ### Processor Methods
 
 ```go
 // Creation
-NewWithDefaults() *Processor
-New(config Config) (*Processor, error)
-processor.Close()
+processor := html.NewWithDefaults()
+// or
+processor, err := html.New(config)
+defer processor.Close()
 
 // Extraction
 processor.Extract(htmlContent string, config ExtractConfig) (*Result, error)
@@ -357,15 +314,17 @@ processor.GetStatistics() Statistics
 processor.ClearCache()
 ```
 
-### Configuration Presets
+### Configuration Functions
 
 ```go
-DefaultExtractConfig()      ExtractConfig
-ConfigForRSS()               ExtractConfig
-ConfigForSummary()           ExtractConfig
-ConfigForSearchIndex()       ExtractConfig
-ConfigForMarkdown()          ExtractConfig
-DefaultLinkExtractionConfig() LinkExtractionConfig
+// Processor configuration
+html.DefaultConfig()            Config
+
+// Extraction configuration
+html.DefaultExtractConfig()           ExtractConfig
+
+// Link extraction configuration
+html.DefaultLinkExtractionConfig()           LinkExtractionConfig
 ```
 
 ---
@@ -381,8 +340,8 @@ type Result struct {
     Videos         []VideoInfo   // Video metadata
     Audios         []AudioInfo   // Audio metadata
     WordCount      int           // Total words
-    ReadingTime    time.Duration // Estimated reading time
-    ProcessingTime time.Duration // Time taken
+    ReadingTime    time.Duration // Estimated reading time (JSON: reading_time_ms in milliseconds)
+    ProcessingTime time.Duration // Time taken (JSON: processing_time_ms in milliseconds)
 }
 
 type ImageInfo struct {
@@ -421,7 +380,7 @@ type AudioInfo struct {
 type LinkResource struct {
     URL   string  // Resource URL
     Title string  // Resource title
-    Type  string  // Resource type (image, css, js, link, video, audio, icon)
+    Type  string  // Resource type: css, js, image, video, audio, icon, link, or media
 }
 ```
 
@@ -431,16 +390,16 @@ type LinkResource struct {
 
 See [examples/](examples) directory for complete, runnable code:
 
-| Example | Description |
-|---------|-------------|
-| [01_quick_start.go](examples/01_quick_start.go) | Quick start with one-liners |
-| [02_content_extraction.go](examples/02_content_extraction.go) | Content extraction basics |
-| [03_link_extraction.go](examples/03_link_extraction.go) | Link extraction patterns |
-| [04_media_extraction.go](examples/04_media_extraction.go) | Media (images/videos/audio) |
-| [04_advanced_features.go](examples/04_advanced_features.go) | Advanced features & compatibility |
-| [05_advanced_usage.go](examples/05_advanced_usage.go) | Batch processing & performance |
-| [06_compatibility.go](examples/06_compatibility.go) | golang.org/x/net/html compatibility |
-| [07_convenience_api.go](examples/07_convenience_api.go) | Package-level convenience API |
+| Example                                                       | Description                          |
+|---------------------------------------------------------------|--------------------------------------|
+| [01_quick_start.go](examples/01_quick_start.go)               | Quick start with one-liners          |
+| [02_content_extraction.go](examples/02_content_extraction.go) | Content extraction basics            |
+| [03_media_and_links.go](examples/03_media_and_links.go)       | Media and link extraction            |
+| [04_advanced_usage.go](examples/04_advanced_usage.go)         | Advanced features & batch processing |
+| [05_output_formats.go](examples/05_output_formats.go)         | JSON and Markdown output formats     |
+| [06_error_handling.go](examples/06_error_handling.go)         | Error handling patterns              |
+| [07_real_world.go](examples/07_real_world.go)                 | Real-world use cases                 |
+| [08_compatibility.go](examples/08_compatibility.go)           | golang.org/x/net/html compatibility  |
 
 ---
 
@@ -459,7 +418,10 @@ html.Render(writer, doc)
 escaped := html.EscapeString("<script>")
 ```
 
-See [COMPATIBILITY.md](COMPATIBILITY.md) for details.
+The library re-exports all commonly used types, constants, and functions from `golang.org/x/net/html`:
+- **Types**: `Node`, `NodeType`, `Token`, `Attribute`, `Tokenizer`, `ParseOption`
+- **Constants**: All `NodeType` and `TokenType` constants
+- **Functions**: `Parse`, `ParseFragment`, `ParseWithOptions`, `ParseFragmentWithOptions`, `Render`, `EscapeString`, `UnescapeString`, `NewTokenizer`, `NewTokenizerFragment`, `ParseOptionEnableScripting`
 
 ---
 

@@ -4,8 +4,9 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
-	stdhtml "html"
+	htmlstd "html"
 	"os"
 	"regexp"
 	"strconv"
@@ -15,42 +16,62 @@ import (
 	"time"
 
 	"github.com/cybergodev/html/internal"
-	"golang.org/x/net/html"
+	stdxhtml "golang.org/x/net/html"
 )
 
+// Re-exports of commonly used types and constants from golang.org/x/net/html
 type (
-	Node      = html.Node
-	NodeType  = html.NodeType
-	Attribute = html.Attribute
-	Token     = html.Token
-	TokenType = html.TokenType
-	Tokenizer = html.Tokenizer
+	Node        = stdxhtml.Node
+	NodeType    = stdxhtml.NodeType
+	Token       = stdxhtml.Token
+	Attribute   = stdxhtml.Attribute
+	Tokenizer   = stdxhtml.Tokenizer
+	ParseOption = stdxhtml.ParseOption
 )
 
+// NodeType constants - all node types from golang.org/x/net/html
 const (
-	ErrorNode    = html.ErrorNode
-	TextNode     = html.TextNode
-	DocumentNode = html.DocumentNode
-	ElementNode  = html.ElementNode
-	CommentNode  = html.CommentNode
-	DoctypeNode  = html.DoctypeNode
+	ErrorNode    = stdxhtml.ErrorNode
+	TextNode     = stdxhtml.TextNode
+	DocumentNode = stdxhtml.DocumentNode
+	ElementNode  = stdxhtml.ElementNode
+	CommentNode  = stdxhtml.CommentNode
+	DoctypeNode  = stdxhtml.DoctypeNode
+	RawNode      = stdxhtml.RawNode
+)
 
-	ErrorToken          = html.ErrorToken
-	TextToken           = html.TextToken
-	StartTagToken       = html.StartTagToken
-	EndTagToken         = html.EndTagToken
-	SelfClosingTagToken = html.SelfClosingTagToken
-	CommentToken        = html.CommentToken
-	DoctypeToken        = html.DoctypeToken
+// TokenType constants - all token types from golang.org/x/net/html
+const (
+	ErrorToken          = stdxhtml.ErrorToken
+	TextToken           = stdxhtml.TextToken
+	StartTagToken       = stdxhtml.StartTagToken
+	EndTagToken         = stdxhtml.EndTagToken
+	SelfClosingTagToken = stdxhtml.SelfClosingTagToken
+	CommentToken        = stdxhtml.CommentToken
+	DoctypeToken        = stdxhtml.DoctypeToken
 )
 
 var (
-	Parse          = html.Parse
-	ParseFragment  = html.ParseFragment
-	Render         = html.Render
-	EscapeString   = html.EscapeString
-	UnescapeString = html.UnescapeString
-	NewTokenizer   = html.NewTokenizer
+	// Errors
+	ErrBufferExceeded = stdxhtml.ErrBufferExceeded
+
+	// Parsing functions
+	Parse                    = stdxhtml.Parse
+	ParseFragment            = stdxhtml.ParseFragment
+	ParseWithOptions         = stdxhtml.ParseWithOptions
+	ParseFragmentWithOptions = stdxhtml.ParseFragmentWithOptions
+
+	// Rendering functions
+	Render         = stdxhtml.Render
+	EscapeString   = htmlstd.EscapeString
+	UnescapeString = stdxhtml.UnescapeString
+
+	// Tokenizer functions
+	NewTokenizer         = stdxhtml.NewTokenizer
+	NewTokenizerFragment = stdxhtml.NewTokenizerFragment
+
+	// Parse options
+	ParseOptionEnableScripting = stdxhtml.ParseOptionEnableScripting
 )
 
 func Extract(htmlContent string, configs ...ExtractConfig) (*Result, error) {
@@ -115,8 +136,9 @@ const (
 	initialSliceCap     = 16
 	initialMapCap       = 8
 	maxConfigInputSize  = 50 * 1024 * 1024
-	maxConfigWorkerSize = 1000
-	maxConfigDepth      = 10000
+	maxConfigWorkerSize = 256
+	maxConfigDepth      = 500
+	maxDataURILength    = 100000
 )
 
 var (
@@ -207,48 +229,48 @@ func DefaultExtractConfig() ExtractConfig {
 }
 
 type Result struct {
-	Text           string
-	Title          string
-	Images         []ImageInfo
-	Links          []LinkInfo
-	Videos         []VideoInfo
-	Audios         []AudioInfo
-	ProcessingTime time.Duration
-	WordCount      int
-	ReadingTime    time.Duration
+	Text           string        `json:"text"`
+	Title          string        `json:"title"`
+	Images         []ImageInfo   `json:"images,omitempty"`
+	Links          []LinkInfo    `json:"links,omitempty"`
+	Videos         []VideoInfo   `json:"videos,omitempty"`
+	Audios         []AudioInfo   `json:"audios,omitempty"`
+	ProcessingTime time.Duration `json:"processing_time_ms"`
+	WordCount      int           `json:"word_count"`
+	ReadingTime    time.Duration `json:"reading_time_ms"`
 }
 
 type ImageInfo struct {
-	URL          string
-	Alt          string
-	Title        string
-	Width        string
-	Height       string
-	IsDecorative bool
-	Position     int
+	URL          string `json:"url"`
+	Alt          string `json:"alt"`
+	Title        string `json:"title"`
+	Width        string `json:"width"`
+	Height       string `json:"height"`
+	IsDecorative bool   `json:"is_decorative"`
+	Position     int    `json:"position"`
 }
 
 type LinkInfo struct {
-	URL        string
-	Text       string
-	Title      string
-	IsExternal bool
-	IsNoFollow bool
+	URL        string `json:"url"`
+	Text       string `json:"text"`
+	Title      string `json:"title"`
+	IsExternal bool   `json:"is_external"`
+	IsNoFollow bool   `json:"is_nofollow"`
 }
 
 type VideoInfo struct {
-	URL      string
-	Type     string
-	Poster   string
-	Width    string
-	Height   string
-	Duration string
+	URL      string `json:"url"`
+	Type     string `json:"type"`
+	Poster   string `json:"poster"`
+	Width    string `json:"width"`
+	Height   string `json:"height"`
+	Duration string `json:"duration"`
 }
 
 type AudioInfo struct {
-	URL      string
-	Type     string
-	Duration string
+	URL      string `json:"url"`
+	Type     string `json:"type"`
+	Duration string `json:"duration"`
 }
 
 type LinkResource struct {
@@ -626,7 +648,7 @@ func (p *Processor) processContent(htmlContent string, opts ExtractConfig) (*Res
 		htmlContent = internal.SanitizeHTML(htmlContent)
 	}
 
-	doc, err := html.Parse(strings.NewReader(htmlContent))
+	doc, err := stdxhtml.Parse(strings.NewReader(htmlContent))
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrInvalidHTML, err)
 	}
@@ -638,7 +660,7 @@ func (p *Processor) processContent(htmlContent string, opts ExtractConfig) (*Res
 	return p.extractFromDocument(doc, originalHTML, opts)
 }
 
-func (p *Processor) validateDepth(n *html.Node, depth int) error {
+func (p *Processor) validateDepth(n *Node, depth int) error {
 	if depth > p.config.MaxDepth {
 		return ErrMaxDepthExceeded
 	}
@@ -650,7 +672,7 @@ func (p *Processor) validateDepth(n *html.Node, depth int) error {
 	return nil
 }
 
-func (p *Processor) extractFromDocument(doc *html.Node, htmlContent string, opts ExtractConfig) (*Result, error) {
+func (p *Processor) extractFromDocument(doc *Node, htmlContent string, opts ExtractConfig) (*Result, error) {
 	result := &Result{}
 	result.Title = p.extractTitle(doc)
 
@@ -703,7 +725,7 @@ func (p *Processor) extractFromDocument(doc *html.Node, htmlContent string, opts
 	return result, nil
 }
 
-func (p *Processor) extractTitle(doc *html.Node) string {
+func (p *Processor) extractTitle(doc *Node) string {
 	if doc == nil {
 		return ""
 	}
@@ -723,13 +745,13 @@ func (p *Processor) extractTitle(doc *html.Node) string {
 	return ""
 }
 
-func (p *Processor) extractArticleNode(doc *html.Node) *html.Node {
+func (p *Processor) extractArticleNode(doc *Node) *Node {
 	if doc == nil {
 		return nil
 	}
-	candidates := make(map[*html.Node]int)
-	internal.WalkNodes(doc, func(n *html.Node) bool {
-		if n.Type == html.ElementNode {
+	candidates := make(map[*Node]int)
+	internal.WalkNodes(doc, func(n *Node) bool {
+		if n.Type == ElementNode {
 			if score := internal.ScoreContentNode(n); score > 0 {
 				candidates[n] = score
 			}
@@ -742,7 +764,7 @@ func (p *Processor) extractArticleNode(doc *html.Node) *html.Node {
 	return internal.FindElementByTag(doc, "body")
 }
 
-func (p *Processor) extractTextContent(node *html.Node, tableFormat string) string {
+func (p *Processor) extractTextContent(node *Node, tableFormat string) string {
 	var sb strings.Builder
 	sb.Grow(initialTextSize)
 	internal.ExtractTextWithStructureAndImages(node, &sb, 0, nil, tableFormat)
@@ -779,18 +801,18 @@ func (p *Processor) formatInlineImages(textWithPlaceholders string, images []Ima
 			var htmlImg strings.Builder
 			htmlImg.Grow(len(images[i].URL) + len(images[i].Alt) + len(images[i].Width) + len(images[i].Height) + 64)
 			htmlImg.WriteString(`<img src="`)
-			htmlImg.WriteString(stdhtml.EscapeString(images[i].URL))
+			htmlImg.WriteString(htmlstd.EscapeString(images[i].URL))
 			htmlImg.WriteString(`" alt="`)
-			htmlImg.WriteString(stdhtml.EscapeString(images[i].Alt))
+			htmlImg.WriteString(htmlstd.EscapeString(images[i].Alt))
 			htmlImg.WriteString(`"`)
 			if images[i].Width != "" {
 				htmlImg.WriteString(` width="`)
-				htmlImg.WriteString(stdhtml.EscapeString(images[i].Width))
+				htmlImg.WriteString(htmlstd.EscapeString(images[i].Width))
 				htmlImg.WriteString(`"`)
 			}
 			if images[i].Height != "" {
 				htmlImg.WriteString(` height="`)
-				htmlImg.WriteString(stdhtml.EscapeString(images[i].Height))
+				htmlImg.WriteString(htmlstd.EscapeString(images[i].Height))
 				htmlImg.WriteString(`"`)
 			}
 			htmlImg.WriteString(">")
@@ -806,11 +828,11 @@ func (p *Processor) formatInlineImages(textWithPlaceholders string, images []Ima
 	return textWithPlaceholders
 }
 
-func (p *Processor) extractImages(node *html.Node) []ImageInfo {
+func (p *Processor) extractImages(node *Node) []ImageInfo {
 	images := make([]ImageInfo, 0, initialSliceCap)
 
-	internal.WalkNodes(node, func(n *html.Node) bool {
-		if n.Type == html.ElementNode && n.Data == "img" {
+	internal.WalkNodes(node, func(n *Node) bool {
+		if n.Type == ElementNode && n.Data == "img" {
 			img := p.parseImageNode(n, 0)
 			if img.URL != "" {
 				images = append(images, img)
@@ -822,12 +844,12 @@ func (p *Processor) extractImages(node *html.Node) []ImageInfo {
 	return images
 }
 
-func (p *Processor) extractImagesWithPosition(node *html.Node) []ImageInfo {
+func (p *Processor) extractImagesWithPosition(node *Node) []ImageInfo {
 	images := make([]ImageInfo, 0, initialSliceCap)
 	position := 0
 
-	internal.WalkNodes(node, func(n *html.Node) bool {
-		if n.Type == html.ElementNode && n.Data == "img" {
+	internal.WalkNodes(node, func(n *Node) bool {
+		if n.Type == ElementNode && n.Data == "img" {
 			position++
 			img := p.parseImageNode(n, position)
 			if img.URL != "" {
@@ -840,7 +862,7 @@ func (p *Processor) extractImagesWithPosition(node *html.Node) []ImageInfo {
 	return images
 }
 
-func (p *Processor) parseImageNode(n *html.Node, position int) ImageInfo {
+func (p *Processor) parseImageNode(n *Node, position int) ImageInfo {
 	img := ImageInfo{Position: position}
 
 	for _, attr := range n.Attr {
@@ -869,11 +891,11 @@ func (p *Processor) parseImageNode(n *html.Node, position int) ImageInfo {
 	return img
 }
 
-func (p *Processor) extractLinks(node *html.Node) []LinkInfo {
+func (p *Processor) extractLinks(node *Node) []LinkInfo {
 	links := make([]LinkInfo, 0, initialSliceCap)
 
-	internal.WalkNodes(node, func(n *html.Node) bool {
-		if n.Type == html.ElementNode && n.Data == "a" {
+	internal.WalkNodes(node, func(n *Node) bool {
+		if n.Type == ElementNode && n.Data == "a" {
 			link := p.parseLinkNode(n)
 			if link.URL != "" {
 				links = append(links, link)
@@ -885,7 +907,7 @@ func (p *Processor) extractLinks(node *html.Node) []LinkInfo {
 	return links
 }
 
-func (p *Processor) parseLinkNode(n *html.Node) LinkInfo {
+func (p *Processor) parseLinkNode(n *Node) LinkInfo {
 	link := LinkInfo{}
 
 	for _, attr := range n.Attr {
@@ -929,7 +951,7 @@ func (p *Processor) calculateReadingTime(wordCount int) time.Duration {
 	return time.Duration(minutes * float64(time.Minute))
 }
 
-func (p *Processor) extractVideos(node *html.Node, htmlContent string) []VideoInfo {
+func (p *Processor) extractVideos(node *Node, htmlContent string) []VideoInfo {
 	videos := make([]VideoInfo, 0, initialSliceCap)
 	seen := make(map[string]bool, initialMapCap)
 
@@ -974,8 +996,8 @@ func (p *Processor) extractVideos(node *html.Node, htmlContent string) []VideoIn
 	}
 
 	// Then extract from the DOM tree (for video tags and any iframe/embed/object that survived sanitization)
-	internal.WalkNodes(node, func(n *html.Node) bool {
-		if n.Type != html.ElementNode {
+	internal.WalkNodes(node, func(n *Node) bool {
+		if n.Type != ElementNode {
 			return true
 		}
 
@@ -1018,7 +1040,7 @@ func (p *Processor) extractVideos(node *html.Node, htmlContent string) []VideoIn
 	return videos
 }
 
-func (p *Processor) parseVideoNode(n *html.Node) VideoInfo {
+func (p *Processor) parseVideoNode(n *Node) VideoInfo {
 	video := VideoInfo{}
 	for _, attr := range n.Attr {
 		switch attr.Key {
@@ -1049,7 +1071,7 @@ func (p *Processor) parseVideoNode(n *html.Node) VideoInfo {
 	return video
 }
 
-func (p *Processor) parseIframeNode(n *html.Node) VideoInfo {
+func (p *Processor) parseIframeNode(n *Node) VideoInfo {
 	for _, attr := range n.Attr {
 		if attr.Key == "src" && isValidURL(attr.Val) && internal.IsVideoURL(attr.Val) {
 			video := VideoInfo{URL: attr.Val, Type: "embed"}
@@ -1067,7 +1089,7 @@ func (p *Processor) parseIframeNode(n *html.Node) VideoInfo {
 	return VideoInfo{}
 }
 
-func (p *Processor) parseEmbedNode(n *html.Node) VideoInfo {
+func (p *Processor) parseEmbedNode(n *Node) VideoInfo {
 	for _, attr := range n.Attr {
 		if (attr.Key == "src" || attr.Key == "data") && isValidURL(attr.Val) && internal.IsVideoURL(attr.Val) {
 			video := VideoInfo{URL: attr.Val}
@@ -1087,49 +1109,41 @@ func (p *Processor) parseEmbedNode(n *html.Node) VideoInfo {
 	return VideoInfo{}
 }
 
-// extractTagAttributes extracts attribute values from tags in raw HTML content.
-// This is useful for extracting media URLs that may have been removed by sanitization.
 func (p *Processor) extractTagAttributes(htmlContent, tagName string, attrNames ...string) []string {
-	var results []string
+	results := make([]string, 0, 16)
 	lowerHTML := strings.ToLower(htmlContent)
 	lowerTag := "<" + tagName
 
 	pos := 0
 	for {
-		// Find the next occurrence of the tag
 		tagStart := strings.Index(lowerHTML[pos:], lowerTag)
 		if tagStart == -1 {
 			break
 		}
 		tagStart += pos
 
-		// Find the end of the opening tag
 		tagEnd := strings.IndexByte(htmlContent[tagStart:], '>')
 		if tagEnd == -1 {
 			break
 		}
 		tagEnd += tagStart + 1
 
-		// Extract the tag content
 		tagContent := htmlContent[tagStart:tagEnd]
+		lowerTagContent := lowerHTML[tagStart:tagEnd]
 
-		// Find all specified attributes
 		for _, attrName := range attrNames {
-			attrPattern := attrName + "="
+			lowerAttrName := strings.ToLower(attrName)
+			attrPattern := lowerAttrName + "="
 			attrPos := 0
 
 			for attrPos < len(tagContent) {
-				// Find the attribute
-				attrIndex := strings.Index(strings.ToLower(tagContent[attrPos:]), attrPattern)
+				attrIndex := strings.Index(lowerTagContent[attrPos:], attrPattern)
 				if attrIndex == -1 {
 					break
 				}
 				attrIndex += attrPos
 
-				// Skip to after the attribute name and '='
 				valueStart := attrIndex + len(attrName) + 1
-
-				// Skip whitespace
 				for valueStart < len(tagContent) && (tagContent[valueStart] == ' ' || tagContent[valueStart] == '\t') {
 					valueStart++
 				}
@@ -1138,14 +1152,12 @@ func (p *Processor) extractTagAttributes(htmlContent, tagName string, attrNames 
 					break
 				}
 
-				// Get the quote character if present
 				var quote byte
 				if tagContent[valueStart] == '"' || tagContent[valueStart] == '\'' {
 					quote = tagContent[valueStart]
 					valueStart++
 				}
 
-				// Find the end of the attribute value
 				var valueEnd int
 				if quote != 0 {
 					valueEnd = strings.IndexByte(tagContent[valueStart:], quote)
@@ -1154,7 +1166,6 @@ func (p *Processor) extractTagAttributes(htmlContent, tagName string, attrNames 
 					}
 					valueEnd += valueStart
 				} else {
-					// No quote, find whitespace or '>'
 					for valueEnd = valueStart; valueEnd < len(tagContent); valueEnd++ {
 						c := tagContent[valueEnd]
 						if c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '>' {
@@ -1163,7 +1174,6 @@ func (p *Processor) extractTagAttributes(htmlContent, tagName string, attrNames 
 					}
 				}
 
-				// Extract the attribute value
 				if valueStart < valueEnd {
 					results = append(results, tagContent[valueStart:valueEnd])
 				}
@@ -1178,12 +1188,12 @@ func (p *Processor) extractTagAttributes(htmlContent, tagName string, attrNames 
 	return results
 }
 
-func (p *Processor) extractAudios(node *html.Node, htmlContent string) []AudioInfo {
+func (p *Processor) extractAudios(node *Node, htmlContent string) []AudioInfo {
 	audios := make([]AudioInfo, 0, initialSliceCap)
 	seen := make(map[string]bool, initialMapCap)
 
-	internal.WalkNodes(node, func(n *html.Node) bool {
-		if n.Type == html.ElementNode && n.Data == "audio" {
+	internal.WalkNodes(node, func(n *Node) bool {
+		if n.Type == ElementNode && n.Data == "audio" {
 			if audio := p.parseAudioNode(n); audio.URL != "" && !seen[audio.URL] {
 				seen[audio.URL] = true
 				audios = append(audios, audio)
@@ -1208,7 +1218,7 @@ func (p *Processor) extractAudios(node *html.Node, htmlContent string) []AudioIn
 	return audios
 }
 
-func (p *Processor) parseAudioNode(n *html.Node) AudioInfo {
+func (p *Processor) parseAudioNode(n *Node) AudioInfo {
 	audio := AudioInfo{}
 	for _, attr := range n.Attr {
 		switch attr.Key {
@@ -1233,9 +1243,9 @@ func (p *Processor) parseAudioNode(n *html.Node) AudioInfo {
 	return audio
 }
 
-func (p *Processor) findSourceURL(n *html.Node) (url, mediaType string) {
+func (p *Processor) findSourceURL(n *Node) (url, mediaType string) {
 	for c := n.FirstChild; c != nil; c = c.NextSibling {
-		if c.Type == html.ElementNode && c.Data == "source" {
+		if c.Type == ElementNode && c.Data == "source" {
 			var srcURL, srcType string
 			for _, attr := range c.Attr {
 				switch attr.Key {
@@ -1260,12 +1270,13 @@ func isValidURL(url string) bool {
 		return false
 	}
 
-	// Special handling for data URLs - stricter validation
+	// Special handling for data URLs - stricter validation with size limit
 	if strings.HasPrefix(url, "data:") {
-		// data: URLs should only contain safe printable ASCII characters
+		if urlLen > maxDataURILength {
+			return false
+		}
 		for i := 5; i < urlLen; i++ {
 			b := url[i]
-			// Allow only printable ASCII (32-126), excluding dangerous chars
 			if b < 32 || b > 126 || b == '<' || b == '>' || b == '"' || b == '\'' || b == '\\' {
 				return false
 			}
@@ -1289,16 +1300,23 @@ func isValidURL(url string) bool {
 		return true
 	}
 
-	// Accept relative URLs and paths
-	firstChar := url[0]
-	if firstChar == '/' || firstChar == '.' {
+	// Accept relative URLs and paths (starting with / or .)
+	if url[0] == '/' || url[0] == '.' {
 		return true
 	}
 
-	// Accept alphanumeric paths
-	return (firstChar >= 'a' && firstChar <= 'z') ||
-		(firstChar >= 'A' && firstChar <= 'Z') ||
-		(firstChar >= '0' && firstChar <= '9')
+	// Accept alphanumeric paths (legitimate filenames like img1.jpg, video.mp4)
+	// but reject paths starting with special characters that might be used in injection attacks
+	if urlLen > 0 {
+		firstChar := url[0]
+		if (firstChar >= 'a' && firstChar <= 'z') ||
+			(firstChar >= 'A' && firstChar <= 'Z') ||
+			(firstChar >= '0' && firstChar <= '9') {
+			return true
+		}
+	}
+
+	return false
 }
 
 // generateCacheKey creates a SHA-256 hash for cache key generation.
@@ -1322,6 +1340,8 @@ func (p *Processor) generateCacheKey(content string, opts ExtractConfig) string 
 	}
 	h.Write(configBytes)
 	h.Write([]byte(opts.InlineImageFormat))
+	h.Write([]byte{','})
+	h.Write([]byte(opts.TableFormat))
 	h.Write([]byte{0})
 
 	contentLen := len(content)
@@ -1343,7 +1363,7 @@ func (p *Processor) extractAllLinksFromContent(htmlContent string, config LinkEx
 		return []LinkResource{}, nil
 	}
 
-	doc, err := html.Parse(strings.NewReader(htmlContent))
+	doc, err := stdxhtml.Parse(strings.NewReader(htmlContent))
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrInvalidHTML, err)
 	}
@@ -1369,7 +1389,7 @@ func (p *Processor) extractAllLinksFromContent(htmlContent string, config LinkEx
 }
 
 // detectBaseURL attempts to detect base URL from HTML document.
-func (p *Processor) detectBaseURL(doc *html.Node) string {
+func (p *Processor) detectBaseURL(doc *Node) string {
 	if baseNode := internal.FindElementByTag(doc, "base"); baseNode != nil {
 		for _, attr := range baseNode.Attr {
 			if attr.Key == "href" && attr.Val != "" {
@@ -1379,8 +1399,8 @@ func (p *Processor) detectBaseURL(doc *html.Node) string {
 	}
 
 	var canonicalURL, canonicalLink, firstAbsoluteURL string
-	internal.WalkNodes(doc, func(n *html.Node) bool {
-		if n.Type != html.ElementNode {
+	internal.WalkNodes(doc, func(n *Node) bool {
+		if n.Type != ElementNode {
 			return true
 		}
 
@@ -1539,9 +1559,9 @@ func (p *Processor) resolveURL(baseURL, relativeURL string) string {
 	return baseURL + relativeURL
 }
 
-func (p *Processor) extractLinksFromDocument(doc *html.Node, baseURL string, config LinkExtractionConfig, linkMap map[string]LinkResource) {
-	internal.WalkNodes(doc, func(n *html.Node) bool {
-		if n.Type != html.ElementNode {
+func (p *Processor) extractLinksFromDocument(doc *Node, baseURL string, config LinkExtractionConfig, linkMap map[string]LinkResource) {
+	internal.WalkNodes(doc, func(n *Node) bool {
+		if n.Type != ElementNode {
 			return true
 		}
 
@@ -1581,7 +1601,7 @@ func (p *Processor) extractLinksFromDocument(doc *html.Node, baseURL string, con
 	})
 }
 
-func (p *Processor) extractContentLinks(n *html.Node, baseURL string, config LinkExtractionConfig, linkMap map[string]LinkResource) {
+func (p *Processor) extractContentLinks(n *Node, baseURL string, config LinkExtractionConfig, linkMap map[string]LinkResource) {
 	var href, title string
 	for _, attr := range n.Attr {
 		switch attr.Key {
@@ -1631,7 +1651,7 @@ func (p *Processor) extractContentLinks(n *html.Node, baseURL string, config Lin
 	}
 }
 
-func (p *Processor) extractImageLinks(n *html.Node, baseURL string, linkMap map[string]LinkResource) {
+func (p *Processor) extractImageLinks(n *Node, baseURL string, linkMap map[string]LinkResource) {
 	var src, alt, title string
 	for _, attr := range n.Attr {
 		switch attr.Key {
@@ -1653,26 +1673,26 @@ func (p *Processor) extractImageLinks(n *html.Node, baseURL string, linkMap map[
 		resolvedURL = p.resolveURL(baseURL, src)
 	}
 
-	resourceName := title
-	if resourceName == "" {
-		resourceName = alt
+	displayName := title
+	if displayName == "" {
+		displayName = alt
 	}
-	if resourceName == "" {
+	if displayName == "" {
 		if lastSlash := strings.LastIndex(resolvedURL, "/"); lastSlash >= 0 {
-			resourceName = resolvedURL[lastSlash+1:]
+			displayName = resolvedURL[lastSlash+1:]
 		} else {
-			resourceName = "Image"
+			displayName = "Image"
 		}
 	}
 
 	linkMap[resolvedURL] = LinkResource{
 		URL:   resolvedURL,
-		Title: resourceName,
+		Title: displayName,
 		Type:  "image",
 	}
 }
 
-func (p *Processor) extractMediaLink(n *html.Node, baseURL string, linkMap map[string]LinkResource, mediaType string) {
+func (p *Processor) extractMediaLink(n *Node, baseURL string, linkMap map[string]LinkResource, mediaType string) {
 	var src, title string
 	for _, attr := range n.Attr {
 		if attr.Key == "src" {
@@ -1691,22 +1711,24 @@ func (p *Processor) extractMediaLink(n *html.Node, baseURL string, linkMap map[s
 		resolvedURL = p.resolveURL(baseURL, src)
 	}
 
-	if title == "" {
+	displayName := title
+	if displayName == "" {
 		if lastSlash := strings.LastIndex(resolvedURL, "/"); lastSlash >= 0 {
-			title = resolvedURL[lastSlash+1:]
-		} else {
-			title = strings.ToUpper(mediaType[:1]) + mediaType[1:]
+			displayName = resolvedURL[lastSlash+1:]
+		}
+		if displayName == "" {
+			displayName = strings.ToUpper(mediaType[:1]) + mediaType[1:]
 		}
 	}
 
 	linkMap[resolvedURL] = LinkResource{
 		URL:   resolvedURL,
-		Title: title,
+		Title: displayName,
 		Type:  mediaType,
 	}
 }
 
-func (p *Processor) extractSourceLinks(n *html.Node, baseURL string, linkMap map[string]LinkResource) {
+func (p *Processor) extractSourceLinks(n *Node, baseURL string, linkMap map[string]LinkResource) {
 	var src, mediaType string
 	for _, attr := range n.Attr {
 		switch attr.Key {
@@ -1751,7 +1773,7 @@ func (p *Processor) extractSourceLinks(n *html.Node, baseURL string, linkMap map
 	}
 }
 
-func (p *Processor) extractLinkTagLinks(n *html.Node, baseURL string, config LinkExtractionConfig, linkMap map[string]LinkResource) {
+func (p *Processor) extractLinkTagLinks(n *Node, baseURL string, config LinkExtractionConfig, linkMap map[string]LinkResource) {
 	var href, rel, linkType, title string
 	for _, attr := range n.Attr {
 		switch attr.Key {
@@ -1855,7 +1877,7 @@ func (p *Processor) extractLinkTagLinks(n *html.Node, baseURL string, config Lin
 	}
 }
 
-func (p *Processor) extractScriptLinks(n *html.Node, baseURL string, linkMap map[string]LinkResource) {
+func (p *Processor) extractScriptLinks(n *Node, baseURL string, linkMap map[string]LinkResource) {
 	var src, title string
 	for _, attr := range n.Attr {
 		switch attr.Key {
@@ -1875,22 +1897,24 @@ func (p *Processor) extractScriptLinks(n *html.Node, baseURL string, linkMap map
 		resolvedURL = p.resolveURL(baseURL, src)
 	}
 
-	if title == "" {
+	displayName := title
+	if displayName == "" {
 		if lastSlash := strings.LastIndex(resolvedURL, "/"); lastSlash >= 0 {
-			title = resolvedURL[lastSlash+1:]
-		} else {
-			title = "Script"
+			displayName = resolvedURL[lastSlash+1:]
+		}
+		if displayName == "" {
+			displayName = "Script"
 		}
 	}
 
 	linkMap[resolvedURL] = LinkResource{
 		URL:   resolvedURL,
-		Title: title,
+		Title: displayName,
 		Type:  "js",
 	}
 }
 
-func (p *Processor) extractEmbedLinks(n *html.Node, baseURL string, linkMap map[string]LinkResource) {
+func (p *Processor) extractEmbedLinks(n *Node, baseURL string, linkMap map[string]LinkResource) {
 	var src, title string
 	for _, attr := range n.Attr {
 		switch attr.Key {
@@ -1949,12 +1973,32 @@ func ExtractToMarkdown(htmlContent string) (string, error) {
 	return result.Text, nil
 }
 
-var jsonBuilderPool = sync.Pool{
-	New: func() any {
-		sb := &strings.Builder{}
-		sb.Grow(4096) // Pre-allocate for typical JSON size
-		return sb
-	},
+// jsonResult wraps Result for custom JSON marshaling with duration formatting
+type jsonResult struct {
+	Text             string      `json:"text"`
+	Title            string      `json:"title"`
+	Images           []ImageInfo `json:"images,omitempty"`
+	Links            []LinkInfo  `json:"links,omitempty"`
+	Videos           []VideoInfo `json:"videos,omitempty"`
+	Audios           []AudioInfo `json:"audios,omitempty"`
+	ProcessingTimeMS int64       `json:"processing_time_ms"`
+	WordCount        int         `json:"word_count"`
+	ReadingTimeMS    int64       `json:"reading_time_ms"`
+}
+
+func (r *Result) MarshalJSON() ([]byte, error) {
+	jr := jsonResult{
+		Text:             r.Text,
+		Title:            r.Title,
+		Images:           r.Images,
+		Links:            r.Links,
+		Videos:           r.Videos,
+		Audios:           r.Audios,
+		ProcessingTimeMS: r.ProcessingTime.Milliseconds(),
+		WordCount:        r.WordCount,
+		ReadingTimeMS:    r.ReadingTime.Milliseconds(),
+	}
+	return json.Marshal(jr)
 }
 
 func ExtractToJSON(htmlContent string) ([]byte, error) {
@@ -1962,332 +2006,5 @@ func ExtractToJSON(htmlContent string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-
-	// Acquire builder from pool
-	buf := jsonBuilderPool.Get().(*strings.Builder)
-	defer func() {
-		buf.Reset()
-		jsonBuilderPool.Put(buf)
-	}()
-
-	// Estimate size and pre-allocate
-	estimatedSize := len(result.Text) + len(result.Title) + 512
-	for _, img := range result.Images {
-		estimatedSize += len(img.URL) + len(img.Alt) + 100
-	}
-	for _, link := range result.Links {
-		estimatedSize += len(link.URL) + len(link.Text) + 100
-	}
-	buf.Grow(estimatedSize)
-
-	buf.WriteString(`{"title":`)
-	writeJSONStringFast(buf, result.Title)
-	buf.WriteString(`,"text":`)
-	writeJSONStringFast(buf, result.Text)
-	buf.WriteString(`,"word_count":`)
-	buf.WriteString(strconv.Itoa(result.WordCount))
-	buf.WriteString(`,"reading_time_ms":`)
-	buf.WriteString(strconv.FormatInt(result.ReadingTime.Milliseconds(), 10))
-	buf.WriteString(`,"processing_time_ms":`)
-	buf.WriteString(strconv.FormatInt(result.ProcessingTime.Milliseconds(), 10))
-
-	if len(result.Images) > 0 {
-		buf.WriteString(`,"images":[`)
-		writeImagesJSON(buf, result.Images)
-		buf.WriteString("]")
-	}
-
-	if len(result.Links) > 0 {
-		buf.WriteString(`,"links":[`)
-		writeLinksJSON(buf, result.Links)
-		buf.WriteString("]")
-	}
-
-	if len(result.Videos) > 0 {
-		buf.WriteString(`,"videos":[`)
-		writeVideosJSON(buf, result.Videos)
-		buf.WriteString("]")
-	}
-
-	if len(result.Audios) > 0 {
-		buf.WriteString(`,"audios":[`)
-		writeAudiosJSON(buf, result.Audios)
-		buf.WriteString("]")
-	}
-
-	buf.WriteString("}")
-
-	return []byte(buf.String()), nil
-}
-
-func writeJSONStringFast(sb *strings.Builder, s string) {
-	sb.WriteByte('"')
-	// Use strings.Builder's internal buffer more efficiently
-	start := 0
-	for i := 0; i < len(s); i++ {
-		c := s[i]
-		switch c {
-		case '"', '\\', '\b', '\f', '\n', '\r', '\t':
-			if start < i {
-				sb.WriteString(s[start:i])
-			}
-			switch c {
-			case '"':
-				sb.WriteString(`\"`)
-			case '\\':
-				sb.WriteString(`\\`)
-			case '\b':
-				sb.WriteString(`\b`)
-			case '\f':
-				sb.WriteString(`\f`)
-			case '\n':
-				sb.WriteString(`\n`)
-			case '\r':
-				sb.WriteString(`\r`)
-			case '\t':
-				sb.WriteString(`\t`)
-			}
-			start = i + 1
-		default:
-			if c < 32 {
-				if start < i {
-					sb.WriteString(s[start:i])
-				}
-				sb.WriteString(`\u00`)
-				sb.WriteString(strconv.FormatInt(int64(c), 16))
-				start = i + 1
-			}
-		}
-	}
-	if start < len(s) {
-		sb.WriteString(s[start:])
-	}
-	sb.WriteByte('"')
-}
-
-func writeImagesJSON(sb *strings.Builder, images []ImageInfo) {
-	for i, img := range images {
-		if i > 0 {
-			sb.WriteByte(',')
-		}
-		sb.WriteString(`{"url":"`)
-		sb.WriteString(stdhtml.EscapeString(img.URL))
-		sb.WriteString(`","alt":"`)
-		sb.WriteString(stdhtml.EscapeString(img.Alt))
-		sb.WriteString(`","title":"`)
-		sb.WriteString(stdhtml.EscapeString(img.Title))
-		sb.WriteString(`","width":"`)
-		sb.WriteString(stdhtml.EscapeString(img.Width))
-		sb.WriteString(`","height":"`)
-		sb.WriteString(stdhtml.EscapeString(img.Height))
-		sb.WriteString(`","is_decorative":`)
-		sb.WriteString(strconv.FormatBool(img.IsDecorative))
-		sb.WriteString(`,"position":`)
-		sb.WriteString(strconv.Itoa(img.Position))
-		sb.WriteByte('}')
-	}
-}
-
-func writeLinksJSON(sb *strings.Builder, links []LinkInfo) {
-	for i, link := range links {
-		if i > 0 {
-			sb.WriteByte(',')
-		}
-		sb.WriteString(`{"url":"`)
-		sb.WriteString(stdhtml.EscapeString(link.URL))
-		sb.WriteString(`","text":"`)
-		sb.WriteString(stdhtml.EscapeString(link.Text))
-		sb.WriteString(`","title":"`)
-		sb.WriteString(stdhtml.EscapeString(link.Title))
-		sb.WriteString(`","is_external":`)
-		sb.WriteString(strconv.FormatBool(link.IsExternal))
-		sb.WriteString(`,"is_nofollow":`)
-		sb.WriteString(strconv.FormatBool(link.IsNoFollow))
-		sb.WriteByte('}')
-	}
-}
-
-func writeVideosJSON(sb *strings.Builder, videos []VideoInfo) {
-	for i, vid := range videos {
-		if i > 0 {
-			sb.WriteByte(',')
-		}
-		sb.WriteString(`{"url":"`)
-		sb.WriteString(stdhtml.EscapeString(vid.URL))
-		sb.WriteString(`","type":"`)
-		sb.WriteString(stdhtml.EscapeString(vid.Type))
-		sb.WriteString(`","poster":"`)
-		sb.WriteString(stdhtml.EscapeString(vid.Poster))
-		sb.WriteString(`","width":"`)
-		sb.WriteString(stdhtml.EscapeString(vid.Width))
-		sb.WriteString(`","height":"`)
-		sb.WriteString(stdhtml.EscapeString(vid.Height))
-		sb.WriteString(`","duration":"`)
-		sb.WriteString(stdhtml.EscapeString(vid.Duration))
-		sb.WriteString(`"}`)
-	}
-}
-
-func writeAudiosJSON(sb *strings.Builder, audios []AudioInfo) {
-	for i, aud := range audios {
-		if i > 0 {
-			sb.WriteByte(',')
-		}
-		sb.WriteString(`{"url":"`)
-		sb.WriteString(stdhtml.EscapeString(aud.URL))
-		sb.WriteString(`","type":"`)
-		sb.WriteString(stdhtml.EscapeString(aud.Type))
-		sb.WriteString(`","duration":"`)
-		sb.WriteString(stdhtml.EscapeString(aud.Duration))
-		sb.WriteString(`"}`)
-	}
-}
-
-func ExtractWithTitle(htmlContent string) (string, string, error) {
-	result, err := Extract(htmlContent)
-	if err != nil {
-		return "", "", err
-	}
-	return result.Title, result.Text, nil
-}
-
-func ExtractImages(htmlContent string) ([]ImageInfo, error) {
-	result, err := Extract(htmlContent)
-	if err != nil {
-		return nil, err
-	}
-	return result.Images, nil
-}
-
-func ExtractVideos(htmlContent string) ([]VideoInfo, error) {
-	result, err := Extract(htmlContent)
-	if err != nil {
-		return nil, err
-	}
-	return result.Videos, nil
-}
-
-func ExtractAudios(htmlContent string) ([]AudioInfo, error) {
-	result, err := Extract(htmlContent)
-	if err != nil {
-		return nil, err
-	}
-	return result.Audios, nil
-}
-
-func ExtractLinks(htmlContent string) ([]LinkInfo, error) {
-	result, err := Extract(htmlContent)
-	if err != nil {
-		return nil, err
-	}
-	return result.Links, nil
-}
-
-func ConfigForRSS() ExtractConfig {
-	return ExtractConfig{
-		ExtractArticle:    false,
-		PreserveImages:    true,
-		PreserveLinks:     true,
-		PreserveVideos:    false,
-		PreserveAudios:    false,
-		InlineImageFormat: "none",
-	}
-}
-
-func ConfigForSearchIndex() ExtractConfig {
-	return ExtractConfig{
-		ExtractArticle:    true,
-		PreserveImages:    true,
-		PreserveLinks:     true,
-		PreserveVideos:    true,
-		PreserveAudios:    true,
-		InlineImageFormat: "none",
-	}
-}
-
-func ConfigForSummary() ExtractConfig {
-	return ExtractConfig{
-		ExtractArticle:    true,
-		PreserveImages:    false,
-		PreserveLinks:     false,
-		PreserveVideos:    false,
-		PreserveAudios:    false,
-		InlineImageFormat: "none",
-	}
-}
-
-func ConfigForMarkdown() ExtractConfig {
-	return ExtractConfig{
-		ExtractArticle:    true,
-		PreserveImages:    true,
-		PreserveLinks:     true,
-		PreserveVideos:    false,
-		PreserveAudios:    false,
-		InlineImageFormat: "markdown",
-	}
-}
-
-func Summarize(htmlContent string, maxWords int) (string, error) {
-	result, err := Extract(htmlContent)
-	if err != nil {
-		return "", err
-	}
-
-	if maxWords <= 0 {
-		return result.Text, nil
-	}
-
-	words := strings.Fields(result.Text)
-	if len(words) <= maxWords {
-		return result.Text, nil
-	}
-
-	summary := strings.Join(words[:maxWords], " ")
-	if len(words) > maxWords {
-		summary += "..."
-	}
-	return summary, nil
-}
-
-func ExtractAndClean(htmlContent string) (string, error) {
-	result, err := Extract(htmlContent)
-	if err != nil {
-		return "", err
-	}
-
-	cleaned := internal.CleanText(result.Text, nil)
-	lines := strings.Split(cleaned, "\n")
-	var nonEmptyLines []string
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		if trimmed != "" {
-			nonEmptyLines = append(nonEmptyLines, trimmed)
-		}
-	}
-
-	return strings.Join(nonEmptyLines, "\n\n"), nil
-}
-
-func GetReadingTime(htmlContent string) (float64, error) {
-	result, err := Extract(htmlContent)
-	if err != nil {
-		return 0, err
-	}
-	return result.ReadingTime.Minutes(), nil
-}
-
-func GetWordCount(htmlContent string) (int, error) {
-	result, err := Extract(htmlContent)
-	if err != nil {
-		return 0, err
-	}
-	return result.WordCount, nil
-}
-
-func ExtractTitle(htmlContent string) (string, error) {
-	result, err := Extract(htmlContent)
-	if err != nil {
-		return "", err
-	}
-	return result.Title, nil
+	return json.Marshal(result)
 }

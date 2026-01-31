@@ -52,7 +52,7 @@ config := html.Config{
 - **Threat**: Complex HTML causes indefinite processing
 - **Mitigation**: `ProcessingTimeout` (default: 30 seconds)
 - **Validation**: Operations respect context deadlines
-- **Error**: Returns timeout error when exceeded
+- **Error**: Returns `ErrProcessingTimeout` when exceeded
 
 **Cache Exhaustion**
 - **Threat**: Unique inputs fill cache memory
@@ -64,9 +64,10 @@ config := html.Config{
 
 **Script Injection (XSS)**
 - **Threat**: Malicious `<script>` tags execute in downstream applications
-- **Mitigation**: `EnableSanitization` removes `<script>`, `<style>`, `<noscript>` tags
+- **Mitigation**: `EnableSanitization` removes dangerous tags and attributes
 - **Default**: Enabled by default
 - **Scope**: Content removed before parsing
+- **Removed Tags**: `<script>`, `<style>`, `<noscript>`, `<iframe>`, `<embed>`, `<object>`, `<form>`, `<input>`, `<button>`
 
 ```go
 config := html.Config{
@@ -75,16 +76,23 @@ config := html.Config{
 ```
 
 **Event Handler Injection**
-- **Threat**: Inline event handlers (`onclick`, `onerror`) in extracted content
-- **Mitigation**: Text extraction only, no attribute preservation in text output
-- **Scope**: Event handlers not included in extracted text
+- **Threat**: Inline event handlers execute JavaScript in downstream applications
+- **Mitigation**: All event handler attributes removed during sanitization
+- **Removed Attributes**: `onclick`, `onerror`, `onload`, `onmouseover`, `onmouseout`, `onfocus`, `onblur`, `onchange`, `onsubmit`, `onreset`, `ondblclick`
+- **Scope**: Event handlers not included in extracted content
+
+**Dangerous URI Schemes**
+- **Threat**: `javascript:`, `vbscript:`, `data:` URLs execute code
+- **Mitigation**: URI validation removes dangerous schemes
+- **Blocked Schemes**: `javascript:`, `vbscript:`, `file:`
+- **Validated Schemes**: `data:` URLs validated for size (100KB max) and safe content
 
 #### 3. Resource Exhaustion
 
 **Memory Exhaustion**
 - **Threat**: Large documents or cache consume all available memory
-- **Mitigation**: 
-  - Input size limits
+- **Mitigation**:
+  - Input size limits (50MB default)
   - Cache size limits with LRU eviction
   - Efficient string builders with pre-allocated capacity
   - No unbounded allocations
@@ -109,6 +117,11 @@ if len(htmlContent) <= maxHTMLForRegex {
 - **Mitigation**: URL length limited to 2000 characters (`maxURLLength`)
 - **Validation**: URLs exceeding limit are silently ignored
 
+**Data URL Attacks**
+- **Threat**: Large data URLs exhaust memory
+- **Mitigation**: Data URL length limited to 100KB (`maxDataURILength`)
+- **Validation**: Data URLs exceeding limit are rejected
+
 #### 4. Cache Poisoning
 
 **Hash Collision Attacks**
@@ -117,10 +130,11 @@ if len(htmlContent) <= maxHTMLForRegex {
 - **Collision Probability**: Negligible (2^-256)
 
 ```go
-// Cache key generation
+// Cache key generation with SHA-256
 hasher := sha256.New()
-hasher.Write([]byte{flags})
-hasher.Write([]byte(content))
+hasher.Write([]byte{flags})  // Config flags
+hasher.Write([]byte(format))  // Format options
+hasher.Write([]byte(content)) // Content (sampled for large content)
 cacheKey := hex.EncodeToString(hasher.Sum(nil))
 ```
 
@@ -203,17 +217,17 @@ func processUserHTML(userInput string) (*html.Result, error) {
     if strings.TrimSpace(userInput) == "" {
         return nil, errors.New("empty input")
     }
-    
+
     // 2. Check size before passing to processor
     if len(userInput) > 10*1024*1024 {
         return nil, errors.New("input too large")
     }
-    
+
     // 3. Optional: Validate HTML structure
     if !strings.Contains(userInput, "<") {
         return nil, errors.New("not HTML content")
     }
-    
+
     // 4. Process with configured limits
     return processor.Extract(userInput, config)
 }
@@ -227,7 +241,7 @@ result, err := processor.Extract(htmlContent, config)
 if err != nil {
     // Log error with context
     log.Printf("HTML extraction failed: %v", err)
-    
+
     // Handle specific errors
     if errors.Is(err, html.ErrInputTooLarge) {
         return nil, fmt.Errorf("document too large: %w", err)
@@ -235,7 +249,10 @@ if err != nil {
     if errors.Is(err, html.ErrMaxDepthExceeded) {
         return nil, fmt.Errorf("document too complex: %w", err)
     }
-    
+    if errors.Is(err, html.ErrProcessingTimeout) {
+        return nil, fmt.Errorf("processing timeout: %w", err)
+    }
+
     return nil, err
 }
 ```
@@ -254,7 +271,7 @@ result, err := processor.Extract(htmlContent, config)
 **Monitor Resource Usage**
 ```go
 stats := processor.GetStatistics()
-log.Printf("Cache hit rate: %.2f%%", 
+log.Printf("Cache hit rate: %.2f%%",
     float64(stats.CacheHits) / float64(stats.TotalProcessed) * 100)
 
 // Clear cache if memory pressure detected
@@ -281,7 +298,7 @@ for _, link := range result.Links {
     // Use link.URL
 }
 
-// Filter images
+// Filter tracking pixels
 for _, img := range result.Images {
     if img.Width == "1" && img.Height == "1" {
         log.Printf("Skipping tracking pixel: %s", img.URL)
@@ -397,7 +414,7 @@ Security fixes are released as:
 
 ### Automated Testing
 
-The library includes comprehensive security-focused tests:
+The library includes comprehensive security-focused tests with **85%+ code coverage**:
 
 ```bash
 # Run all tests including security tests
@@ -413,6 +430,15 @@ go test -v -run TestStress
 go test -cover ./...
 ```
 
+### Security Test Coverage
+
+- Input validation tests (size limits, depth limits, timeout)
+- XSS prevention tests (sanitization effectiveness)
+- Resource limit tests (cache, memory, allocations)
+- Concurrent access tests (race conditions, thread safety)
+- URL validation tests (dangerous schemes, length limits)
+- Data URL validation tests (size limits, content validation)
+
 ### Fuzzing
 
 **Recommended Fuzzing Targets**
@@ -421,7 +447,7 @@ go test -cover ./...
 func FuzzExtract(f *testing.F) {
     processor := html.NewWithDefaults()
     defer processor.Close()
-    
+
     f.Fuzz(func(t *testing.T, data []byte) {
         processor.Extract(string(data), html.DefaultExtractConfig())
         // Should never panic
@@ -431,20 +457,20 @@ func FuzzExtract(f *testing.F) {
 
 ### Security Audit Checklist
 
-- [ ] Input validation on all public APIs
-- [ ] Resource limits enforced
-- [ ] No panics in production code
-- [ ] All errors properly handled
-- [ ] Thread-safe concurrent access
-- [ ] No unsafe package usage
-- [ ] No arbitrary code execution
-- [ ] Regex patterns are safe
-- [ ] Cache keys are cryptographically secure
-- [ ] Dependencies are up to date
+- [x] Input validation on all public APIs
+- [x] Resource limits enforced
+- [x] No panics in production code
+- [x] All errors properly handled
+- [x] Thread-safe concurrent access
+- [x] No unsafe package usage
+- [x] No arbitrary code execution
+- [x] Regex patterns are safe
+- [x] Cache keys are cryptographically secure (SHA-256)
+- [x] Dependencies are up to date
 
 ## Compliance
 
-### OWASP Top 10
+### OWASP Top 10 (2021)
 
 | Risk | Status | Mitigation |
 |------|--------|------------|
@@ -462,17 +488,38 @@ func FuzzExtract(f *testing.F) {
 ### CWE Coverage
 
 - **CWE-20**: Input Validation - ✅ Comprehensive validation
-- **CWE-79**: XSS - ✅ Content sanitization
+- **CWE-79**: XSS - ✅ Content sanitization with tag/attribute removal
 - **CWE-89**: SQL Injection - N/A (no database access)
 - **CWE-119**: Buffer Overflow - ✅ Go memory safety
 - **CWE-190**: Integer Overflow - ✅ Validated limits
-- **CWE-400**: Resource Exhaustion - ✅ Resource limits
+- **CWE-400**: Resource Exhaustion - ✅ Resource limits (DoS protection)
 - **CWE-770**: Allocation without Limits - ✅ Size limits enforced
 - **CWE-835**: Infinite Loop - ✅ Depth limits, timeouts
 
 ## Security Changelog
 
-- Initial security-hardened release
+### v1.0.7 (2026-02-01)
+- Enhanced table extraction with colspan and alignment support
+- Improved input validation for data URLs (100KB limit)
+- Enhanced sanitization with additional dangerous attributes
+- Test coverage increased to 85%+
+
+### v1.0.6 (2026-01-19)
+- Fixed cache eviction logic to respect maxEntries
+- Enhanced URL validation for non-HTTP protocols
+- Improved documentation accuracy
+
+### v1.0.5 (2025-01-14)
+- Enhanced data URL validation (safe ASCII only, blocks injection)
+- Early input size validation (moved to function entry)
+- Improved concurrent access patterns
+
+### v1.0.4 (2026-01-12)
+- **CRITICAL**: Fixed thread-safety issues (concurrent map access)
+- Eliminated all data races detected by race detector
+- Added comprehensive concurrent stress tests
+
+### Initial Release (v1.0.0)
 - Input validation on all APIs
 - Resource limits with configurable defaults
 - Content sanitization enabled by default
@@ -485,12 +532,10 @@ func FuzzExtract(f *testing.F) {
 - [Go Security Best Practices](https://golang.org/doc/security)
 - [OWASP HTML Sanitization](https://cheatsheetseries.owasp.org/cheatsheets/Cross_Site_Scripting_Prevention_Cheat_Sheet.html)
 - [CWE Top 25](https://cwe.mitre.org/top25/)
+- [Go Race Detector](https://golang.org/doc/articles/race_detector.html)
 
 ## License
 
 This security policy is part of the `github.com/cybergodev/html` project and is licensed under the same terms as the project.
 
 ---
-
-**Last Updated**: 2025-11-28  
-**Version**: 1.0.0
