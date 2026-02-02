@@ -198,32 +198,22 @@ func ReplaceHTMLEntities(text string) string {
 			}
 			semi += i
 			entity := text[i+2 : semi]
-			var r rune
+			if len(entity) == 0 {
+				result.WriteString(text[i : semi+1])
+				i = semi + 1
+				continue
+			}
+
 			var base int
-			if len(entity) > 0 && (entity[0] == 'x' || entity[0] == 'X') {
+			if entity[0] == 'x' || entity[0] == 'X' {
 				base = 16
 				entity = entity[1:]
-			} else {
-				base = 10
 			}
-			_, err := strconv.ParseInt(entity, base, 32)
-			if err == nil {
-				for _, c := range entity {
-					if !((c >= '0' && c <= '9') ||
-						(base == 16 && ((c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')))) {
-						result.WriteString(text[i : semi+1])
-						i = semi + 1
-						goto next
-					}
-				}
-			}
-			if len(entity) > 0 && len(entity) <= 8 {
-				if num, err := strconv.ParseInt(entity, base, 32); err == nil && num > 0 && num <= 0x10FFFF {
-					r = rune(num)
-					result.WriteRune(r)
-					i = semi + 1
-					goto next
-				}
+
+			if num, err := strconv.ParseInt(entity, base, 32); err == nil && num > 0 && num <= 0x10FFFF {
+				result.WriteRune(rune(num))
+				i = semi + 1
+				continue
 			}
 			result.WriteString(text[i : semi+1])
 			i = semi + 1
@@ -231,7 +221,6 @@ func ReplaceHTMLEntities(text string) string {
 			result.WriteByte(text[i])
 			i++
 		}
-	next:
 	}
 	return result.String()
 }

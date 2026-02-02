@@ -19,7 +19,7 @@ import (
 	stdxhtml "golang.org/x/net/html"
 )
 
-// Re-exports of commonly used types and constants from golang.org/x/net/html
+// Type aliases for commonly used types from golang.org/x/net/html
 type (
 	Node        = stdxhtml.Node
 	NodeType    = stdxhtml.NodeType
@@ -29,7 +29,7 @@ type (
 	ParseOption = stdxhtml.ParseOption
 )
 
-// NodeType constants - all node types from golang.org/x/net/html
+
 const (
 	ErrorNode    = stdxhtml.ErrorNode
 	TextNode     = stdxhtml.TextNode
@@ -40,7 +40,7 @@ const (
 	RawNode      = stdxhtml.RawNode
 )
 
-// TokenType constants - all token types from golang.org/x/net/html
+
 const (
 	ErrorToken          = stdxhtml.ErrorToken
 	TextToken           = stdxhtml.TextToken
@@ -49,29 +49,6 @@ const (
 	SelfClosingTagToken = stdxhtml.SelfClosingTagToken
 	CommentToken        = stdxhtml.CommentToken
 	DoctypeToken        = stdxhtml.DoctypeToken
-)
-
-var (
-	// Errors
-	ErrBufferExceeded = stdxhtml.ErrBufferExceeded
-
-	// Parsing functions
-	Parse                    = stdxhtml.Parse
-	ParseFragment            = stdxhtml.ParseFragment
-	ParseWithOptions         = stdxhtml.ParseWithOptions
-	ParseFragmentWithOptions = stdxhtml.ParseFragmentWithOptions
-
-	// Rendering functions
-	Render         = stdxhtml.Render
-	EscapeString   = htmlstd.EscapeString
-	UnescapeString = stdxhtml.UnescapeString
-
-	// Tokenizer functions
-	NewTokenizer         = stdxhtml.NewTokenizer
-	NewTokenizerFragment = stdxhtml.NewTokenizerFragment
-
-	// Parse options
-	ParseOptionEnableScripting = stdxhtml.ParseOptionEnableScripting
 )
 
 func Extract(htmlContent string, configs ...ExtractConfig) (*Result, error) {
@@ -86,7 +63,7 @@ func ExtractFromFile(filePath string, configs ...ExtractConfig) (*Result, error)
 	return processor.ExtractFromFile(filePath, configs...)
 }
 
-// ExtractText extracts only text content without metadata.
+
 func ExtractText(htmlContent string) (string, error) {
 	result, err := Extract(htmlContent)
 	if err != nil {
@@ -101,7 +78,7 @@ func ExtractAllLinks(htmlContent string, configs ...LinkExtractionConfig) ([]Lin
 	return processor.ExtractAllLinks(htmlContent, configs...)
 }
 
-// GroupLinksByType groups LinkResource slice by their Type field.
+
 func GroupLinksByType(links []LinkResource) map[string][]LinkResource {
 	if len(links) == 0 {
 		return make(map[string][]LinkResource)
@@ -142,6 +119,15 @@ const (
 )
 
 var (
+	ErrBufferExceeded    = stdxhtml.ErrBufferExceeded
+	Parse                = stdxhtml.Parse
+	ParseFragment        = stdxhtml.ParseFragment
+	Render               = stdxhtml.Render
+	EscapeString         = htmlstd.EscapeString
+	UnescapeString       = htmlstd.UnescapeString
+	NewTokenizer         = stdxhtml.NewTokenizer
+	NewTokenizerFragment = stdxhtml.NewTokenizerFragment
+
 	videoRegex = regexp.MustCompile(`(?i)https?://[^\s<>"',;)}\]]{1,500}\.(?:mp4|webm|ogg|mov|avi|wmv|flv|mkv|m4v|3gp)`)
 	audioRegex = regexp.MustCompile(`(?i)https?://[^\s<>"',;)}\]]{1,500}\.(?:mp3|wav|ogg|m4a|aac|flac|wma|opus|oga)`)
 )

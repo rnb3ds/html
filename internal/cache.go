@@ -50,7 +50,9 @@ func (c *Cache) Get(key string) any {
 	if entry.isExpired(now) {
 		c.mu.RUnlock()
 		c.mu.Lock()
-		if entry := c.entries[key]; entry != nil && entry.isExpired(now) {
+		// Re-check entry after acquiring write lock
+		entry = c.entries[key]
+		if entry != nil && entry.isExpired(now) {
 			delete(c.entries, key)
 		}
 		c.mu.Unlock()
