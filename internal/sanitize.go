@@ -165,14 +165,8 @@ func isSafeURI(uri string) bool {
 	trimmed := strings.TrimSpace(uri)
 	lowerURI := strings.ToLower(trimmed)
 
-	if strings.Contains(lowerURI, "javascript:") {
+	if strings.HasPrefix(lowerURI, "javascript:") {
 		return false
-	}
-
-	if strings.HasPrefix(lowerURI, "data:") {
-		if !isValidDataURL(trimmed) {
-			return false
-		}
 	}
 
 	if strings.HasPrefix(lowerURI, "vbscript:") {
@@ -181,6 +175,10 @@ func isSafeURI(uri string) bool {
 
 	if strings.HasPrefix(lowerURI, "file:") {
 		return false
+	}
+
+	if strings.HasPrefix(lowerURI, "data:") {
+		return isValidDataURL(trimmed)
 	}
 
 	return true
@@ -218,13 +216,15 @@ func isValidDataURL(url string) bool {
 		}
 	}
 
+	isBase64 := strings.Contains(mediaPart, ";base64")
 	for i := 0; i < len(dataPart); i++ {
 		b := dataPart[i]
-		if b < 32 || b > 126 {
-			return false
-		}
-		if strings.HasPrefix(mediaPart, ";base64") || strings.Contains(mediaPart, ";base64") {
+		if isBase64 {
 			if !(isBase64Char(b) || b == '=' || b == '\r' || b == '\n') {
+				return false
+			}
+		} else {
+			if b < 9 || (b >= 11 && b <= 12) || (b >= 14 && b < 32) || b == 127 {
 				return false
 			}
 		}

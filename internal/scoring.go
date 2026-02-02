@@ -49,8 +49,8 @@ var (
 	}
 	negativeStrongPatterns = map[string]int{
 		"comment": strongNegativeScore, "sidebar": strongNegativeScore, "nav": strongNegativeScore,
-		"footer": strongNegativeScore, "header": strongNegativeScore, "menu": strongNegativeScore,
-		"ad": strongNegativeScore, "advertisement": strongNegativeScore,
+		"navigation": strongNegativeScore, "footer": strongNegativeScore, "header": strongNegativeScore,
+		"menu": strongNegativeScore, "ad": strongNegativeScore, "advertisement": strongNegativeScore,
 	}
 	negativeMediumPatterns = map[string]int{
 		"widget": mediumNegativeScore, "related": mediumNegativeScore, "share": mediumNegativeScore,
@@ -202,7 +202,7 @@ func ScoreAttributes(n *html.Node) int {
 func calculatePatternScore(value string, patterns map[string]int) int {
 	score := 0
 	for pattern, patternScore := range patterns {
-		if strings.Contains(value, pattern) {
+		if patternMatches(value, pattern) {
 			score += patternScore
 		}
 	}
@@ -211,11 +211,38 @@ func calculatePatternScore(value string, patterns map[string]int) int {
 
 func MatchesPattern(value string, patterns map[string]bool) bool {
 	for pattern := range patterns {
-		if strings.Contains(value, pattern) {
+		if patternMatches(value, pattern) {
 			return true
 		}
 	}
 	return false
+}
+
+// patternMatches checks if value matches pattern with word boundary detection
+func patternMatches(value, pattern string) bool {
+	idx := strings.Index(value, pattern)
+	if idx == -1 {
+		return false
+	}
+
+	// Check character before the match
+	if idx > 0 {
+		before := value[idx-1]
+		if before != '-' && before != '_' && before != ' ' && before != '\t' {
+			return false
+		}
+	}
+
+	// Check character after the match
+	endIdx := idx + len(pattern)
+	if endIdx < len(value) {
+		after := value[endIdx]
+		if after != '-' && after != '_' && after != ' ' && after != '\t' {
+			return false
+		}
+	}
+
+	return true
 }
 
 // CalculateContentDensity calculates text-to-tag ratio.
