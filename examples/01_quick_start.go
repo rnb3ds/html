@@ -70,7 +70,7 @@ func main() {
 
 	// Example 4: Using processor for multiple extractions
 	fmt.Println("4. Process multiple documents:")
-	processor := html.NewWithDefaults()
+	processor := html.New()
 	defer processor.Close()
 
 	docs := []string{

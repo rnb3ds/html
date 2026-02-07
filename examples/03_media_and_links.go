@@ -49,7 +49,7 @@ func main() {
 		</html>
 	`
 
-	processor := html.NewWithDefaults()
+	processor := html.New()
 	defer processor.Close()
 
 	result, err := processor.ExtractWithDefaults(htmlContent)

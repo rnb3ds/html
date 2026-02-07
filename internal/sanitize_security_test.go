@@ -7,63 +7,63 @@ import (
 
 func TestSanitizeHTML_PreventsJavascriptProtocol(t *testing.T) {
 	tests := []struct {
-		name     string
-		input    string
+		name       string
+		input      string
 		shouldFail bool
 	}{
 		{
-			name:  "javascript in href",
-			input: `<a href="javascript:alert('xss')">click</a>`,
+			name:       "javascript in href",
+			input:      `<a href="javascript:alert('xss')">click</a>`,
 			shouldFail: false,
 		},
 		{
-			name:  "javascript with mixed case in href",
-			input: `<a href="JavasCript:alert('xss')">click</a>`,
+			name:       "javascript with mixed case in href",
+			input:      `<a href="JavasCript:alert('xss')">click</a>`,
 			shouldFail: false,
 		},
 		{
-			name:  "javascript with spaces in href",
-			input: `<a href=" javascript:alert('xss')">click</a>`,
+			name:       "javascript with spaces in href",
+			input:      `<a href=" javascript:alert('xss')">click</a>`,
 			shouldFail: false,
 		},
 		{
-			name:  "javascript in src",
-			input: `<img src="javascript:alert('xss')">`,
+			name:       "javascript in src",
+			input:      `<img src="javascript:alert('xss')">`,
 			shouldFail: false,
 		},
 		{
-			name:  "vbscript in href",
-			input: `<a href="vbscript:msgbox('xss')">click</a>`,
+			name:       "vbscript in href",
+			input:      `<a href="vbscript:msgbox('xss')">click</a>`,
 			shouldFail: false,
 		},
 		{
-			name:  "file protocol in href",
-			input: `<a href="file:///etc/passwd">click</a>`,
+			name:       "file protocol in href",
+			input:      `<a href="file:///etc/passwd">click</a>`,
 			shouldFail: false,
 		},
 		{
-			name:  "data URL with javascript",
-			input: `<a href="data:text/html,<script>alert('xss')</script>">click</a>`,
+			name:       "data URL with javascript",
+			input:      `<a href="data:text/html,<script>alert('xss')</script>">click</a>`,
 			shouldFail: false,
 		},
 		{
-			name:  "valid http link",
-			input: `<a href="https://example.com">click</a>`,
+			name:       "valid http link",
+			input:      `<a href="https://example.com">click</a>`,
 			shouldFail: true,
 		},
 		{
-			name:  "valid relative link",
-			input: `<a href="/path/to/page">click</a>`,
+			name:       "valid relative link",
+			input:      `<a href="/path/to/page">click</a>`,
 			shouldFail: true,
 		},
 		{
-			name:  "onclick handler",
-			input: `<a href="https://example.com" onclick="alert('xss')">click</a>`,
+			name:       "onclick handler",
+			input:      `<a href="https://example.com" onclick="alert('xss')">click</a>`,
 			shouldFail: false,
 		},
 		{
-			name:  "onerror handler",
-			input: `<img src="invalid.jpg" onerror="alert('xss')">`,
+			name:       "onerror handler",
+			input:      `<img src="invalid.jpg" onerror="alert('xss')">`,
 			shouldFail: false,
 		},
 	}
@@ -136,9 +136,19 @@ func TestSanitizeHTML_MalformedDataURLs(t *testing.T) {
 			valid: true,
 		},
 		{
-			name:  "data URL with script content",
+			name:  "data URL with unsafe script content",
 			input: `<img src="data:text/html,<script>alert(1)</script>">`,
-			valid: true,
+			valid: false, // Now rejected due to whitelist
+		},
+		{
+			name:  "data URL with unsafe text content",
+			input: `<img src="data:text/plain,hello">`,
+			valid: false, // Now rejected due to whitelist
+		},
+		{
+			name:  "data URL with safe font content",
+			input: `<img src="data:font/woff2;base64,ABC123">`,
+			valid: true, // Font types are allowed
 		},
 	}
 
@@ -217,8 +227,12 @@ func TestIsSafeURI(t *testing.T) {
 		{"javascript uppercase", "JAVASCRIPT:alert(1)", false},
 		{"vbscript", "vbscript:msgbox(1)", false},
 		{"file", "file:///etc/passwd", false},
-		{"data valid", "data:image/png;base64,abc123", true},
-		{"data invalid media", "data:invalid/media,abc", true},
+		{"data valid image", "data:image/png;base64,abc123", true},
+		{"data valid font", "data:font/woff2;base64,abc", true},
+		{"data unsafe image svg", "data:image/svg+xml;base64,abc", false},
+		{"data unsafe script", "data:text/html,<script>alert(1)</script>", false},
+		{"data unsafe invalid media", "data:invalid/media,abc", false},
+		{"data unsafe text", "data:text/plain,abc", false},
 	}
 
 	for _, tt := range tests {
@@ -233,18 +247,23 @@ func TestIsSafeURI(t *testing.T) {
 
 func TestIsValidDataURL(t *testing.T) {
 	tests := []struct {
-		name string
-		url  string
+		name  string
+		url   string
 		valid bool
 	}{
 		{"not data URL", "https://example.com", false},
 		{"no comma", "data:text/html", false},
 		{"just data:", "data:,", false},
-		{"valid image", "data:image/png;base64,iVBORw0KG", true},
+		{"valid image png", "data:image/png;base64,iVBORw0KG", true},
+		{"valid image gif", "data:image/gif;base64,R0lGODlh", true},
+		{"valid font", "data:font/woff2;base64,ABC123", true},
 		{"control characters", "data:text/html,\x00\x01", false},
 		{"del character", "data:text/html,\x7f", false},
 		{"valid base64", "data:image/png;base64,ABC123", true},
 		{"invalid base64 chars with control", "data:image/png;base64,\x01\x02", false},
+		{"unsafe text html", "data:text/html,<script>", false},
+		{"unsafe text plain", "data:text/plain,abc", false},
+		{"too large", "data:image/png;base64," + string(make([]byte, 100001)), false},
 	}
 
 	for _, tt := range tests {

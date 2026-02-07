@@ -131,7 +131,7 @@ func main() {
 
 	// Bonus: Enhanced extraction
 	fmt.Println("9. Bonus: Enhanced extraction (not in stdlib):")
-	processor := html.NewWithDefaults()
+	processor := html.New()
 	defer processor.Close()
 
 	result, err := processor.ExtractWithDefaults(`

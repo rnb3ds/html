@@ -1,56 +1,28 @@
+// Package internal provides implementation details for the cybergodev/html library.
+// It contains content extraction, table processing, and text manipulation functionality
+// that is not part of the public API.
 package internal
 
 import (
 	"strconv"
 	"strings"
-	"sync"
 
 	"golang.org/x/net/html"
 )
 
-// Cell alignment type for table extraction
-type cellAlign int
-
 const (
-	alignLeft cellAlign = iota
-	alignCenter
-	alignRight
-	alignJustify
-	alignDefault
+	// Initial capacity for table column widths slice
+	initialColWidthsCap = 12
 )
-
-// Cell data with metadata for table extraction
-type cellData struct {
-	text            string
-	align           cellAlign
-	colspan         int
-	rowspan         int
-	isHeader        bool
-	width           string // Cell width (e.g., "100px", "1.0%", "auto")
-	isExpanded      bool   // True if this cell was created from colspan expansion
-	originalColspan int    // Original colspan value before expansion (for HTML output)
-}
-
-var builderPool = sync.Pool{
-	New: func() any {
-		sb := &strings.Builder{}
-		sb.Grow(1024)
-		return sb
-	},
-}
-
-func getStringBuilder() *strings.Builder {
-	return builderPool.Get().(*strings.Builder)
-}
-
-func putStringBuilder(sb *strings.Builder) {
-	sb.Reset()
-	builderPool.Put(sb)
-}
 
 type trackedBuilder struct {
 	*strings.Builder
 	lastChar byte
+}
+
+// alignCount tracks the number of cells with each alignment type for a column.
+type alignCount struct {
+	left, center, right, justify, defaultCount int
 }
 
 func newTrackedBuilder(sb *strings.Builder) *trackedBuilder {
@@ -58,6 +30,23 @@ func newTrackedBuilder(sb *strings.Builder) *trackedBuilder {
 		Builder:  sb,
 		lastChar: 0,
 	}
+}
+
+// ensureColWidthCapacity ensures the colWidths slice can hold the given index
+func ensureColWidthCapacity(colWidths []string, index int) []string {
+	if index < len(colWidths) {
+		return colWidths
+	}
+	// Grow the slice to accommodate the index
+	newCap := index + 1
+	if cap(colWidths) >= newCap {
+		// Extend to available capacity
+		return colWidths[:newCap]
+	}
+	// Allocate new slice with larger capacity
+	newSlice := make([]string, newCap, newCap+initialColWidthsCap)
+	copy(newSlice, colWidths)
+	return newSlice
 }
 
 func (tb *trackedBuilder) WriteByte(c byte) error {
@@ -105,12 +94,16 @@ func extractTextWithStructureOptimized(node *html.Node, tb *trackedBuilder, dept
 		return
 	}
 	if node.Type == html.TextNode {
-		originalData := node.Data
-		// Replace internal newlines with spaces to handle multi-line text in HTML
-		originalData = strings.ReplaceAll(originalData, "\n", " ")
-		originalData = strings.ReplaceAll(originalData, "\r", "")
+		textData := node.Data
+		// Replace non-breaking spaces (U+00A0) with regular spaces
+		// The HTML parser converts &nbsp;, &#160;, &#xa0; to U+00A0 automatically
+		textData = normalizeNonBreakingSpaces(textData)
+		textData = ReplaceHTMLEntities(textData)
+		// Replace internal newlines with spaces for multi-line text in HTML
+		textData = strings.ReplaceAll(textData, "\n", " ")
+		textData = strings.ReplaceAll(textData, "\r", "")
 
-		if content := strings.TrimSpace(originalData); content != "" {
+		if content := strings.TrimSpace(textData); content != "" {
 			ensureSpacingTracked(tb, ' ')
 			tb.WriteString(content)
 		}
@@ -175,318 +168,252 @@ func isParagraphLevelBlockElement(tag string) bool {
 	}
 }
 
+// extractTableTracked extracts HTML table content and converts it to the specified format.
+// This is the main entry point for table extraction that orchestrates the multi-step process.
 func extractTableTracked(table *html.Node, tb *trackedBuilder, tableFormat string) {
 	if table == nil {
 		return
 	}
 
+	// Ensure blank line before table for proper Markdown parsing
 	ensureNewlineTracked(tb)
-
-	containsWord := func(text, word string) bool {
-		idx := strings.Index(text, word)
-		if idx == -1 {
-			return false
-		}
-		// Check character before the match
-		if idx > 0 {
-			before := text[idx-1]
-			if before != ';' && before != ':' && before != ' ' && before != '\t' && before != '{' && before != '"' {
-				return false
-			}
-		}
-		// Check character after the match
-		endIdx := idx + len(word)
-		if endIdx < len(text) {
-			after := text[endIdx]
-			if after != ';' && after != ' ' && after != '\t' && after != '"' && after != '}' && after != ':' {
-				return false
-			}
-		}
-		return true
+	if tb.lastChar == '\n' {
+		tb.WriteByte('\n')
 	}
 
-	getCellAlign := func(n *html.Node) cellAlign {
-		// First check align attribute (takes precedence)
-		for _, attr := range n.Attr {
-			attrKey := strings.ToLower(attr.Key)
-			if attrKey == "align" {
-				alignVal := strings.ToLower(strings.TrimSpace(attr.Val))
-				switch alignVal {
-				case "left":
-					return alignLeft
-				case "center":
-					return alignCenter
-				case "right":
-					return alignRight
-				case "justify":
-					return alignJustify
-				}
-			}
-		}
-
-		// Then check style attribute for text-align
-		for _, attr := range n.Attr {
-			if strings.ToLower(attr.Key) == "style" {
-				style := strings.ToLower(attr.Val)
-				// Normalize spaces: remove extra spaces around colons
-				normalizedStyle := strings.ReplaceAll(style, " :", ":")
-				normalizedStyle = strings.ReplaceAll(normalizedStyle, ": ", ":")
-				// Check for text-align patterns with better boundary detection
-				// Order matters: check longer/more specific patterns first
-				if containsWord(normalizedStyle, "text-align:justify") ||
-					containsWord(normalizedStyle, "text-align: justify") {
-					return alignJustify
-				}
-				if containsWord(normalizedStyle, "text-align:right") ||
-					containsWord(normalizedStyle, "text-align: right") {
-					return alignRight
-				}
-				if containsWord(normalizedStyle, "text-align:center") ||
-					containsWord(normalizedStyle, "text-align: center") {
-					return alignCenter
-				}
-				if containsWord(normalizedStyle, "text-align:left") ||
-					containsWord(normalizedStyle, "text-align: left") {
-					return alignLeft
-				}
-			}
-		}
-
-		return alignDefault
-	}
-
-	getColSpan := func(n *html.Node) int {
-		for _, attr := range n.Attr {
-			if strings.ToLower(attr.Key) == "colspan" {
-				if val, err := strconv.Atoi(strings.TrimSpace(attr.Val)); err == nil && val > 0 {
-					return val
-				}
-			}
-		}
-		return 1
-	}
-
-	getRowSpan := func(n *html.Node) int {
-		for _, attr := range n.Attr {
-			if strings.ToLower(attr.Key) == "rowspan" {
-				if val, err := strconv.Atoi(strings.TrimSpace(attr.Val)); err == nil && val > 0 {
-					return val
-				}
-			}
-		}
-		return 1
-	}
-
-	getCellWidth := func(n *html.Node) string {
-		for _, attr := range n.Attr {
-			if strings.ToLower(attr.Key) == "width" {
-				widthVal := strings.TrimSpace(attr.Val)
-				if widthVal != "" && widthVal != "0" {
-					return widthVal
-				}
-			}
-		}
-		for _, attr := range n.Attr {
-			if strings.ToLower(attr.Key) == "style" {
-				style := attr.Val
-				widthLower := strings.ToLower(style)
-				if idx := strings.Index(widthLower, "width:"); idx >= 0 {
-					start := idx + 6
-					for start < len(style) && (style[start] == ' ' || style[start] == '\t') {
-						start++
-					}
-					end := start
-					for end < len(style) {
-						c := style[end]
-						if c == ';' || c == '"' || c == '\'' || c == '}' {
-							break
-						}
-						end++
-					}
-					widthVal := strings.TrimSpace(style[start:end])
-					if widthVal != "" && widthVal != "0" && widthVal != "0px" && widthVal != "0%" {
-						return widthVal
-					}
-				}
-			}
-		}
-		return ""
-	}
-
-	var tableData [][]cellData
-	var maxCols int
-	colWidths := make([]string, 12)
-
-	WalkNodes(table, func(node *html.Node) bool {
-		if node.Type == html.ElementNode && node.Data == "tr" {
-			logicalCols := 0
-			for child := node.FirstChild; child != nil; child = child.NextSibling {
-				if child.Type == html.ElementNode && (child.Data == "td" || child.Data == "th") {
-					colspan := getColSpan(child)
-					if colspan < 1 {
-						colspan = 1
-					}
-					logicalCols += colspan
-				}
-			}
-			if logicalCols > maxCols {
-				maxCols = logicalCols
-			}
-		}
-		return node.Data != "tr"
-	})
-
-	// Second pass: extract cell data
-	WalkNodes(table, func(node *html.Node) bool {
-		if node.Type == html.ElementNode && node.Data == "tr" {
-			// First pass: collect raw cell data without expansion
-			rawCells := make([]cellData, 0, 4)
-			hasWidthDefinitions := true      // Track if all cells have width definitions
-			hasNonEmptyContent := false      // Track if row has actual content
-			hasComplexChildElements := false // Track if cells have complex child elements
-
-			for child := node.FirstChild; child != nil; child = child.NextSibling {
-				if child.Type == html.ElementNode && (child.Data == "td" || child.Data == "th") {
-					cellText := strings.TrimSpace(GetTextContent(child))
-					if cellText == "" {
-						cellText = " "
-					}
-					cellWidth := getCellWidth(child)
-					if cellWidth == "" {
-						hasWidthDefinitions = false
-					}
-					if cellText != " " {
-						hasNonEmptyContent = true
-					}
-					if child.FirstChild != nil {
-						for grandchild := child.FirstChild; grandchild != nil; grandchild = grandchild.NextSibling {
-							if grandchild.Type == html.ElementNode {
-								if grandchild.Data != "br" && grandchild.Data != "hr" {
-									elementText := strings.TrimSpace(GetTextContent(grandchild))
-									if elementText != "" {
-										hasComplexChildElements = true
-									}
-								}
-							}
-						}
-					}
-
-					colspan := getColSpan(child)
-					rowspan := getRowSpan(child)
-					if colspan < 1 {
-						colspan = 1
-					}
-					rawCells = append(rawCells, cellData{
-						text:            cellText,
-						align:           getCellAlign(child),
-						colspan:         colspan,
-						rowspan:         rowspan,
-						isHeader:        child.Data == "th",
-						width:           cellWidth,
-						originalColspan: colspan,
-					})
-				}
-			}
-
-			isStructureRow := hasWidthDefinitions && !hasNonEmptyContent && !hasComplexChildElements
-
-			var cells []cellData
-			if tableFormat == "html" {
-				cells = rawCells
-			} else {
-				cells = make([]cellData, 0, len(rawCells))
-				for _, rawCell := range rawCells {
-					cells = append(cells, rawCell)
-					originalAlign := rawCell.align
-					for i := 1; i < rawCell.colspan; i++ {
-						cells = append(cells, cellData{
-							text:            " ",
-							align:           originalAlign,
-							colspan:         1,
-							rowspan:         rawCell.rowspan,
-							isHeader:        rawCell.isHeader,
-							width:           "",
-							isExpanded:      true, // Mark as expanded cell
-							originalColspan: 1,    // Expanded cells have colspan 1
-						})
-					}
-				}
-			}
-
-			if isStructureRow {
-				widthSourceCells := rawCells
-				for i, cell := range widthSourceCells {
-					if i < len(colWidths) && cell.width != "" {
-						colWidths[i] = cell.width
-					}
-				}
-			}
-
-			if tableFormat == "html" {
-				if len(cells) > 0 {
-					tableData = append(tableData, cells)
-				}
-			} else {
-				if !isStructureRow && len(cells) > 0 {
-					tableData = append(tableData, cells)
-				}
-			}
-			return false
-		}
-		return node.Data != "tr"
-	})
+	// Step 1: Extract all row data from table
+	tableData, colWidths := extractTableData(table, tableFormat)
 
 	if len(tableData) == 0 {
 		return
 	}
 
-	// Output based on format
+	// Step 2: Determine maximum columns
+	maxCols := calculateMaxColumns(tableData)
+
+	// Step 3: Render in requested format
 	switch strings.ToLower(strings.TrimSpace(tableFormat)) {
 	case "html":
 		extractTableAsHTML(tableData, tb)
 	default: // "markdown"
-		// Pass column widths extracted from structure rows
 		extractTableAsMarkdown(tableData, tb, maxCols, colWidths)
 	}
 
+	// Ensure blank line after table for proper Markdown parsing
 	tb.WriteByte('\n')
+	if tb.lastChar == '\n' {
+		tb.WriteByte('\n')
+	}
+}
+
+// extractTableData walks through table rows and extracts cell data.
+// Returns table rows with cell metadata and column widths from structure rows.
+func extractTableData(table *html.Node, tableFormat string) ([][]cellData, []string) {
+	var tableData [][]cellData
+	colWidths := make([]string, 0, initialColWidthsCap)
+
+	WalkNodes(table, func(node *html.Node) bool {
+		if node.Type != html.ElementNode || node.Data != "tr" {
+			return true
+		}
+
+		// Extract cells from this row
+		rawCells := extractRowCells(node)
+		if len(rawCells) == 0 {
+			return false
+		}
+
+		// Determine if this is a structure row (width definitions only, no real content)
+		isStructureRow := isStructureRow(rawCells)
+
+		// Expand cells with colspan for Markdown format
+		cells := rawCells
+		if tableFormat != "html" {
+			cells = expandColspanCells(rawCells)
+		}
+
+		// Collect column widths from structure rows
+		if isStructureRow {
+			colWidths = collectColumnWidths(rawCells, colWidths)
+		}
+
+		// Add row to table data (skip structure rows for Markdown)
+		if tableFormat == "html" {
+			tableData = append(tableData, cells)
+		} else if !isStructureRow {
+			tableData = append(tableData, cells)
+		}
+
+		return false
+	})
+
+	return tableData, colWidths
+}
+
+// extractRowCells extracts all cell data from a single table row (tr element).
+func extractRowCells(rowNode *html.Node) []cellData {
+	cells := make([]cellData, 0, 4)
+
+	for child := rowNode.FirstChild; child != nil; child = child.NextSibling {
+		if child.Type != html.ElementNode || (child.Data != "td" && child.Data != "th") {
+			continue
+		}
+
+		cellText := strings.TrimSpace(GetTextContent(child))
+		if cellText == "" {
+			cellText = " "
+		}
+
+		colspan := getColSpan(child)
+		if colspan < 1 {
+			colspan = 1
+		}
+		rowspan := getRowSpan(child)
+
+		cells = append(cells, cellData{
+			text:            cellText,
+			align:           getCellAlign(child),
+			colspan:         colspan,
+			rowspan:         rowspan,
+			isHeader:        child.Data == "th",
+			width:           getCellWidth(child),
+			originalColspan: colspan,
+		})
+	}
+
+	return cells
+}
+
+// isStructureRow determines if a row contains only width definitions (no real content).
+// Structure rows are used in Markdown tables to specify column widths.
+func isStructureRow(cells []cellData) bool {
+	hasWidthDefinitions := true
+	hasComplexChildElements := false
+	hasRealContent := false
+
+	for _, cell := range cells {
+		if cell.width == "" {
+			hasWidthDefinitions = false
+		}
+		if cell.text != " " && cell.text != "" && cell.text != "\u00a0" {
+			hasRealContent = true
+		}
+	}
+
+	return hasWidthDefinitions && !hasRealContent && !hasComplexChildElements
+}
+
+// expandColspanCells expands cells with colspan > 1 into multiple placeholder cells.
+// This is needed for Markdown format which doesn't support colspan.
+func expandColspanCells(rawCells []cellData) []cellData {
+	cells := make([]cellData, 0, len(rawCells))
+
+	for _, rawCell := range rawCells {
+		// Add the original cell
+		cells = append(cells, rawCell)
+
+		// Add placeholder cells for colspan > 1
+		originalAlign := rawCell.align
+		for i := 1; i < rawCell.colspan; i++ {
+			cells = append(cells, cellData{
+				text:            " ",
+				align:           originalAlign,
+				colspan:         1,
+				rowspan:         rawCell.rowspan,
+				isHeader:        rawCell.isHeader,
+				width:           "",
+				isExpanded:      true,
+				originalColspan: 1,
+			})
+		}
+	}
+
+	return cells
+}
+
+// collectColumnWidths extracts width definitions from a structure row.
+func collectColumnWidths(cells []cellData, colWidths []string) []string {
+	for i, cell := range cells {
+		colWidths = ensureColWidthCapacity(colWidths, i)
+		if cell.width != "" {
+			colWidths[i] = cell.width
+		}
+	}
+	return colWidths
+}
+
+// calculateMaxColumns finds the maximum number of columns across all rows.
+func calculateMaxColumns(tableData [][]cellData) int {
+	maxCols := 0
+	for _, row := range tableData {
+		if len(row) > maxCols {
+			maxCols = len(row)
+		}
+	}
+	return maxCols
 }
 
 // extractTableAsMarkdown outputs table in Markdown format with alignment.
 // Note: Column widths are included as HTML comments since Markdown doesn't support column widths.
 func extractTableAsMarkdown(tableData [][]cellData, tb *trackedBuilder, maxCols int, structureRowWidths []string) {
+	// Pad rows to have consistent column count
+	tableData = padTableColumns(tableData, maxCols)
+
+	// Calculate column properties
+	colAligns := calculateColumnAlignments(tableData, maxCols, structureRowWidths)
+	colMaxWidths := calculateMaxColumnWidths(tableData, maxCols)
+
+	// Filter out columns that are entirely empty expanded cells
+	_, newToOldCol := filterExpandedColumns(tableData, maxCols)
+	numIncludedCols := len(newToOldCol)
+
+	// Build arrays for included columns only
+	includedColAligns := filterArray(colAligns, newToOldCol)
+	includedColMaxWidths := filterIntArray(colMaxWidths, newToOldCol)
+
+	// Ensure minimum width for alignment markers
+	for i := range includedColMaxWidths {
+		if includedColMaxWidths[i] < 3 {
+			includedColMaxWidths[i] = 3
+		}
+	}
+
+	// Render table rows with alignment separator after the first row
+	if len(tableData) > 0 {
+		// Render first row (header)
+		renderMarkdownRow(tb, tableData[0], newToOldCol, includedColAligns, includedColMaxWidths, numIncludedCols)
+
+		// Add alignment separator after header row (required by Markdown)
+		tb.WriteString("| ")
+		tb.WriteString(strings.Join(includedColAligns, " | "))
+		tb.WriteString(" |\n")
+
+		// Render remaining rows
+		for i := 1; i < len(tableData); i++ {
+			renderMarkdownRow(tb, tableData[i], newToOldCol, includedColAligns, includedColMaxWidths, numIncludedCols)
+		}
+	}
+}
+
+// padTableColumns ensures all rows have the same number of columns.
+func padTableColumns(tableData [][]cellData, maxCols int) [][]cellData {
 	for i := range tableData {
 		for len(tableData[i]) < maxCols {
 			tableData[i] = append(tableData[i], cellData{text: " ", align: alignDefault})
 		}
 	}
+	return tableData
+}
 
-	// Determine column alignments by scanning all rows
-	// This handles cases where header row has no alignment but data rows do
+// calculateColumnAlignments determines column alignment using majority voting.
+// Returns alignment strings in Markdown format (:---, :--:, ---:, etc.)
+func calculateColumnAlignments(tableData [][]cellData, maxCols int, structureRowWidths []string) []string {
 	colAligns := make([]string, maxCols)
-	colWidths := make([]string, maxCols)
-	colAlignsInfo := make([]string, maxCols)
-
-	if len(structureRowWidths) > 0 {
-		for i := 0; i < maxCols && i < len(structureRowWidths); i++ {
-			if structureRowWidths[i] != "" {
-				colWidths[i] = structureRowWidths[i]
-			}
-		}
-	}
-
-	// Count alignment occurrences for each column
-	// alignCounts[colIdx][alignType] = count
-	type alignCount struct {
-		left, center, right, justify, defaultCount int
-	}
 	alignCounts := make([]alignCount, maxCols)
 
+	// Count alignments from all non-expanded cells
 	for _, row := range tableData {
 		for i := 0; i < maxCols && i < len(row); i++ {
-			if row[i].width != "" && colWidths[i] == "" {
-				colWidths[i] = row[i].width
-			}
 			if !row[i].isExpanded && row[i].text != " " && row[i].align != alignDefault {
 				switch row[i].align {
 				case alignLeft:
@@ -504,56 +431,10 @@ func extractTableAsMarkdown(tableData [][]cellData, tb *trackedBuilder, maxCols 
 		}
 	}
 
+	// Determine majority alignment for each column
 	if len(tableData) > 0 {
 		for i := 0; i < maxCols; i++ {
-			maxCount := 0
-			majorityAlign := alignDefault
-
-			if alignCounts[i].left > maxCount {
-				maxCount = alignCounts[i].left
-				majorityAlign = alignLeft
-			}
-			if alignCounts[i].center > maxCount {
-				maxCount = alignCounts[i].center
-				majorityAlign = alignCenter
-			}
-			if alignCounts[i].right > maxCount {
-				maxCount = alignCounts[i].right
-				majorityAlign = alignRight
-			}
-			if alignCounts[i].justify > maxCount {
-				maxCount = alignCounts[i].justify
-				majorityAlign = alignJustify
-			}
-
-			if maxCount == 0 && len(tableData[0]) > i {
-				majorityAlign = tableData[0][i].align
-			}
-
-			hasMixedAlignment := alignCounts[i].left > 0 && alignCounts[i].right > 0
-
-			if hasMixedAlignment {
-				colAligns[i] = "---"
-				colAlignsInfo[i] = "mixed"
-			} else {
-				switch majorityAlign {
-				case alignLeft:
-					colAligns[i] = ":---"
-					colAlignsInfo[i] = "left"
-				case alignCenter:
-					colAligns[i] = ":--:"
-					colAlignsInfo[i] = "center"
-				case alignRight:
-					colAligns[i] = "---:"
-					colAlignsInfo[i] = "right"
-				case alignJustify:
-					colAligns[i] = "---"
-					colAlignsInfo[i] = "justify"
-				default:
-					colAligns[i] = "---"
-					colAlignsInfo[i] = "default"
-				}
-			}
+			colAligns[i] = determineColumnAlignment(alignCounts[i], tableData[0], i)
 		}
 	} else {
 		for i := range colAligns {
@@ -561,6 +442,61 @@ func extractTableAsMarkdown(tableData [][]cellData, tb *trackedBuilder, maxCols 
 		}
 	}
 
+	return colAligns
+}
+
+// determineColumnAlignment picks the majority alignment for a single column.
+func determineColumnAlignment(counts alignCount, firstRow []cellData, colIdx int) string {
+	maxCount := 0
+	majorityAlign := alignDefault
+
+	// Find the alignment with the most votes
+	if counts.left > maxCount {
+		maxCount = counts.left
+		majorityAlign = alignLeft
+	}
+	if counts.center > maxCount {
+		maxCount = counts.center
+		majorityAlign = alignCenter
+	}
+	if counts.right > maxCount {
+		maxCount = counts.right
+		majorityAlign = alignRight
+	}
+	if counts.justify > maxCount {
+		maxCount = counts.justify
+		majorityAlign = alignJustify
+	}
+
+	// If no clear majority, use first row's alignment
+	if maxCount == 0 && len(firstRow) > colIdx {
+		majorityAlign = firstRow[colIdx].align
+	}
+
+	// Check for mixed alignment (both left and right present)
+	hasMixedAlignment := counts.left > 0 && counts.right > 0
+
+	if hasMixedAlignment {
+		return "---"
+	}
+
+	// Convert to Markdown alignment format
+	switch majorityAlign {
+	case alignLeft:
+		return ":---"
+	case alignCenter:
+		return ":--:"
+	case alignRight:
+		return "---:"
+	case alignJustify:
+		return "---"
+	default:
+		return "---"
+	}
+}
+
+// calculateMaxColumnWidths finds the maximum text width for each column.
+func calculateMaxColumnWidths(tableData [][]cellData, maxCols int) []int {
 	colMaxWidths := make([]int, maxCols)
 	for _, row := range tableData {
 		for j := 0; j < maxCols && j < len(row); j++ {
@@ -570,119 +506,181 @@ func extractTableAsMarkdown(tableData [][]cellData, tb *trackedBuilder, maxCols 
 			}
 		}
 	}
-
-	for i, row := range tableData {
-		tb.WriteString("| ")
-		for j := 0; j < maxCols; j++ {
-			var cellText string
-			if j < len(row) {
-				cellText = row[j].text
-			} else {
-				cellText = " "
-			}
-
-			maxWidth := colMaxWidths[j]
-			if maxWidth < 3 {
-				maxWidth = 3
-			}
-			textLen := len(cellText)
-
-			switch colAligns[j] {
-			case ":---":
-				tb.WriteString(cellText)
-				tb.WriteString(strings.Repeat(" ", maxWidth-textLen))
-			case "---:":
-				tb.WriteString(strings.Repeat(" ", maxWidth-textLen))
-				tb.WriteString(cellText)
-			case ":--:":
-				leftPad := (maxWidth - textLen) / 2
-				rightPad := maxWidth - textLen - leftPad
-				tb.WriteString(strings.Repeat(" ", leftPad))
-				tb.WriteString(cellText)
-				tb.WriteString(strings.Repeat(" ", rightPad))
-			default:
-				tb.WriteString(cellText)
-				tb.WriteString(strings.Repeat(" ", maxWidth-textLen))
-			}
-
-			if j < maxCols-1 {
-				tb.WriteString(" | ")
-			}
-		}
-		tb.WriteString(" |\n")
-
-		if i == 0 {
-			tb.WriteString("| ")
-			tb.WriteString(strings.Join(colAligns, " | "))
-			tb.WriteString(" |\n")
-		}
-	}
+	return colMaxWidths
 }
 
+// filterExpandedColumns identifies columns that should be excluded.
+// Returns a list of included column indices (columns with real content).
+func filterExpandedColumns(tableData [][]cellData, maxCols int) ([]int, []int) {
+	includeCol := make([]bool, maxCols)
+	newToOldCol := make([]int, 0, maxCols)
+
+	for j := 0; j < maxCols; j++ {
+		// Check if this column has any non-expanded content
+		allExpanded := true
+		for _, row := range tableData {
+			if j < len(row) && (!row[j].isExpanded || (row[j].text != " " && row[j].text != "")) {
+				allExpanded = false
+				break
+			}
+		}
+
+		includeCol[j] = !allExpanded
+		if !allExpanded {
+			newToOldCol = append(newToOldCol, j)
+		}
+	}
+
+	// Build mapping from new to old indices
+	oldToNewCol := make([]int, maxCols)
+	numIncluded := 0
+	for j, included := range includeCol {
+		if included {
+			oldToNewCol[j] = numIncluded
+			numIncluded++
+		}
+	}
+
+	return oldToNewCol, newToOldCol
+}
+
+// filterArray filters a string array to include only specified indices.
+func filterArray(arr []string, indices []int) []string {
+	result := make([]string, len(indices))
+	for i, idx := range indices {
+		if idx < len(arr) {
+			result[i] = arr[idx]
+		}
+	}
+	return result
+}
+
+// filterIntArray filters an int array to include only specified indices.
+func filterIntArray(arr []int, indices []int) []int {
+	result := make([]int, len(indices))
+	for i, idx := range indices {
+		if idx < len(arr) {
+			result[i] = arr[idx]
+		}
+	}
+	return result
+}
+
+// renderMarkdownRow renders a single table row in Markdown format.
+func renderMarkdownRow(tb *trackedBuilder, row []cellData, newToOldCol []int,
+	colAligns []string, colMaxWidths []int, numCols int) {
+
+	tb.WriteString("| ")
+	for newJ, oldJ := range newToOldCol {
+		cellText := " "
+		if oldJ < len(row) {
+			cellText = row[oldJ].text
+		}
+
+		maxWidth := colMaxWidths[newJ]
+		textLen := len(cellText)
+
+		// Apply alignment-based padding
+		switch colAligns[newJ] {
+		case ":---": // left
+			tb.WriteString(cellText)
+			tb.WriteString(strings.Repeat(" ", maxWidth-textLen))
+		case "---:": // right
+			tb.WriteString(strings.Repeat(" ", maxWidth-textLen))
+			tb.WriteString(cellText)
+		case ":--:": // center
+			leftPad := (maxWidth - textLen) / 2
+			rightPad := maxWidth - textLen - leftPad
+			tb.WriteString(strings.Repeat(" ", leftPad))
+			tb.WriteString(cellText)
+			tb.WriteString(strings.Repeat(" ", rightPad))
+		default: // left (default)
+			tb.WriteString(cellText)
+			tb.WriteString(strings.Repeat(" ", maxWidth-textLen))
+		}
+
+		if newJ < numCols-1 {
+			tb.WriteString(" | ")
+		}
+	}
+	tb.WriteString(" |\n")
+}
+
+// extractTableAsHTML outputs table in HTML format with proper attributes.
 func extractTableAsHTML(tableData [][]cellData, tb *trackedBuilder) {
 	tb.WriteString("<table>\n")
 
-	for i, row := range tableData {
-		tb.WriteString("  <tr")
-		if i == 0 && len(row) > 0 && row[0].isHeader {
-			tb.WriteString(">\n")
-		} else {
-			tb.WriteString(">\n")
-		}
-
+	for _, row := range tableData {
+		tb.WriteString("  <tr>\n")
 		for _, cell := range row {
-			tag := "td"
-			if cell.isHeader {
-				tag = "th"
-			}
-			tb.WriteString("    <" + tag)
-
-			var styleParts []string
-			switch cell.align {
-			case alignLeft:
-				styleParts = append(styleParts, "text-align:left")
-			case alignCenter:
-				styleParts = append(styleParts, "text-align:center")
-			case alignRight:
-				styleParts = append(styleParts, "text-align:right")
-			case alignJustify:
-				styleParts = append(styleParts, "text-align:justify")
-			}
-			if cell.width != "" && !cell.isExpanded {
-				styleParts = append(styleParts, "width:"+cell.width)
-			}
-			if len(styleParts) > 0 {
-				tb.WriteString(` style="`)
-				for i, part := range styleParts {
-					if i > 0 {
-						tb.WriteString(";")
-					}
-					tb.WriteString(part)
-				}
-				tb.WriteString(`"`)
-			}
-
-			if cell.originalColspan > 1 && !cell.isExpanded {
-				tb.WriteString(` colspan="`)
-				tb.WriteString(strconv.Itoa(cell.originalColspan))
-				tb.WriteString(`"`)
-			}
-
-			if cell.rowspan > 1 {
-				tb.WriteString(` rowspan="`)
-				tb.WriteString(strconv.Itoa(cell.rowspan))
-				tb.WriteString(`"`)
-			}
-
-			tb.WriteString(">")
-			tb.WriteString(cell.text)
-			tb.WriteString("</" + tag + ">\n")
+			renderHTMLCell(tb, cell)
 		}
-
 		tb.WriteString("  </tr>\n")
 	}
 
 	tb.WriteString("</table>")
+}
+
+// renderHTMLCell renders a single table cell in HTML format.
+func renderHTMLCell(tb *trackedBuilder, cell cellData) {
+	// Determine tag name
+	tag := "td"
+	if cell.isHeader {
+		tag = "th"
+	}
+	tb.WriteString("    <" + tag)
+
+	// Add style attribute
+	style := buildCellStyle(cell)
+	if style != "" {
+		tb.WriteString(` style="`)
+		tb.WriteString(style)
+		tb.WriteString(`"`)
+	}
+
+	// Add colspan attribute
+	if cell.originalColspan > 1 && !cell.isExpanded {
+		tb.WriteString(` colspan="`)
+		tb.WriteString(strconv.Itoa(cell.originalColspan))
+		tb.WriteString(`"`)
+	}
+
+	// Add rowspan attribute
+	if cell.rowspan > 1 {
+		tb.WriteString(` rowspan="`)
+		tb.WriteString(strconv.Itoa(cell.rowspan))
+		tb.WriteString(`"`)
+	}
+
+	// Write cell content
+	tb.WriteString(">")
+	tb.WriteString(cell.text)
+	tb.WriteString("</" + tag + ">\n")
+}
+
+// buildCellStyle constructs the style attribute value for a table cell.
+func buildCellStyle(cell cellData) string {
+	if cell.align == alignDefault && (cell.width == "" || cell.isExpanded) {
+		return ""
+	}
+
+	var styleParts []string
+	switch cell.align {
+	case alignLeft:
+		styleParts = append(styleParts, "text-align:left")
+	case alignCenter:
+		styleParts = append(styleParts, "text-align:center")
+	case alignRight:
+		styleParts = append(styleParts, "text-align:right")
+	case alignJustify:
+		styleParts = append(styleParts, "text-align:justify")
+	}
+
+	if cell.width != "" && !cell.isExpanded {
+		styleParts = append(styleParts, "width:"+cell.width)
+	}
+
+	return strings.Join(styleParts, ";")
 }
 
 func CleanContentNode(node *html.Node) *html.Node {

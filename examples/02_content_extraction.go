@@ -34,7 +34,7 @@ func main() {
 		</html>
 	`
 
-	processor := html.NewWithDefaults()
+	processor := html.New()
 	defer processor.Close()
 
 	// Example 1: Article extraction (removes navigation, ads, footer)

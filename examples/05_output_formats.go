@@ -63,7 +63,7 @@ func main() {
 
 	// Example 3: Extract with custom configuration
 	fmt.Println("3. Extract with custom configuration:")
-	processor := html.NewWithDefaults()
+	processor := html.New()
 	defer processor.Close()
 
 	customConfig := html.DefaultExtractConfig()

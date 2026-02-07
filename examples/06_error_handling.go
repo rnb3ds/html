@@ -20,7 +20,7 @@ func main() {
 	fmt.Println("1. Handle malformed HTML:")
 	malformedHTML := `<div><p>Unclosed tag<div><p>More content</p></div>`
 
-	processor := html.NewWithDefaults()
+	processor := html.New()
 	defer processor.Close()
 
 	result, err := processor.ExtractWithDefaults(malformedHTML)
@@ -66,7 +66,7 @@ func main() {
 
 	// Example 5: Handle closed processor
 	fmt.Println("5. Handle closed processor:")
-	p2 := html.NewWithDefaults()
+	p2 := html.New()
 	p2.Close()
 
 	_, err = p2.ExtractWithDefaults("<p>Test</p>")

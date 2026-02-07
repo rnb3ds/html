@@ -39,7 +39,7 @@ func fetchBlogHTML() string {
 func main() {
 	fmt.Println("=== Real-World Use Cases ===\n ")
 
-	processor := html.NewWithDefaults()
+	processor := html.New()
 	defer processor.Close()
 
 	// Use Case 1: Web scraping - Extract article from blog

@@ -28,6 +28,7 @@ const (
 )
 
 var (
+	// Video extensions for video-specific detection
 	videoExtensions = map[string]string{
 		".mp4": mimeMP4, ".m4v": mimeMP4, ".webm": mimeWebM,
 		".ogg": mimeOGGVideo, ".mov": mimeQuicktime, ".avi": mimeAVI,
@@ -35,6 +36,7 @@ var (
 		".3gp": mime3GP,
 	}
 
+	// Audio extensions for audio-specific detection
 	audioExtensions = map[string]string{
 		".mp3": mimeMPEG, ".wav": mimeWAV, ".ogg": mimeOGG,
 		".oga": mimeOGG, ".m4a": mimeM4A, ".aac": mimeAAC,
@@ -52,15 +54,17 @@ var (
 	}
 )
 
+// IsVideoURL checks if a URL is a video based on extension or embed pattern
 func IsVideoURL(url string) bool {
 	lowerURL := strings.ToLower(url)
-	return hasVideoExtension(lowerURL) || hasEmbedPattern(lowerURL)
+	return detectVideoType(lowerURL) != "" || hasEmbedPattern(lowerURL)
 }
 
+// DetectVideoType detects the video MIME type from a URL
 func DetectVideoType(url string) string {
 	lowerURL := strings.ToLower(url)
-	if ext, ok := findVideoExtension(lowerURL); ok {
-		return ext
+	if mimeType := detectVideoType(lowerURL); mimeType != "" {
+		return mimeType
 	}
 	if hasEmbedPattern(lowerURL) {
 		return mimeEmbed
@@ -68,23 +72,33 @@ func DetectVideoType(url string) string {
 	return ""
 }
 
+// DetectAudioType detects the audio MIME type from a URL
 func DetectAudioType(url string) string {
 	lowerURL := strings.ToLower(url)
-	if ext, ok := findAudioExtension(lowerURL); ok {
-		return ext
+	return detectAudioType(lowerURL)
+}
+
+// detectVideoType performs lookup for video extensions
+func detectVideoType(url string) string {
+	for ext, mimeType := range videoExtensions {
+		if strings.HasSuffix(url, ext) {
+			return mimeType
+		}
 	}
 	return ""
 }
 
-func hasVideoExtension(url string) bool {
-	for ext := range videoExtensions {
+// detectAudioType performs lookup for audio extensions
+func detectAudioType(url string) string {
+	for ext, mimeType := range audioExtensions {
 		if strings.HasSuffix(url, ext) {
-			return true
+			return mimeType
 		}
 	}
-	return false
+	return ""
 }
 
+// hasEmbedPattern checks if URL contains known embed patterns
 func hasEmbedPattern(url string) bool {
 	for _, pattern := range embedPatterns {
 		if strings.Contains(url, pattern) {
@@ -92,22 +106,4 @@ func hasEmbedPattern(url string) bool {
 		}
 	}
 	return false
-}
-
-func findVideoExtension(url string) (string, bool) {
-	for ext, mimeType := range videoExtensions {
-		if strings.HasSuffix(url, ext) {
-			return mimeType, true
-		}
-	}
-	return "", false
-}
-
-func findAudioExtension(url string) (string, bool) {
-	for ext, mimeType := range audioExtensions {
-		if strings.HasSuffix(url, ext) {
-			return mimeType, true
-		}
-	}
-	return "", false
 }
