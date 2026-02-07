@@ -50,14 +50,15 @@ go get github.com/cybergodev/html
 import "github.com/cybergodev/html"
 
 // Extract clean text from HTML
-htmlContent, _ := html.ExtractText(`
+htmlBytes := []byte(`
     <html>
         <nav>Navigation</nav>
         <article><h1>Hello World</h1><p>Content here...</p></article>
         <footer>Footer</footer>
     </html>
 `)
-fmt.Println(htmlContent) // "Hello World\nContent here..."
+text, _ := html.ExtractText(htmlBytes)
+fmt.Println(text) // "Hello World\nContent here..."
 ```
 
 **That's it!** The library automatically:
@@ -75,20 +76,20 @@ Just want to get something done? Use these package-level functions:
 
 ```go
 // Extract text only
-text, _ := html.ExtractText(htmlContent)
+text, _ := html.ExtractText(htmlBytes)
 
 // Extract everything
-result, _ := html.Extract(htmlContent)
+result, _ := html.Extract(htmlBytes)
 fmt.Println(result.Title)     // Hello World
 fmt.Println(result.Text)      // Content here...
 fmt.Println(result.WordCount) // 4
 
 // Extract all resource links
-links, _ := html.ExtractAllLinks(htmlContent)
+links, _ := html.ExtractAllLinks(htmlBytes)
 
 // Convert formats
-markdown, _ := html.ExtractToMarkdown(htmlContent)
-jsonData, _ := html.ExtractToJSON(htmlContent)
+markdown, _ := html.ExtractToMarkdown(htmlBytes)
+jsonData, _ := html.ExtractToJSON(htmlBytes)
 ```
 
 **When to use:** Simple scripts, one-off tasks, quick prototyping
@@ -100,17 +101,21 @@ jsonData, _ := html.ExtractToJSON(htmlContent)
 Need more control? Create a processor:
 
 ```go
-processor := html.NewWithDefaults()
+// Create processor with default configuration
+processor, err := html.New()
+if err != nil {
+    log.Fatal(err)
+}
 defer processor.Close()
 
 // Extract with defaults
-result, _ := processor.ExtractWithDefaults(htmlContent)
+result, _ := processor.Extract(htmlBytes, html.DefaultExtractConfig())
 
 // Extract from file
 result, _ = processor.ExtractFromFile("page.html", html.DefaultExtractConfig())
 
 // Batch processing
-htmlContents := []string{html1, html2, html3}
+htmlContents := [][]byte{html1, html2, html3}
 results, _ := processor.ExtractBatch(htmlContents, html.DefaultExtractConfig())
 ```
 
@@ -131,12 +136,16 @@ config := html.ExtractConfig{
     PreserveAudios:    false,      // Skip audio
     InlineImageFormat: "none",     // Options: "none", "placeholder", "markdown", "html"
     TableFormat:       "markdown", // Options: "markdown", "html"
+    Encoding:          "",         // Auto-detect from meta tags, or specify: "utf-8", "windows-1252", etc.
 }
 
-processor := html.NewWithDefaults()
+processor, err := html.New()
+if err != nil {
+    log.Fatal(err)
+}
 defer processor.Close()
 
-result, _ := processor.Extract(htmlContent, config)
+result, _ := processor.Extract(htmlBytes, config)
 ```
 
 **When to use:** Specific extraction needs, format conversion, custom output
@@ -166,7 +175,7 @@ defer processor.Close()
 
 ```go
 // Extract all resource links
-links, _ := html.ExtractAllLinks(htmlContent)
+links, _ := html.ExtractAllLinks(htmlBytes)
 
 // Group by type
 byType := html.GroupLinksByType(links)
@@ -175,7 +184,10 @@ jsLinks := byType["js"]
 images := byType["image"]
 
 // Advanced configuration
-processor := html.NewWithDefaults()
+processor, err := html.New()
+if err != nil {
+    log.Fatal(err)
+}
 linkConfig := html.LinkExtractionConfig{
     BaseURL:               "https://example.com",
     ResolveRelativeURLs:   true,
@@ -188,25 +200,31 @@ linkConfig := html.LinkExtractionConfig{
     IncludeExternalLinks:  true,
     IncludeIcons:          true,
 }
-links, _ = processor.ExtractAllLinks(htmlContent, linkConfig)
+links, _ = processor.ExtractAllLinks(htmlBytes, linkConfig)
 ```
 
 #### Caching & Statistics
 
 ```go
-processor := html.NewWithDefaults()
+processor, err := html.New()
+if err != nil {
+    log.Fatal(err)
+}
 defer processor.Close()
 
 // Automatic caching enabled
-result1, _ := processor.ExtractWithDefaults(htmlContent)
-result2, _ := processor.ExtractWithDefaults(htmlContent) // Cache hit!
+result1, _ := processor.Extract(htmlBytes, html.DefaultExtractConfig())
+result2, _ := processor.Extract(htmlBytes, html.DefaultExtractConfig()) // Cache hit!
 
 // Check performance
 stats := processor.GetStatistics()
 fmt.Printf("Cache hits: %d/%d\n", stats.CacheHits, stats.TotalProcessed)
 
-// Clear cache if needed
+// Clear cache (preserves statistics)
 processor.ClearCache()
+
+// Reset statistics (preserves cache entries)
+processor.ResetStatistics()
 ```
 
 **When to use:** Production applications, performance optimization, specific use cases
@@ -220,14 +238,14 @@ Copy-paste solutions for common tasks:
 ### Extract Article Text (Clean)
 
 ```go
-text, _ := html.ExtractText(htmlContent)
+text, _ := html.ExtractText(htmlBytes)
 // Returns clean text without navigation/ads
 ```
 
 ### Extract with Images
 
 ```go
-result, _ := html.Extract(htmlContent)
+result, _ := html.Extract(htmlBytes)
 for _, img := range result.Images {
     fmt.Printf("Image: %s (alt: %s)\n", img.URL, img.Alt)
 }
@@ -236,14 +254,14 @@ for _, img := range result.Images {
 ### Convert to Markdown
 
 ```go
-markdown, _ := html.ExtractToMarkdown(htmlContent)
+markdown, _ := html.ExtractToMarkdown(htmlBytes)
 // Images become: ![alt](url)
 ```
 
 ### Extract All Links
 
 ```go
-links, _ := html.ExtractAllLinks(htmlContent)
+links, _ := html.ExtractAllLinks(htmlBytes)
 for _, link := range links {
     fmt.Printf("%s: %s\n", link.Type, link.URL)
 }
@@ -252,7 +270,7 @@ for _, link := range links {
 ### Get Reading Time
 
 ```go
-result, _ := html.Extract(htmlContent)
+result, _ := html.Extract(htmlBytes)
 minutes := result.ReadingTime.Minutes()
 fmt.Printf("Reading time: %.1f min", minutes)
 ```
@@ -260,7 +278,10 @@ fmt.Printf("Reading time: %.1f min", minutes)
 ### Batch Process Files
 
 ```go
-processor := html.NewWithDefaults()
+processor, err := html.New()
+if err != nil {
+    log.Fatal(err)
+}
 defer processor.Close()
 
 files := []string{"page1.html", "page2.html", "page3.html"}
@@ -275,16 +296,16 @@ results, _ := processor.ExtractBatchFiles(files, html.DefaultExtractConfig())
 
 ```go
 // Extraction
-html.Extract(htmlContent string, configs ...ExtractConfig) (*Result, error)
-html.ExtractText(htmlContent string) (string, error)
-html.ExtractFromFile(path string, configs ...ExtractConfig) (*Result, error)
+html.Extract(htmlBytes []byte, configs ...ExtractConfig) (*Result, error)
+html.ExtractText(htmlBytes []byte) (string, error)
+html.ExtractFromFile(filePath string, configs ...ExtractConfig) (*Result, error)
 
 // Format Conversion
-html.ExtractToMarkdown(htmlContent string) (string, error)
-html.ExtractToJSON(htmlContent string) ([]byte, error)
+html.ExtractToMarkdown(htmlBytes []byte) (string, error)
+html.ExtractToJSON(htmlBytes []byte) ([]byte, error)
 
 // Links
-html.ExtractAllLinks(htmlContent string, configs ...LinkExtractionConfig) ([]LinkResource, error)
+html.ExtractAllLinks(htmlBytes []byte, configs ...LinkExtractionConfig) ([]LinkResource, error)
 html.GroupLinksByType(links []LinkResource) map[string][]LinkResource
 ```
 
@@ -292,26 +313,26 @@ html.GroupLinksByType(links []LinkResource) map[string][]LinkResource
 
 ```go
 // Creation
-processor := html.NewWithDefaults()
-// or
+processor, err := html.New()
+// or with custom config:
 processor, err := html.New(config)
 defer processor.Close()
 
 // Extraction
-processor.Extract(htmlContent string, config ExtractConfig) (*Result, error)
-processor.ExtractWithDefaults(htmlContent string) (*Result, error)
-processor.ExtractFromFile(path string, config ExtractConfig) (*Result, error)
+processor.Extract(htmlBytes []byte, configs ...ExtractConfig) (*Result, error)
+processor.ExtractFromFile(filePath string, configs ...ExtractConfig) (*Result, error)
 
 // Batch
-processor.ExtractBatch(contents []string, config ExtractConfig) ([]*Result, error)
-processor.ExtractBatchFiles(paths []string, config ExtractConfig) ([]*Result, error)
+processor.ExtractBatch(contents [][]byte, configs ...ExtractConfig) ([]*Result, error)
+processor.ExtractBatchFiles(paths []string, configs ...ExtractConfig) ([]*Result, error)
 
 // Links
-processor.ExtractAllLinks(htmlContent string, config LinkExtractionConfig) ([]LinkResource, error)
+processor.ExtractAllLinks(htmlBytes []byte, configs ...LinkExtractionConfig) ([]LinkResource, error)
 
 // Monitoring
 processor.GetStatistics() Statistics
 processor.ClearCache()
+processor.ResetStatistics()
 ```
 
 ### Configuration Functions
@@ -325,6 +346,49 @@ html.DefaultExtractConfig()           ExtractConfig
 
 // Link extraction configuration
 html.DefaultLinkExtractionConfig()           LinkExtractionConfig
+```
+
+**Default values for `DefaultConfig()`:**
+```go
+Config{
+    MaxInputSize:       50 * 1024 * 1024, // 50MB
+    MaxCacheEntries:    2000,
+    CacheTTL:           1 * time.Hour,
+    WorkerPoolSize:     4,
+    EnableSanitization: true,
+    MaxDepth:           500,
+    ProcessingTimeout:  30 * time.Second,
+}
+```
+
+**Default values for `DefaultExtractConfig()`:**
+```go
+ExtractConfig{
+    ExtractArticle:    true,
+    PreserveImages:    true,
+    PreserveLinks:     true,
+    PreserveVideos:    true,
+    PreserveAudios:    true,
+    InlineImageFormat: "none",
+    TableFormat:       "markdown",
+    Encoding:          "", // Auto-detect
+}
+```
+
+**Default values for `DefaultLinkExtractionConfig()`:**
+```go
+LinkExtractionConfig{
+    ResolveRelativeURLs:  true,  // Convert relative URLs to absolute
+    BaseURL:              "",    // Base URL for resolution (empty = auto-detect)
+    IncludeImages:        true,  // Extract image links
+    IncludeVideos:        true,  // Extract video links
+    IncludeAudios:        true,  // Extract audio links
+    IncludeCSS:           true,  // Extract CSS links
+    IncludeJS:            true,  // Extract JavaScript links
+    IncludeContentLinks:  true,  // Extract content links
+    IncludeExternalLinks: true,  // Extract external domain links
+    IncludeIcons:         true,  // Extract favicon/icon links
+}
 ```
 
 ---
@@ -380,13 +444,65 @@ type AudioInfo struct {
 type LinkResource struct {
     URL   string  // Resource URL
     Title string  // Resource title
-    Type  string  // Resource type: css, js, image, video, audio, icon, link, or media
+    Type  string  // Resource type: css, js, image, video, audio, icon, link
+}
+```
+
+### Statistics Structure
+
+```go
+type Statistics struct {
+    TotalProcessed     int64         // Total number of extractions performed
+    CacheHits          int64         // Number of times cache was hit
+    CacheMisses        int64         // Number of times cache was missed
+    ErrorCount         int64         // Number of errors encountered
+    AverageProcessTime time.Duration // Average processing time per extraction
 }
 ```
 
 ---
 
-## Examples
+## 🔒 Security Features
+
+The library includes built-in security protections:
+
+### HTML Sanitization
+- **Dangerous Tag Removal**: `<script>`, `<style>`, `<noscript>`, `<iframe>`, `<embed>`, `<object>`, `<form>`, `<input>`, `<button>`
+- **Event Handler Removal**: All `on*` attributes (onclick, onerror, onload, etc.)
+- **Dangerous Protocol Blocking**: `javascript:`, `vbscript:`, `data:` (except safe media types)
+- **XSS Prevention**: Comprehensive sanitization to prevent cross-site scripting
+
+### Input Validation
+- **Size Limits**: Configurable `MaxInputSize` prevents memory exhaustion
+- **Depth Limits**: `MaxDepth` prevents stack overflow from deeply nested HTML
+- **Timeout Protection**: `ProcessingTimeout` prevents hanging on malformed input
+- **Path Traversal Protection**: `ExtractFromFile` validates file paths to prevent directory traversal attacks
+
+### Data URL Security
+Only safe media type data URLs are allowed:
+- **Allowed**: `data:image/*`, `data:font/*`, `data:application/pdf`
+- **Blocked**: `data:text/html`, `data:text/javascript`, `data:text/plain`
+
+---
+
+## Performance Benchmarks
+
+Based on `benchmark_test.go`:
+
+| Operation | Performance | Notes |
+|-----------|-------------|-------|
+| Text Extraction | ~500ns per HTML document | Fast text extraction |
+| Link Extraction | ~2μs per HTML document | With metadata extraction |
+| Full Extraction | ~5μs per HTML document | With all features enabled |
+| Cache Hit | ~100ns | Near-instant for cached content |
+
+**Caching Benefits:**
+- **SHA256-based keys**: Content-addressable caching
+- **TTL Support**: Configurable cache expiration
+- **LRU Eviction**: Automatic cache management with doubly-linked list
+- **Thread-Safe**: Concurrent access without external locks
+
+---
 
 See [examples/](examples) directory for complete, runnable code:
 
@@ -394,12 +510,14 @@ See [examples/](examples) directory for complete, runnable code:
 |---------------------------------------------------------------|--------------------------------------|
 | [01_quick_start.go](examples/01_quick_start.go)               | Quick start with one-liners          |
 | [02_content_extraction.go](examples/02_content_extraction.go) | Content extraction basics            |
-| [03_media_and_links.go](examples/03_media_and_links.go)       | Media and link extraction            |
-| [04_advanced_usage.go](examples/04_advanced_usage.go)         | Advanced features & batch processing |
-| [05_output_formats.go](examples/05_output_formats.go)         | JSON and Markdown output formats     |
-| [06_error_handling.go](examples/06_error_handling.go)         | Error handling patterns              |
-| [07_real_world.go](examples/07_real_world.go)                 | Real-world use cases                 |
-| [08_compatibility.go](examples/08_compatibility.go)           | golang.org/x/net/html compatibility  |
+| [03_links_and_urls.go](examples/03_links_and_urls.go)         | Link extraction & URL resolution     |
+| [04_media_extraction.go](examples/04_media_extraction.go)     | Media files extraction               |
+| [05_config_performance.go](examples/05_config_performance.go) | Configuration & performance tuning   |
+| [06_http_integration.go](examples/06_http_integration.go)     | HTTP integration patterns            |
+| [07_advanced_usage.go](examples/07_advanced_usage.go)         | Advanced features & batch processing |
+| [08_output_formats.go](examples/08_output_formats.go)         | JSON and Markdown output formats     |
+| [09_error_handling.go](examples/09_error_handling.go)         | Error handling patterns              |
+| [10_real_world.go](examples/10_real_world.go)                 | Real-world use cases                 |
 
 ---
 
@@ -430,7 +548,10 @@ The library re-exports all commonly used types, constants, and functions from `g
 The `Processor` is safe for concurrent use:
 
 ```go
-processor := html.NewWithDefaults()
+processor, err := html.New()
+if err != nil {
+    log.Fatal(err)
+}
 defer processor.Close()
 
 // Safe to use from multiple goroutines
@@ -439,7 +560,7 @@ for i := 0; i < 100; i++ {
     wg.Add(1)
     go func() {
         defer wg.Done()
-        processor.ExtractWithDefaults(htmlContent)
+        processor.Extract(htmlBytes, html.DefaultExtractConfig())
     }()
 }
 wg.Wait()

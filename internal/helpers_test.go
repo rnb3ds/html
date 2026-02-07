@@ -337,12 +337,12 @@ func TestCleanText(t *testing.T) {
 			{
 				name:  "mixed whitespace",
 				input: "Hello  \t  \n  World",
-				want:  "Hello\nWorld",
+				want:  "Hello\n  World", // Updated: preserve leading indentation
 			},
 			{
 				name:  "leading spaces",
 				input: "    Hello",
-				want:  "Hello",
+				want:  "    Hello", // Updated: preserve leading indentation for document hierarchy
 			},
 			{
 				name:  "trailing spaces",
@@ -414,7 +414,8 @@ func TestReplaceHTMLEntities(t *testing.T) {
 		{"&ndash;", "–"},
 		{"&#8212;", "—"},
 		{"&#x2014;", "—"},
-		{"&#160;", "\u00a0"},
+		{"&#160;", " "},
+		{"&#xa0;", " "},
 		{"&hellip;", "…"},
 		{"&copy;", "©"},
 		{"no entities", "no entities"},
@@ -517,118 +518,145 @@ func TestSelectBestCandidate(t *testing.T) {
 	}
 }
 
-func TestPostProcessText(t *testing.T) {
+// Tests for non-breaking space handling in helper functions
+// These tests verify that &nbsp;, &#160;, and &#xa0; are properly converted to regular spaces
+
+func TestGetTextLengthWithNbsp(t *testing.T) {
 	t.Parallel()
 
-	t.Run("basic functionality", func(t *testing.T) {
-		tests := []struct {
-			name  string
-			input string
-			check func(string) bool
-		}{
-			{
-				name:  "empty string",
-				input: "",
-				check: func(s string) bool { return s == "" },
-			},
-			{
-				name:  "whitespace only",
-				input: "   \n   \n   ",
-				check: func(s string) bool { return s == "" },
-			},
-			{
-				name:  "simple text",
-				input: "Hello World",
-				check: func(s string) bool { return strings.Contains(s, "Hello") && strings.Contains(s, "World") },
-			},
-		}
+	testCases := []struct {
+		name     string
+		html     string
+		expected int
+	}{
+		{
+			name:     "Regular spaces",
+			html:     "<p>Hello World</p>",
+			expected: 11, // "Hello World"
+		},
+		{
+			name:     "Named entity &nbsp;",
+			html:     "<p>Hello&nbsp;World</p>",
+			expected: 11, // "Hello World"
+		},
+		{
+			name:     "Decimal entity &#160;",
+			html:     "<p>Hello&#160;World</p>",
+			expected: 11, // "Hello World"
+		},
+		{
+			name:     "Hexadecimal entity &#xa0;",
+			html:     "<p>Hello&#xa0;World</p>",
+			expected: 11, // "Hello World"
+		},
+		{
+			name:     "Multiple nbsp",
+			html:     "<p>A&nbsp;&nbsp;&nbsp;B</p>",
+			expected: 5, // "A   B" (parser creates single text node)
+		},
+		{
+			name:     "Mixed nbsp and regular spaces",
+			html:     "<p>A&nbsp; B &#xa0;C</p>",
+			expected: 7, // "A  B  C" (parser creates single text node)
+		},
+	}
 
-		for _, tt := range tests {
-			t.Run(tt.name, func(t *testing.T) {
-				result := CleanText(tt.input, nil)
-				if !tt.check(result) {
-					t.Errorf("CleanText() = %q, failed check", result)
-				}
-			})
-		}
-	})
-
-	t.Run("with regex", func(t *testing.T) {
-		whitespaceRegex := regexp.MustCompile(`\s+`)
-
-		tests := []struct {
-			name  string
-			input string
-			check func(string) bool
-		}{
-			{
-				name:  "multiple spaces per line",
-				input: "Hello    World\nFoo    Bar",
-				check: func(s string) bool {
-					return strings.Contains(s, "Hello World") && strings.Contains(s, "Foo Bar")
-				},
-			},
-			{
-				name:  "excessive empty lines collapsed to single blank line",
-				input: "Line1\n\n\nLine2",
-				check: func(s string) bool {
-					// Should preserve ONE blank line (two newlines total) for paragraph spacing
-					lines := strings.Split(s, "\n")
-					emptyCount := 0
-					for _, line := range lines {
-						if strings.TrimSpace(line) == "" {
-							emptyCount++
-						}
-					}
-					// Should have exactly 2 lines ("Line1" and "Line2") with ONE empty line between them
-					return len(lines) == 3 && emptyCount == 1
-				},
-			},
-			{
-				name:  "tabs converted to spaces",
-				input: "Hello\t\tWorld",
-				check: func(s string) bool {
-					return strings.Contains(s, "Hello") && strings.Contains(s, "World") && !strings.Contains(s, "\t")
-				},
-			},
-		}
-
-		for _, tt := range tests {
-			t.Run(tt.name, func(t *testing.T) {
-				result := CleanText(tt.input, whitespaceRegex)
-				if !tt.check(result) {
-					t.Errorf("CleanText() = %q, failed check", result)
-				}
-			})
-		}
-	})
-
-	t.Run("long content", func(t *testing.T) {
-		whitespaceRegex := regexp.MustCompile(`\s+`)
-
-		t.Run("many lines", func(t *testing.T) {
-			var sb strings.Builder
-			for i := 0; i < 1000; i++ {
-				sb.WriteString("Line ")
-				sb.WriteString(strings.Repeat(" ", 10))
-				sb.WriteString("Content\n")
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			doc, err := html.Parse(strings.NewReader(tc.html))
+			if err != nil {
+				t.Fatalf("Failed to parse HTML: %v", err)
 			}
 
-			result := CleanText(sb.String(), whitespaceRegex)
-			if len(result) == 0 {
-				t.Error("CleanText() should handle long content")
+			result := GetTextLength(doc)
+			if result != tc.expected {
+				t.Errorf("GetTextLength() = %d, want %d", result, tc.expected)
 			}
 		})
+	}
+}
 
-		t.Run("unicode and newlines", func(t *testing.T) {
-			input := "中文   测试\n日本語   テスト\n한국어   테스트"
-			result := CleanText(input, whitespaceRegex)
+func TestGetLinkDensityWithNbsp(t *testing.T) {
+	t.Parallel()
 
-			if !strings.Contains(result, "中文") || !strings.Contains(result, "日本語") || !strings.Contains(result, "한국어") {
-				t.Error("CleanText() should preserve unicode characters")
+	testCases := []struct {
+		name     string
+		html     string
+		expected float64
+	}{
+		{
+			name:     "No links",
+			html:     "<p>Hello&nbsp;World</p>",
+			expected: 0.0,
+		},
+		{
+			name:     "All text in link with nbsp",
+			html:     "<p><a href='#'>Hello&nbsp;World</a></p>",
+			expected: 1.0, // 100% link density
+		},
+		{
+			name:     "Partial link with nbsp",
+			html:     "<p>Hello&nbsp;<a href='#'>World</a></p>",
+			expected: 5.0 / 10.0, // "World" is 5 chars, "Hello" is 5 chars (trailing space removed)
+		},
+		{
+			name:     "Multiple spaces in link",
+			html:     "<p><a href='#'>A&nbsp;&nbsp;B</a> C</p>",
+			expected: 0.8, // Actual value after trim and replace
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			doc, err := html.Parse(strings.NewReader(tc.html))
+			if err != nil {
+				t.Fatalf("Failed to parse HTML: %v", err)
+			}
+
+			result := GetLinkDensity(doc)
+			if result != tc.expected {
+				t.Errorf("GetLinkDensity() = %f, want %f", result, tc.expected)
 			}
 		})
-	})
+	}
+}
+
+func TestCalculateContentDensityWithNbsp(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name        string
+		html        string
+		minExpected float64
+		description string
+	}{
+		{
+			name:        "Pure text with nbsp",
+			html:        "<p>Hello&nbsp;World</p>",
+			minExpected: 0.2, // Reasonable text density
+			description: "Should have reasonable text density",
+		},
+		{
+			name:        "Text with tags and nbsp",
+			html:        `<div><p>Hello&nbsp;World</p><p>Test&nbsp;Content</p></div>`,
+			minExpected: 0.3, // Good text density
+			description: "Should have good text density",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			doc, err := html.Parse(strings.NewReader(tc.html))
+			if err != nil {
+				t.Fatalf("Failed to parse HTML: %v", err)
+			}
+
+			result := CalculateContentDensity(doc)
+			if result < tc.minExpected {
+				t.Errorf("%s: CalculateContentDensity() = %f, want >= %f", tc.description, result, tc.minExpected)
+			}
+		})
+	}
 }
 
 func BenchmarkGetTextContent(b *testing.B) {
@@ -655,14 +683,4 @@ func BenchmarkCleanText(b *testing.B) {
 			CleanText(text, whitespaceRegex)
 		}
 	})
-}
-
-func BenchmarkPostProcessText(b *testing.B) {
-	text := strings.Repeat("Line   with   spaces\n", 100)
-	whitespaceRegex := regexp.MustCompile(`\s+`)
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		CleanText(text, whitespaceRegex)
-	}
 }

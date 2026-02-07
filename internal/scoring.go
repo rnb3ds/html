@@ -6,37 +6,6 @@ import (
 	"golang.org/x/net/html"
 )
 
-const (
-	strongPositiveScore = 400
-	mediumPositiveScore = 200
-	strongNegativeScore = -400
-	mediumNegativeScore = -200
-	weakNegativeScore   = -100
-
-	minParagraphsForBonus        = 3
-	manyParagraphsMultiplier     = 150
-	fewParagraphsMultiplier      = 80
-	headingMultiplier            = 100
-	veryLongTextThreshold        = 500
-	longTextThreshold            = 200
-	mediumTextThreshold          = 100
-	shortTextThreshold           = 50
-	veryLongTextBonusMultiplier  = 10
-	longTextBonusDivider         = 2
-	mediumTextBonusDivider       = 3
-	shortTextPenalty              = -300
-	highLinkDensityThreshold      = 0.5
-	mediumLinkDensityThreshold   = 0.3
-	lowLinkDensityThreshold      = 0.15
-	highDensityMultiplier        = 1.2
-	lowDensityMultiplier         = 0.7
-	highLinkDensityPenalty       = 0.2
-	mediumLinkDensityPenalty     = 0.5
-	lowLinkDensityPenalty        = 0.75
-	commaBonusThreshold          = 5
-	commaBonusMultiplier         = 10
-)
-
 var (
 	positiveStrongPatterns = map[string]int{
 		"content": strongPositiveScore, "article": strongPositiveScore, "main": strongPositiveScore,
@@ -76,10 +45,73 @@ var (
 		"script": true, "style": true, "noscript": true, "nav": true,
 		"aside": true, "footer": true, "header": true, "form": true,
 	}
+	// HTML5 inline elements - elements that should NOT add newlines or paragraph spacing
+	// These elements flow with text on the same line
+	inlineElements = map[string]bool{
+		// Text formatting (presentational)
+		"font": true, "b": true, "i": true, "u": true, "s": true, "strike": true,
+		"del": true, "ins": true, "strong": true, "em": true,
+		"mark": true, "small": true, "sub": true, "sup": true,
+		"big": true, "tt": true,
+
+		// Semantic inline
+		"span": true, "a": true, "code": true, "kbd": true, "samp": true,
+		"var": true, "abbr": true, "cite": true, "q": true, "dfn": true,
+		"time": true, "data": true, "ruby": true, "rt": true, "rp": true,
+		"bdi": true, "wbr": true,
+
+		// Media and embedded
+		"img": true, "svg": true, "picture": true,
+		"video": true, "audio": true, "canvas": true,
+		"object": true, "embed": true, "iframe": true,
+		"map": true,
+
+		// Form controls
+		"input": true, "button": true, "select": true,
+		"textarea": true, "label": true, "output": true,
+
+		// Line break (special inline)
+		"br": true,
+
+		// Metadata (should not affect layout)
+		"script": true, "style": true, "link": true, "meta": true, "title": true,
+	}
+	// HTML5 block elements - elements that should add newlines and paragraph spacing
+	// Organized by category for better maintainability
 	blockElements = map[string]bool{
-		"p": true, "div": true, "h1": true, "h2": true, "h3": true, "h4": true, "h5": true, "h6": true,
-		"article": true, "section": true, "blockquote": true, "pre": true, "ul": true, "ol": true,
-		"li": true, "table": true, "tr": true, "td": true, "th": true, "br": true, "hr": true,
+		// Text containers
+		"p": true, "div": true, "pre": true, "blockquote": true,
+
+		// Headings
+		"h1": true, "h2": true, "h3": true, "h4": true, "h5": true, "h6": true,
+
+		// Semantic HTML5 sections (high priority)
+		"article": true, "section": true, "main": true, "nav": true, "aside": true,
+		"header": true, "footer": true, "figure": true, "figcaption": true,
+
+		// Lists
+		"ul": true, "ol": true, "li": true, "dl": true, "dt": true, "dd": true,
+
+		// Tables
+		"table": true, "thead": true, "tbody": true, "tfoot": true, "tr": true, "td": true, "th": true,
+
+		// Forms
+		"form": true, "fieldset": true,
+
+		// Interactive elements
+		"details": true, "summary": true, "dialog": true,
+
+		// Other block elements
+		"hr": true, "address": true,
+
+		// Structural elements (low priority, rarely appear in content extraction)
+		"body": true, "html": true, "head": true,
+
+		// Deprecated elements
+		"center": true,
+
+		// Media/Interactive elements
+		"canvas": true,
 	}
 	tagScores = map[string]int{
 		"article": 1000,
@@ -93,6 +125,7 @@ var (
 
 // ScoreContentNode calculates a relevance score for content extraction.
 // Higher scores indicate more likely main content. Negative scores suggest non-content elements.
+// This function has been optimized to reduce DOM traversals by combining multiple metrics.
 func ScoreContentNode(node *html.Node) int {
 	if node == nil || node.Type != html.ElementNode || IsNonContentElement(node.Data) || node.Data == "p" {
 		return 0
@@ -100,29 +133,28 @@ func ScoreContentNode(node *html.Node) int {
 
 	score := getTagScore(node.Data) + ScoreAttributes(node)
 
+	// Collect all metrics in a single traversal
+	metrics := collectContentMetrics(node)
+
 	// Score based on paragraph count
-	paragraphCount := CountChildElements(node, "p")
-	if paragraphCount >= minParagraphsForBonus {
-		score += paragraphCount * manyParagraphsMultiplier
-	} else if paragraphCount > 0 {
-		score += paragraphCount * fewParagraphsMultiplier
+	if metrics.paragraphCount >= minParagraphsForBonus {
+		score += metrics.paragraphCount * manyParagraphsMultiplier
+	} else if metrics.paragraphCount > 0 {
+		score += metrics.paragraphCount * fewParagraphsMultiplier
 	}
 
 	// Score based on heading count
-	headingCount := CountChildElements(node, "h1") + CountChildElements(node, "h2") +
-		CountChildElements(node, "h3") + CountChildElements(node, "h4") +
-		CountChildElements(node, "h5") + CountChildElements(node, "h6")
-	if headingCount > 0 {
-		score += headingCount * headingMultiplier
+	if metrics.headingCount > 0 {
+		score += metrics.headingCount * headingMultiplier
 	}
 
 	// Score based on text length
-	textLength := GetTextLength(node)
+	textLength := metrics.textLength
 	switch {
 	case textLength > veryLongTextThreshold:
 		score += veryLongTextThreshold + (textLength-veryLongTextThreshold)/veryLongTextBonusMultiplier
 	case textLength > longTextThreshold:
-		score += textLength >> 1
+		score += textLength / longTextBonusDivider
 	case textLength > mediumTextThreshold:
 		score += textLength / mediumTextBonusDivider
 	case textLength < shortTextThreshold:
@@ -130,7 +162,7 @@ func ScoreContentNode(node *html.Node) int {
 	}
 
 	// Apply content density multiplier
-	contentDensity := CalculateContentDensity(node)
+	contentDensity := calculateDensityFromMetrics(metrics)
 	if contentDensity > 0.7 {
 		score = int(float64(score) * highDensityMultiplier)
 	} else if contentDensity < 0.3 {
@@ -138,7 +170,7 @@ func ScoreContentNode(node *html.Node) int {
 	}
 
 	// Penalize high link density (likely navigation/spam)
-	linkDensity := GetLinkDensity(node)
+	linkDensity := calculateLinkDensityFromMetrics(metrics)
 	if linkDensity > highLinkDensityThreshold {
 		score = int(float64(score) * highLinkDensityPenalty)
 	} else if linkDensity > mediumLinkDensityThreshold {
@@ -148,27 +180,86 @@ func ScoreContentNode(node *html.Node) int {
 	}
 
 	// Bonus for comma-rich content (likely prose)
-	commaCount := countCommas(node)
-	if commaCount > commaBonusThreshold {
-		score += commaCount * commaBonusMultiplier
+	if metrics.commaCount > commaBonusThreshold {
+		score += metrics.commaCount * commaBonusMultiplier
 	}
 
 	return score
 }
 
-func getTagScore(tag string) int {
-	return tagScores[tag]
+// contentMetrics holds all metrics collected during a single DOM traversal.
+type contentMetrics struct {
+	paragraphCount  int
+	headingCount    int
+	textLength      int
+	linkTextLength  int
+	totalTextLength int
+	tagCount        int
+	commaCount      int
 }
 
-func countCommas(node *html.Node) int {
-	count := 0
+// collectContentMetrics collects all scoring metrics in a single DOM traversal.
+// This is more efficient than calling separate functions for each metric.
+func collectContentMetrics(node *html.Node) contentMetrics {
+	var metrics contentMetrics
+
 	WalkNodes(node, func(n *html.Node) bool {
-		if n.Type == html.TextNode {
-			count += strings.Count(n.Data, ",") + strings.Count(n.Data, "，")
+		if n.Type == html.ElementNode {
+			metrics.tagCount++
+			switch n.Data {
+			case "p":
+				metrics.paragraphCount++
+			case "h1", "h2", "h3", "h4", "h5", "h6":
+				metrics.headingCount++
+			}
+		} else if n.Type == html.TextNode {
+			textData := normalizeNonBreakingSpaces(n.Data)
+			text := strings.TrimSpace(textData)
+			if text != "" {
+				metrics.textLength += len(text)
+				metrics.totalTextLength += len(text)
+				metrics.commaCount += strings.Count(text, ",") + strings.Count(text, "，")
+
+				// Check if this text is inside a link
+				for parent := n.Parent; parent != nil; parent = parent.Parent {
+					if parent.Type == html.ElementNode && parent.Data == "a" {
+						metrics.linkTextLength += len(text)
+						break
+					}
+				}
+			}
 		}
 		return true
 	})
-	return count
+
+	return metrics
+}
+
+// calculateDensityFromMetrics calculates content density from collected metrics.
+func calculateDensityFromMetrics(m contentMetrics) float64 {
+	if m.textLength == 0 {
+		return 0
+	}
+	if m.tagCount == 0 {
+		return 1.0
+	}
+	density := float64(m.textLength) / (float64(m.tagCount) * 10)
+	if density > 1.0 {
+		return 1.0
+	}
+	return density
+}
+
+// calculateLinkDensityFromMetrics calculates link density from collected metrics.
+func calculateLinkDensityFromMetrics(m contentMetrics) float64 {
+	if m.totalTextLength == 0 {
+		return 0.0
+	}
+	return float64(m.linkTextLength) / float64(m.totalTextLength)
+}
+
+func getTagScore(tag string) int {
+	return tagScores[tag]
 }
 
 func ScoreAttributes(n *html.Node) int {
@@ -202,66 +293,38 @@ func ScoreAttributes(n *html.Node) int {
 func calculatePatternScore(value string, patterns map[string]int) int {
 	score := 0
 	for pattern, patternScore := range patterns {
-		if patternMatches(value, pattern) {
+		if hasWordBoundary(value, pattern, boundaryStandard) {
 			score += patternScore
 		}
 	}
 	return score
 }
 
-func MatchesPattern(value string, patterns map[string]bool) bool {
+// matchesPattern checks if value contains any pattern from the map with word boundaries.
+// This is an internal helper used by ShouldRemoveElement.
+func matchesPattern(value string, patterns map[string]bool) bool {
 	for pattern := range patterns {
-		if patternMatches(value, pattern) {
+		if hasWordBoundary(value, pattern, boundaryStandard) {
 			return true
 		}
 	}
 	return false
 }
 
-// patternMatches checks if value matches pattern with word boundary detection
-func patternMatches(value, pattern string) bool {
-	idx := strings.Index(value, pattern)
-	if idx == -1 {
-		return false
-	}
-
-	// Check character before the match
-	if idx > 0 {
-		before := value[idx-1]
-		if before != '-' && before != '_' && before != ' ' && before != '\t' {
-			return false
-		}
-	}
-
-	// Check character after the match
-	endIdx := idx + len(pattern)
-	if endIdx < len(value) {
-		after := value[endIdx]
-		if after != '-' && after != '_' && after != ' ' && after != '\t' {
-			return false
-		}
-	}
-
-	return true
+// MatchesPattern is the exported version of matchesPattern for testing purposes.
+// It checks if value contains any pattern from the map with word boundaries.
+func MatchesPattern(value string, patterns map[string]bool) bool {
+	return matchesPattern(value, patterns)
 }
 
 // CalculateContentDensity calculates text-to-tag ratio.
+// This is the exported version that uses the internal calculateDensityFromMetrics.
 func CalculateContentDensity(n *html.Node) float64 {
-	textLength := float64(GetTextLength(n))
-	if textLength == 0 {
+	if n == nil {
 		return 0
 	}
-
-	tagCount := float64(CountTags(n))
-	if tagCount == 0 {
-		return 1.0
-	}
-
-	density := textLength / (tagCount * 10)
-	if density > 1.0 {
-		return 1.0
-	}
-	return density
+	metrics := collectContentMetrics(n)
+	return calculateDensityFromMetrics(metrics)
 }
 
 func CountTags(n *html.Node) int {
@@ -304,8 +367,10 @@ func ShouldRemoveElement(n *html.Node) bool {
 		switch attr.Key {
 		case "class", "id":
 			lowerVal := strings.ToLower(attr.Val)
-			if MatchesPattern(lowerVal, removePatterns) {
-				return true
+			for pattern := range removePatterns {
+				if hasWordBoundary(lowerVal, pattern, boundaryStandard) {
+					return true
+				}
 			}
 		case "style":
 			lowerStyle := strings.ToLower(attr.Val)
@@ -324,4 +389,10 @@ func ShouldRemoveElement(n *html.Node) bool {
 
 func IsBlockElement(tag string) bool {
 	return blockElements[tag]
+}
+
+// IsInlineElement returns true if the tag is a known inline element.
+// Inline elements should not add newlines or paragraph spacing.
+func IsInlineElement(tag string) bool {
+	return inlineElements[tag]
 }

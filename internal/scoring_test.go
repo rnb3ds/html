@@ -535,7 +535,7 @@ func TestIsBlockElement(t *testing.T) {
 		{"ol", true},
 		{"li", true},
 		{"table", true},
-		{"br", true},
+		{"br", false},  // BR is now inline, not block
 		{"hr", true},
 		{"span", false},
 		{"a", false},
@@ -548,61 +548,6 @@ func TestIsBlockElement(t *testing.T) {
 			result := IsBlockElement(tt.tag)
 			if result != tt.want {
 				t.Errorf("IsBlockElement(%q) = %v, want %v", tt.tag, result, tt.want)
-			}
-		})
-	}
-}
-
-func TestCountCommas(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name  string
-		html  string
-		want  int
-		check func(int) bool
-	}{
-		{
-			name:  "no commas",
-			html:  `<div>Text without commas</div>`,
-			check: func(count int) bool { return count == 0 },
-		},
-		{
-			name:  "with commas",
-			html:  `<div>Text, with, several, commas</div>`,
-			check: func(count int) bool { return count >= 3 },
-		},
-		{
-			name:  "Chinese commas",
-			html:  `<div>文本，包含，中文，逗号</div>`,
-			check: func(count int) bool { return count >= 3 },
-		},
-		{
-			name:  "mixed commas",
-			html:  `<div>Text, with, both，types，of，commas</div>`,
-			check: func(count int) bool { return count >= 5 },
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			doc, _ := html.Parse(strings.NewReader(tt.html))
-			var divNode *html.Node
-			WalkNodes(doc, func(n *html.Node) bool {
-				if n.Type == html.ElementNode && n.Data == "div" {
-					divNode = n
-					return false
-				}
-				return true
-			})
-
-			if divNode == nil {
-				t.Fatal("Could not find div node")
-			}
-
-			count := countCommas(divNode)
-			if !tt.check(count) {
-				t.Errorf("countCommas() = %d, failed check", count)
 			}
 		})
 	}
@@ -634,4 +579,206 @@ func BenchmarkCalculateContentDensity(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		CalculateContentDensity(doc)
 	}
+}
+
+func TestPatternMatchesEdgeCases(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		value   string
+		pattern string
+		want    bool
+	}{
+		{
+			name:    "empty value",
+			value:   "",
+			pattern: "test",
+			want:    false,
+		},
+		{
+			name:    "empty pattern",
+			value:   "test",
+			pattern: "",
+			want:    false,
+		},
+		{
+			name:    "both empty",
+			value:   "",
+			pattern: "",
+			want:    true, // MatchesPattern returns true for empty pattern (iteration doesn't execute)
+		},
+		{
+			name:    "pattern longer than value",
+			value:   "test",
+			pattern: "testing",
+			want:    false,
+		},
+		{
+			name:    "exact match",
+			value:   "article",
+			pattern: "article",
+			want:    true,
+		},
+		{
+			name:    "hyphenated word match",
+			value:   "article-content",
+			pattern: "article",
+			want:    true,
+		},
+		{
+			name:    "underscore separated match - underscore is NOT a word boundary",
+			value:   "article_content",
+			pattern: "article",
+			want:    true, // Underscore is not treated as a word boundary by patternMatches
+		},
+		{
+			name:    "partial match should fail",
+			value:   "article123",
+			pattern: "article",
+			want:    false,
+		},
+		{
+			name:    "match at start",
+			value:   "article-body",
+			pattern: "article",
+			want:    true,
+		},
+		{
+			name:    "match at end",
+			value:   "main-article",
+			pattern: "article",
+			want:    true,
+		},
+		{
+			name:    "match in middle",
+			value:   "the-article-body",
+			pattern: "article",
+			want:    true,
+		},
+		{
+			name:    "case sensitive match",
+			value:   "Article",
+			pattern: "article",
+			want:    false,
+		},
+		{
+			name:    "special characters",
+			value:   "article.content",
+			pattern: "article",
+			want:    false,
+		},
+		{
+			name:    "numbers in pattern",
+			value:   "h1-content",
+			pattern: "h1",
+			want:    true,
+		},
+		{
+			name:    "multiple hyphens",
+			value:   "article-body-content",
+			pattern: "body",
+			want:    true,
+		},
+		{
+			name:    "pattern with hyphen",
+			value:   "post-article-content",
+			pattern: "article-content",
+			want:    true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Use MatchesPattern which internally calls patternMatches
+			patterns := map[string]bool{tt.pattern: true}
+			result := MatchesPattern(tt.value, patterns)
+			if result != tt.want {
+				t.Errorf("MatchesPattern(%q, %q) = %v, want %v", tt.value, tt.pattern, result, tt.want)
+			}
+		})
+	}
+}
+
+func TestScoreContentNodeEdgeCases(t *testing.T) {
+	t.Parallel()
+
+	t.Run("document with very long text", func(t *testing.T) {
+		longText := strings.Repeat("word ", 1000)
+		inputHTML := `<div>` + longText + `</div>`
+		doc, _ := html.Parse(strings.NewReader(inputHTML))
+		// Find the div element
+		var div *html.Node
+		WalkNodes(doc, func(n *html.Node) bool {
+			if n.Type == html.ElementNode && n.Data == "div" {
+				div = n
+				return false
+			}
+			return true
+		})
+		score := ScoreContentNode(div)
+		// Very long content should have high score
+		if score < 500 {
+			t.Errorf("ScoreContentNode(long text) = %d, want >= 500", score)
+		}
+	})
+
+	t.Run("document with only scripts", func(t *testing.T) {
+		inputHTML := `<html><head><script>var x = 1;</script></head><body></body></html>`
+		doc, _ := html.Parse(strings.NewReader(inputHTML))
+		var body *html.Node
+		WalkNodes(doc, func(n *html.Node) bool {
+			if n.Type == html.ElementNode && n.Data == "body" {
+				body = n
+				return false
+			}
+			return true
+		})
+		score := ScoreContentNode(body)
+		// Body with no content should have low score
+		if score > 100 {
+			t.Errorf("ScoreContentNode(empty body) = %d, want <= 100", score)
+		}
+	})
+}
+
+func TestCalculateContentDensityEdgeCases(t *testing.T) {
+	t.Parallel()
+
+	t.Run("nil node", func(t *testing.T) {
+		density := CalculateContentDensity(nil)
+		if density != 0 {
+			t.Errorf("CalculateContentDensity(nil) = %f, want 0", density)
+		}
+	})
+
+	t.Run("text node only", func(t *testing.T) {
+		textNode := &html.Node{
+			Type: html.TextNode,
+			Data: "Hello World",
+		}
+		density := CalculateContentDensity(textNode)
+		if density != 1.0 {
+			t.Errorf("CalculateContentDensity(text node) = %f, want 1.0", density)
+		}
+	})
+
+	t.Run("single tag with text", func(t *testing.T) {
+		inputHTML := `<p>Hello</p>`
+		doc, _ := html.Parse(strings.NewReader(inputHTML))
+		density := CalculateContentDensity(doc)
+		if density <= 0 {
+			t.Errorf("CalculateContentDensity() = %f, want > 0", density)
+		}
+	})
+
+	t.Run("many tags little text", func(t *testing.T) {
+		inputHTML := strings.Repeat("<div>", 100) + "text" + strings.Repeat("</div>", 100)
+		doc, _ := html.Parse(strings.NewReader(inputHTML))
+		density := CalculateContentDensity(doc)
+		// Many tags with little text should have low density
+		if density > 0.1 {
+			t.Errorf("CalculateContentDensity(many tags) = %f, want <= 0.1", density)
+		}
+	})
 }

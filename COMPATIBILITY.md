@@ -112,7 +112,10 @@ func main() {
     fmt.Println(text)
     
     // Option 2: Or use enhanced extraction (simpler!)
-    processor := html.NewWithDefaults()
+    processor, err := html.New()
+	if err != nil {
+		log.Fatal(err)
+	}
     defer processor.Close()
     
     result, err := processor.ExtractWithDefaults(htmlContent)
@@ -198,7 +201,10 @@ func main() {
     doc, _ := html.Parse(strings.NewReader(htmlContent))
     
     // Plus enhanced extraction
-    processor := html.NewWithDefaults()
+    processor, err := html.New()
+	if err != nil {
+		log.Fatal(err)
+	}
     defer processor.Close()
     
     result, err := processor.ExtractWithDefaults(`
@@ -239,7 +245,10 @@ tokenizer := html.NewTokenizer(r)
 Use `Processor` for advanced features:
 
 ```go
-processor := html.NewWithDefaults()
+processor, err := html.New()
+	if err != nil {
+		log.Fatal(err)
+	}
 defer processor.Close()
 
 result, _ := processor.ExtractWithDefaults(htmlContent)
@@ -349,7 +358,10 @@ config := html.Config{
 processor, err := html.New(config)
 
 // Or use defaults
-processor := html.NewWithDefaults()
+processor, err := html.New()
+	if err != nil {
+		log.Fatal(err)
+	}
 ```
 
 ## Key Benefits
@@ -450,7 +462,10 @@ The `Processor` adds intelligent features with minimal overhead:
 
 **Caching benefits:**
 ```go
-processor := html.NewWithDefaults()
+processor, err := html.New()
+	if err != nil {
+		log.Fatal(err)
+	}
 defer processor.Close()
 
 // First call: ~2ms (parse + analyze)
@@ -469,7 +484,10 @@ fmt.Printf("Cache hit rate: %.1f%%\n",
 ### 1. Reuse Processor Instances
 ```go
 // ✅ Good: Create once, reuse many times
-processor := html.NewWithDefaults()
+processor, err := html.New()
+	if err != nil {
+		log.Fatal(err)
+	}
 defer processor.Close()
 
 for _, content := range htmlContents {
@@ -479,7 +497,10 @@ for _, content := range htmlContents {
 
 // ❌ Bad: Creating new processor per request
 for _, content := range htmlContents {
-    processor := html.NewWithDefaults()
+    processor, err := html.New()
+	if err != nil {
+		log.Fatal(err)
+	}
     result, _ := processor.ExtractWithDefaults(content)
     processor.Close()
 }
@@ -488,11 +509,17 @@ for _, content := range htmlContents {
 ### 2. Always Close Processor
 ```go
 // ✅ Good: Use defer to ensure cleanup
-processor := html.NewWithDefaults()
+processor, err := html.New()
+	if err != nil {
+		log.Fatal(err)
+	}
 defer processor.Close()
 
 // ❌ Bad: Forgetting to close
-processor := html.NewWithDefaults()
+processor, err := html.New()
+	if err != nil {
+		log.Fatal(err)
+	}
 result, _ := processor.ExtractWithDefaults(content)
 // Processor never closed - cache not cleaned up
 ```

@@ -38,13 +38,13 @@ processor, _ := html.New(config)
 
 **Deeply Nested HTML (Billion Laughs Attack)**
 - **Threat**: Exponentially nested elements cause stack overflow or excessive processing
-- **Mitigation**: `MaxDepth` limit (default: 100 levels)
+- **Mitigation**: `MaxDepth` limit (default: 500 levels)
 - **Validation**: DOM depth validated during parsing
 - **Error**: Returns `ErrMaxDepthExceeded` when exceeded
 
 ```go
 config := html.Config{
-    MaxDepth: 50, // Limit nesting to 50 levels
+    MaxDepth: 50, // Limit nesting to 50 levels (or use default: 500)
 }
 ```
 
@@ -261,7 +261,10 @@ if err != nil {
 
 **Always Close Processor**
 ```go
-processor := html.NewWithDefaults()
+processor, err := html.New()
+	if err != nil {
+		log.Fatal(err)
+	}
 defer processor.Close() // Critical: releases cache and resources
 
 result, err := processor.Extract(htmlContent, config)
@@ -313,7 +316,10 @@ for _, img := range result.Images {
 **Thread-Safe by Design**
 ```go
 // Single processor can be safely shared across goroutines
-processor := html.NewWithDefaults()
+processor, err := html.New()
+	if err != nil {
+		log.Fatal(err)
+	}
 defer processor.Close()
 
 var wg sync.WaitGroup
@@ -445,7 +451,10 @@ go test -cover ./...
 ```go
 // Fuzz input validation
 func FuzzExtract(f *testing.F) {
-    processor := html.NewWithDefaults()
+    processor, err := html.New()
+	if err != nil {
+		log.Fatal(err)
+	}
     defer processor.Close()
 
     f.Fuzz(func(t *testing.T, data []byte) {
