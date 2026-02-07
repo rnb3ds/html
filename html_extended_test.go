@@ -1,6 +1,6 @@
 package html_test
 
-// html_enhanced_test.go - Enhanced comprehensive tests for cybergodev/html
+// html_extended_test.go - Comprehensive tests for cybergodev/html
 // This file contains:
 // - Comprehensive error handling tests
 // - Security tests
@@ -36,7 +36,7 @@ func TestErrorHandlingComprehensive(t *testing.T) {
 
 		largeHTML := strings.Repeat("<div>test content here</div>", 10000)
 
-		_, err = p.ExtractWithDefaults([]byte(largeHTML))
+		_, err = p.Extract([]byte(largeHTML), html.DefaultExtractConfig())
 		if err == nil {
 			t.Errorf("Expected error for large input, got nil")
 		}
@@ -52,13 +52,13 @@ func TestErrorHandlingComprehensive(t *testing.T) {
 		defer p.Close()
 
 		validHTML := strings.Repeat("<div>a</div>", 100)
-		_, err = p.ExtractWithDefaults([]byte(validHTML))
+		_, err = p.Extract([]byte(validHTML), html.DefaultExtractConfig())
 		if err != nil {
 			t.Errorf("Should accept input at MaxInputSize boundary, got: %v", err)
 		}
 
 		oversizedHTML := strings.Repeat("<div>a</div>", 1000)
-		_, err = p.ExtractWithDefaults([]byte(oversizedHTML))
+		_, err = p.Extract([]byte(oversizedHTML), html.DefaultExtractConfig())
 		if err == nil {
 			t.Errorf("Expected error for oversize input, got nil")
 		}
@@ -80,7 +80,7 @@ func TestErrorHandlingComprehensive(t *testing.T) {
 		for _, tc := range malformedCases {
 			t.Run(tc.name, func(t *testing.T) {
 				// The library is tolerant and tries to extract anyway
-				result, err := p.ExtractWithDefaults([]byte(tc.html))
+				result, err := p.Extract([]byte(tc.html), html.DefaultExtractConfig())
 				if err != nil {
 					t.Errorf("Library should tolerate malformed HTML, got: %v", err)
 				}
@@ -100,7 +100,7 @@ func TestErrorHandlingComprehensive(t *testing.T) {
 			defer p.Close()
 
 			deepHTML := strings.Repeat("<div>", 200) + "test" + strings.Repeat("</div>", 200)
-			_, err = p.ExtractWithDefaults([]byte(deepHTML))
+			_, err = p.Extract([]byte(deepHTML), html.DefaultExtractConfig())
 			// This should error due to max depth
 			if err == nil {
 				t.Error("Expected error for excessively deep nesting")
@@ -146,7 +146,7 @@ func TestErrorHandlingComprehensive(t *testing.T) {
 
 		largeHTML := strings.Repeat("<div>"+strings.Repeat("test ", 100)+"</div>", 1000)
 
-		_, err = p.ExtractWithDefaults([]byte(largeHTML))
+		_, err = p.Extract([]byte(largeHTML), html.DefaultExtractConfig())
 		if err != html.ErrProcessingTimeout {
 			t.Errorf("Expected ErrProcessingTimeout, got: %v", err)
 		}
@@ -214,7 +214,7 @@ func TestErrorHandlingComprehensive(t *testing.T) {
 		p.Close()
 
 		operations := []func() error{
-			func() error { _, err := p.ExtractWithDefaults([]byte("<html><body>test</body></html>")); return err },
+			func() error { _, err := p.Extract([]byte("<html><body>test</body></html>"), html.DefaultExtractConfig()); return err },
 			func() error { _, err := p.ExtractFromFile("test.html"); return err },
 			func() error { _, err := p.ExtractBatch([][]byte{[]byte("<html><body>test</body></html>")}); return err },
 			func() error { _, err := p.ExtractAllLinks([]byte("<html><body><a href='#'>link</a></body></html>")); return err },
@@ -260,7 +260,7 @@ func TestSecurityComprehensive(t *testing.T) {
 				defer p.Close()
 
 				htmlContent := "<html><body>" + xss + "</body></html>"
-				result, err := p.ExtractWithDefaults([]byte(htmlContent))
+				result, err := p.Extract([]byte(htmlContent), html.DefaultExtractConfig())
 				if err != nil {
 					t.Fatalf("Extract() failed: %v", err)
 				}
@@ -281,7 +281,7 @@ func TestSecurityComprehensive(t *testing.T) {
 
 		hugeHTML := strings.Repeat("<div>"+strings.Repeat("test", 1000)+"</div>", 100000)
 
-		_, err := p.ExtractWithDefaults([]byte(hugeHTML))
+		_, err := p.Extract([]byte(hugeHTML), html.DefaultExtractConfig())
 		if err == nil {
 			t.Errorf("Expected error for huge input, got nil")
 		}
@@ -300,7 +300,7 @@ func TestSecurityComprehensive(t *testing.T) {
 				defer p.Close()
 
 				fullHTML := "<html><body>" + htmlContent + "</body></html>"
-				result, err := p.ExtractWithDefaults([]byte(fullHTML))
+				result, err := p.Extract([]byte(fullHTML), html.DefaultExtractConfig())
 				if err != nil {
 					t.Fatalf("Extract() failed: %v", err)
 				}
@@ -337,7 +337,7 @@ func TestEdgeCasesComprehensive(t *testing.T) {
 
 		for _, htmlContent := range emptyCases {
 			t.Run(fmt.Sprintf("empty_%d", len(htmlContent)), func(t *testing.T) {
-				result, err := p.ExtractWithDefaults([]byte(htmlContent))
+				result, err := p.Extract([]byte(htmlContent), html.DefaultExtractConfig())
 				if err != nil {
 					t.Errorf("Empty HTML should return result, not error: %v", err)
 				}
@@ -361,7 +361,7 @@ func TestEdgeCasesComprehensive(t *testing.T) {
 			<p>العربية</p>
 		</body></html>`
 
-		result, err := p.ExtractWithDefaults([]byte(unicodeHTML))
+		result, err := p.Extract([]byte(unicodeHTML), html.DefaultExtractConfig())
 		if err != nil {
 			t.Fatalf("Extract() failed: %v", err)
 		}
@@ -394,7 +394,7 @@ newlines</p>
 			<p>Text	with	tabs</p>
 		</body></html>`
 
-		result, err := p.ExtractWithDefaults([]byte(whitespaceHTML))
+		result, err := p.Extract([]byte(whitespaceHTML), html.DefaultExtractConfig())
 		if err != nil {
 			t.Fatalf("Extract() failed: %v", err)
 		}
@@ -418,7 +418,7 @@ newlines</p>
 			<noscript>JavaScript required</noscript>
 		</body></html>`
 
-		result, err := p.ExtractWithDefaults([]byte(mixedHTML))
+		result, err := p.Extract([]byte(mixedHTML), html.DefaultExtractConfig())
 		if err != nil {
 			t.Fatalf("Extract() failed: %v", err)
 		}
@@ -443,7 +443,7 @@ newlines</p>
 			<p>&#65;&#x41;</p>
 		</body></html>`
 
-		result, err := p.ExtractWithDefaults([]byte(entityHTML))
+		result, err := p.Extract([]byte(entityHTML), html.DefaultExtractConfig())
 		if err != nil {
 			t.Fatalf("Extract() failed: %v", err)
 		}
@@ -482,7 +482,7 @@ func TestConcurrencyComprehensive(t *testing.T) {
 			go func(id int) {
 				defer wg.Done()
 				for j := 0; j < iterations; j++ {
-					_, err := p.ExtractWithDefaults(htmlContent)
+					_, err := p.Extract(htmlContent, html.DefaultExtractConfig())
 					if err != nil {
 						errors <- fmt.Errorf("goroutine %d iteration %d: %w", id, j, err)
 						return
@@ -520,7 +520,7 @@ func TestConcurrencyComprehensive(t *testing.T) {
 			go func() {
 				defer wg.Done()
 				for j := 0; j < iterations; j++ {
-					p.ExtractWithDefaults(htmlContent)
+					p.Extract(htmlContent, html.DefaultExtractConfig())
 				}
 			}()
 		}
@@ -576,7 +576,7 @@ func TestConcurrencyComprehensive(t *testing.T) {
 				defer wg.Done()
 				started <- struct{}{}
 				time.Sleep(10 * time.Millisecond)
-				p.ExtractWithDefaults(htmlContent)
+				p.Extract(htmlContent, html.DefaultExtractConfig())
 			}()
 		}
 
@@ -603,7 +603,7 @@ func TestConcurrencyComprehensive(t *testing.T) {
 			go func() {
 				defer wg.Done()
 				for j := 0; j < 10; j++ {
-					p.ExtractWithDefaults(htmlContent)
+					p.Extract(htmlContent, html.DefaultExtractConfig())
 				}
 			}()
 		}

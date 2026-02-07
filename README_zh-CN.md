@@ -109,7 +109,7 @@ if err != nil {
 defer processor.Close()
 
 // 使用默认配置提取
-result, _ := processor.ExtractWithDefaults(htmlBytes)
+result, _ := processor.Extract(htmlBytes, html.DefaultExtractConfig())
 
 // 从文件提取
 result, _ = processor.ExtractFromFile("page.html", html.DefaultExtractConfig())
@@ -213,8 +213,8 @@ if err != nil {
 defer processor.Close()
 
 // 自动启用缓存
-result1, _ := processor.ExtractWithDefaults(htmlBytes)
-result2, _ := processor.ExtractWithDefaults(htmlBytes) // 缓存命中！
+result1, _ := processor.Extract(htmlBytes, html.DefaultExtractConfig())
+result2, _ := processor.Extract(htmlBytes, html.DefaultExtractConfig()) // 缓存命中！
 
 // 检查性能
 stats := processor.GetStatistics()
@@ -319,16 +319,15 @@ processor, err := html.New(config)
 defer processor.Close()
 
 // 提取
-processor.Extract(htmlBytes []byte, config ExtractConfig) (*Result, error)
-processor.ExtractWithDefaults(htmlBytes []byte) (*Result, error)
-processor.ExtractFromFile(filePath string, config ExtractConfig) (*Result, error)
+processor.Extract(htmlBytes []byte, configs ...ExtractConfig) (*Result, error)
+processor.ExtractFromFile(filePath string, configs ...ExtractConfig) (*Result, error)
 
 // 批处理
-processor.ExtractBatch(contents [][]byte, config ExtractConfig) ([]*Result, error)
-processor.ExtractBatchFiles(paths []string, config ExtractConfig) ([]*Result, error)
+processor.ExtractBatch(contents [][]byte, configs ...ExtractConfig) ([]*Result, error)
+processor.ExtractBatchFiles(paths []string, configs ...ExtractConfig) ([]*Result, error)
 
 // 链接
-processor.ExtractAllLinks(htmlBytes []byte, config LinkExtractionConfig) ([]LinkResource, error)
+processor.ExtractAllLinks(htmlBytes []byte, configs ...LinkExtractionConfig) ([]LinkResource, error)
 
 // 监控
 processor.GetStatistics() Statistics
@@ -445,7 +444,7 @@ type AudioInfo struct {
 type LinkResource struct {
     URL   string  // 资源 URL
     Title string  // 资源标题
-    Type  string  // 资源类型: css, js, image, video, audio, icon, link 或 media
+    Type  string  // 资源类型: css, js, image, video, audio, icon, link
 }
 ```
 
@@ -511,12 +510,14 @@ type Statistics struct {
 |----------------------------------------------------------------|-----------------------------------|
 | [01_quick_start.go](examples/01_quick_start.go)               | 快速入门单行代码                |
 | [02_content_extraction.go](examples/02_content_extraction.go) | 内容提取基础                    |
-| [03_media_and_links.go](examples/03_media_and_links.go)       | 媒体和链接提取                  |
-| [04_advanced_usage.go](examples/04_advanced_usage.go)         | 高级功能和批处理                |
-| [05_output_formats.go](examples/05_output_formats.go)         | JSON 和 Markdown 输出格式       |
-| [06_error_handling.go](examples/06_error_handling.go)         | 错误处理模式                    |
-| [07_real_world.go](examples/07_real_world.go)                 | 实际用例                        |
-| [08_compatibility.go](examples/08_compatibility.go)           | golang.org/x/net/html 兼容性   |
+| [03_links_and_urls.go](examples/03_links_and_urls.go)         | 链接提取与 URL 解析             |
+| [04_media_extraction.go](examples/04_media_extraction.go)     | 媒体文件提取                    |
+| [05_config_performance.go](examples/05_config_performance.go) | 配置与性能调优                  |
+| [06_http_integration.go](examples/06_http_integration.go)     | HTTP 集成模式                   |
+| [07_advanced_usage.go](examples/07_advanced_usage.go)         | 高级功能和批处理                |
+| [08_output_formats.go](examples/08_output_formats.go)         | JSON 和 Markdown 输出格式       |
+| [09_error_handling.go](examples/09_error_handling.go)         | 错误处理模式                    |
+| [10_real_world.go](examples/10_real_world.go)                 | 实际用例                        |
 
 ---
 
@@ -559,7 +560,7 @@ for i := 0; i < 100; i++ {
     wg.Add(1)
     go func() {
         defer wg.Done()
-        processor.ExtractWithDefaults(htmlBytes)
+        processor.Extract(htmlBytes, html.DefaultExtractConfig())
     }()
 }
 wg.Wait()
@@ -579,101 +580,3 @@ MIT 许可证 - 详见 [LICENSE](LICENSE) 文件
 
 **为 Go 社区精心打造** ❤️ | 如果这个项目对你有帮助，请给它一个 ⭐️ Star！
 
----
-
-## 错误处理
-
-库为不同的失败场景提供特定的错误类型:
-
-```go
-var (
-    ErrInputTooLarge     = errors.New("html: input size exceeds maximum")
-    ErrInvalidHTML       = errors.New("html: invalid HTML content")
-    ErrInvalidConfig     = errors.New("html: invalid configuration")
-    ErrProcessorClosed   = errors.New("html: processor closed")
-    ErrFileNotFound      = errors.New("html: file not found")
-    ErrInvalidFilePath   = errors.New("html: invalid file path")
-    ErrMaxDepthExceeded  = errors.New("html: max depth exceeded")
-    ErrProcessingTimeout = errors.New("html: processing timeout")
-)
-```
-
-### 错误处理最佳实践
-
-```go
-result, err := html.Extract(htmlBytes)
-if err != nil {
-    if errors.Is(err, html.ErrInputTooLarge) {
-        // 处理超大输入
-    } else if errors.Is(err, html.ErrInvalidHTML) {
-        // 处理畸形 HTML
-    } else if errors.Is(err, html.ErrProcessorClosed) {
-        // 处理已关闭的处理器
-    } else {
-        // 处理其他错误
-        log.Printf("提取失败: %v", err)
-    }
-    return
-}
-```
-
----
-
-## 字符编码支持
-
-库可自动检测并转换 15+ 种字符编码的内容:
-
-### 支持的编码
-
-**Unicode:**
-- UTF-8, UTF-16 LE, UTF-16 BE
-
-**西欧:**
-- Windows-1252, ISO-8859-1 至 ISO-8859-16
-
-**东亚:**
-- GBK, Big5, Shift_JIS, EUC-JP, ISO-2022-JP, EUC-KR
-
-### 编码检测
-
-库使用三层检测策略:
-1. **BOM 检测**: UTF-8/UTF-16 的字节顺序标记
-2. **Meta 标签检测**: HTML `<meta charset>` 和 `http-equiv` 头
-3. **智能检测**: 基于统计分析的置信度评分
-
-### 手动指定编码
-
-```go
-config := html.ExtractConfig{
-    Encoding: "windows-1252", // 强制指定编码
-}
-result, _ := html.Extract(htmlBytes, config)
-```
-
----
-
-## 最新改进
-
-### 性能与质量改进 (2026-02-07)
-
-- ✅ **修复 LRU 缓存 Bug**: 实现正确的双向链表淘汰策略
-- ✅ **优化字符串操作**: 减少冗余的 ToLower 转换
-- ✅ **延迟正则编译**: 使用 sync.Once 加快启动
-- ✅ **改进统计功能**: 添加 ResetStatistics() 方法
-- ✅ **统一 URL 验证**: 验证逻辑的单一来源
-
-### 测试套件优化 (2026-02-07)
-
-- ✅ **87.1% 覆盖率**: 从 81.7% 提升（+6.6%）
-- ✅ **消除冗余**: 删除重复测试
-- ✅ **更好组织**: 整合和结构化测试
-- ✅ **完善文档**: 创建测试策略指南
-
-### 文档改进 (2026-02-07)
-
-- ✅ **修正 API 签名**: 所有函数参数类型从 `string` 更正为 `[]byte`
-- ✅ **补充遗漏方法**: 添加 `ResetStatistics()` 文档
-- ✅ **验证代码示例**: 创建自动化测试套件
-- ✅ **100% 准确率**: 所有文档经测试验证
-
----

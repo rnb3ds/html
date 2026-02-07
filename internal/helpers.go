@@ -5,18 +5,28 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
+	"unicode/utf8"
 
 	"golang.org/x/net/html"
 )
 
-const (
-	// cleanTextGrowthFactor is the factor used to estimate the size of cleaned text.
-	// Cleaning typically reduces text size by removing extra whitespace, so we use
-	// half the original text length as an initial capacity estimate.
-	cleanTextGrowthFactor = 2
-	// builderInitialSize is the initial capacity for strings.Builder in text extraction functions.
-	builderInitialSize = 256
+var (
+	defaultWhitespaceRegex     *regexp.Regexp
+	defaultWhitespaceRegexOnce sync.Once
+	paddingLeftRegex           *regexp.Regexp
+	paddingLeftRegexOnce       sync.Once
 )
+
+func initDefaultWhitespaceRegex() {
+	defaultWhitespaceRegex = regexp.MustCompile(`\s+`)
+}
+
+func initPaddingLeftRegex() {
+	paddingLeftRegex = regexp.MustCompile(`padding-left:\s*(\d+(?:\.\d+)?)\s*pt`)
+}
+
+// Clean text and builder sizing constants are now in constants.go
 
 // boundaryCharSets defines different character sets for word boundary detection
 type boundaryCharSet int
@@ -75,8 +85,6 @@ func normalizeNonBreakingSpaces(s string) string {
 	return strings.ReplaceAll(s, "\u00a0", " ")
 }
 
-var defaultWhitespaceRegex = regexp.MustCompile(`\s+`)
-
 var unwantedCharReplacer = strings.NewReplacer(
 	"☒", "[X]",
 	"☐", "[ ]",
@@ -88,6 +96,7 @@ func CleanText(text string, whitespaceRegex *regexp.Regexp) string {
 		return ""
 	}
 	if whitespaceRegex == nil {
+		defaultWhitespaceRegexOnce.Do(initDefaultWhitespaceRegex)
 		whitespaceRegex = defaultWhitespaceRegex
 	}
 	textLen := len(text)
@@ -98,20 +107,55 @@ func CleanText(text string, whitespaceRegex *regexp.Regexp) string {
 
 	for i := 0; i <= textLen; i++ {
 		if i == textLen || text[i] == '\n' {
-			line := whitespaceRegex.ReplaceAllString(text[start:i], " ")
+			rawLine := text[start:i]
 			isEmpty := true
-			if line != "" {
-				if line = strings.TrimSpace(line); line != "" {
-					isEmpty = false
-					if result.Len() > 0 {
-						if previousWasEmpty {
+
+			// Process the line while preserving leading indentation
+			if rawLine != "" {
+				// Compress whitespace AFTER leading indentation
+				// Find the first non-space character
+				firstNonSpace := 0
+				for firstNonSpace < len(rawLine) && rawLine[firstNonSpace] == ' ' {
+					firstNonSpace++
+				}
+
+				if firstNonSpace < len(rawLine) {
+					// Has leading indentation
+					indent := rawLine[:firstNonSpace]
+					content := rawLine[firstNonSpace:]
+
+					// Compress whitespace in the content only
+					content = whitespaceRegex.ReplaceAllString(content, " ")
+					content = strings.TrimRight(content, " ")
+
+					if content != "" {
+						line := indent + content
+						isEmpty = false
+						if result.Len() > 0 {
+							if previousWasEmpty {
+								result.WriteByte('\n')
+							}
 							result.WriteByte('\n')
 						}
-						result.WriteByte('\n')
+						result.WriteString(line)
 					}
-					result.WriteString(line)
+				} else {
+					// No leading indentation, compress all whitespace
+					line := whitespaceRegex.ReplaceAllString(rawLine, " ")
+					line = strings.TrimRight(line, " ")
+					if line != "" {
+						isEmpty = false
+						if result.Len() > 0 {
+							if previousWasEmpty {
+								result.WriteByte('\n')
+							}
+							result.WriteByte('\n')
+						}
+						result.WriteString(line)
+					}
 				}
 			}
+
 			previousWasEmpty = isEmpty
 			start = i + 1
 		}
@@ -441,8 +485,8 @@ func replaceNumericEntity(text string, start int) (string, int) {
 		base = 10
 	}
 
-	// Parse the number
-	num, err := strconv.ParseInt(entity, base, 32)
+	// Parse the number with 64-bit to prevent overflow
+	num, err := strconv.ParseInt(entity, base, 64)
 	if err != nil || num < 0 || num > 0x10FFFF {
 		// Invalid numeric entity, return as-is
 		return text[start : semi+1], semi - start + 1
@@ -454,6 +498,12 @@ func replaceNumericEntity(text string, start int) (string, int) {
 		return "\uFFFD", semi - start + 1
 	}
 
+	// Convert to rune and validate it's a valid Unicode code point
+	r := rune(num)
+	if !utf8.ValidRune(r) {
+		return "\uFFFD", semi - start + 1
+	}
+
 	// Special handling: convert non-breaking space (0xa0) to regular space (0x20)
 	// This ensures consistent behavior with named entity &nbsp; which maps to regular space
 	if num == 0xA0 {
@@ -461,7 +511,7 @@ func replaceNumericEntity(text string, start int) (string, int) {
 	}
 
 	// Valid Unicode character
-	return string(rune(num)), semi - start + 1
+	return string(r), semi - start + 1
 }
 
 // isValidEntityName checks if an entity name contains only valid characters.
@@ -489,20 +539,14 @@ func decodeEntityFallback(entity string) string {
 	return decoded
 }
 
-func IsExternalURL(url string) bool {
-	return strings.HasPrefix(url, "http://") ||
-		strings.HasPrefix(url, "https://") ||
-		strings.HasPrefix(url, "//")
-}
-
 // IsValidURL checks if a URL is valid and safe for processing.
-// This is a centralized URL validation function exported for use across the package.
-const (
-	maxURLLength     = 2000
-	maxDataURILength = 100000
-)
-
+// This is a centralized URL validation function with size limits for security.
 func IsValidURL(url string) bool {
+	const (
+		maxURLLength     = 2000   // Maximum URL length
+		maxDataURILength = 100000 // Maximum data URL length (100KB)
+	)
+
 	urlLen := len(url)
 	if urlLen == 0 || urlLen > maxURLLength {
 		return false
@@ -568,4 +612,83 @@ func SelectBestCandidate(candidates map[*html.Node]int) *html.Node {
 		}
 	}
 	return bestNode
+}
+
+// extractPaddingLeft extracts the padding-left value from an HTML element's style attribute.
+// It parses the CSS style attribute and returns the padding-left value in points (pt).
+// Returns 0 if padding-left is not found or cannot be parsed.
+//
+// Examples:
+//   - "padding-left:18pt" → 18
+//   - "padding-left:63pt;" → 63
+//   - "padding-left: 1.5em" → 0 (only pt is supported)
+//   - "" → 0
+func extractPaddingLeft(node *html.Node) int {
+	if node == nil || node.Type != html.ElementNode {
+		return 0
+	}
+
+	// Get the style attribute
+	var styleAttr string
+	for _, attr := range node.Attr {
+		if attr.Key == "style" {
+			styleAttr = attr.Val
+			break
+		}
+	}
+
+	if styleAttr == "" {
+		return 0
+	}
+
+	paddingLeftRegexOnce.Do(initPaddingLeftRegex)
+	matches := paddingLeftRegex.FindStringSubmatch(styleAttr)
+	if len(matches) < 2 {
+		return 0
+	}
+
+	// Parse the numeric value
+	value, err := strconv.ParseFloat(matches[1], 64)
+	if err != nil {
+		return 0
+	}
+
+	return int(value)
+}
+
+// getIndentLevel returns the indentation level (0-3) based on padding-left value.
+func getIndentLevel(paddingLeft int) int {
+	switch {
+	case paddingLeft <= 18:
+		return 0
+	case paddingLeft <= 40:
+		return 1
+	case paddingLeft <= 80:
+		return 2
+	default:
+		return 3
+	}
+}
+
+// getListPrefix returns the Markdown list prefix based on padding-left value.
+// This converts CSS padding-left to Markdown list nesting format.
+// Example:
+//   - 0-18pt   → "" (no prefix, root level)
+//   - 19-40pt  → "  - " (level 1, 2 spaces indent)
+//   - 41-80pt  → "    - " (level 2, 4 spaces indent)
+//   - >80pt    → "      - " (level 3, 6 spaces indent)
+func getListPrefix(paddingLeft int) string {
+	level := getIndentLevel(paddingLeft)
+	switch level {
+	case 0:
+		return "" // Root level, no bullet
+	case 1:
+		return "  - " // Level 1: 2 spaces + "- "
+	case 2:
+		return "    - " // Level 2: 4 spaces + "- "
+	case 3:
+		return "      - " // Level 3: 6 spaces + "- "
+	default:
+		return ""
+	}
 }

@@ -51,23 +51,29 @@ func (c *Cache) Get(key string) any {
 	}
 	now := time.Now().UnixNano()
 
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
+	c.mu.RLock()
 	entry := c.entries[key]
 	if entry == nil {
+		c.mu.RUnlock()
 		return nil
 	}
 
 	if entry.isExpired(now) {
-		c.removeNode(entry)
-		delete(c.entries, key)
+		c.mu.RUnlock()
+		c.mu.Lock()
+		// Double-check after acquiring write lock
+		if entry, exists := c.entries[key]; exists && entry.isExpired(now) {
+			c.removeNode(entry)
+			delete(c.entries, key)
+		}
+		c.mu.Unlock()
 		return nil
 	}
 
 	// Update last used time and move to front
 	entry.lastUsed = now
 	c.moveToFront(entry)
+	c.mu.RUnlock()
 
 	return entry.value
 }
@@ -94,7 +100,7 @@ func (c *Cache) Set(key string, value any) {
 
 	// Need to add new entry - check capacity
 	if len(c.entries) >= c.maxEntries {
-		c.evictOne()
+		c.evictOne(now)
 	}
 
 	// Create new entry
@@ -147,9 +153,7 @@ func (c *Cache) removeNode(entry *cacheEntry) {
 	entry.next = nil
 }
 
-func (c *Cache) evictOne() {
-	nowNano := time.Now().UnixNano()
-
+func (c *Cache) evictOne(nowNano int64) {
 	// First, try to remove an expired entry
 	for key, entry := range c.entries {
 		if entry.isExpired(nowNano) {

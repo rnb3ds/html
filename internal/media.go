@@ -78,8 +78,17 @@ func DetectAudioType(url string) string {
 	return detectAudioType(lowerURL)
 }
 
-// detectVideoType performs lookup for video extensions
+// detectVideoType performs lookup for video extensions.
+// Handles URLs with query parameters and fragments by stripping them first.
 func detectVideoType(url string) string {
+	// Remove query parameters and fragments
+	if idx := strings.IndexByte(url, '?'); idx >= 0 {
+		url = url[:idx]
+	}
+	if idx := strings.IndexByte(url, '#'); idx >= 0 {
+		url = url[:idx]
+	}
+
 	for ext, mimeType := range videoExtensions {
 		if strings.HasSuffix(url, ext) {
 			return mimeType
@@ -88,8 +97,17 @@ func detectVideoType(url string) string {
 	return ""
 }
 
-// detectAudioType performs lookup for audio extensions
+// detectAudioType performs lookup for audio extensions.
+// Handles URLs with query parameters and fragments by stripping them first.
 func detectAudioType(url string) string {
+	// Remove query parameters and fragments
+	if idx := strings.IndexByte(url, '?'); idx >= 0 {
+		url = url[:idx]
+	}
+	if idx := strings.IndexByte(url, '#'); idx >= 0 {
+		url = url[:idx]
+	}
+
 	for ext, mimeType := range audioExtensions {
 		if strings.HasSuffix(url, ext) {
 			return mimeType

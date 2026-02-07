@@ -337,12 +337,12 @@ func TestCleanText(t *testing.T) {
 			{
 				name:  "mixed whitespace",
 				input: "Hello  \t  \n  World",
-				want:  "Hello\nWorld",
+				want:  "Hello\n  World", // Updated: preserve leading indentation
 			},
 			{
 				name:  "leading spaces",
 				input: "    Hello",
-				want:  "Hello",
+				want:  "    Hello", // Updated: preserve leading indentation for document hierarchy
 			},
 			{
 				name:  "trailing spaces",

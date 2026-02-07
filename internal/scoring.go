@@ -6,37 +6,6 @@ import (
 	"golang.org/x/net/html"
 )
 
-const (
-	strongPositiveScore = 400
-	mediumPositiveScore = 200
-	strongNegativeScore = -400
-	mediumNegativeScore = -200
-	weakNegativeScore   = -100
-
-	minParagraphsForBonus       = 3
-	manyParagraphsMultiplier    = 150
-	fewParagraphsMultiplier     = 80
-	headingMultiplier           = 100
-	veryLongTextThreshold       = 500
-	longTextThreshold           = 200
-	mediumTextThreshold         = 100
-	shortTextThreshold          = 50
-	veryLongTextBonusMultiplier = 10
-	longTextBonusDivider        = 2
-	mediumTextBonusDivider      = 3
-	shortTextPenalty            = -300
-	highLinkDensityThreshold    = 0.5
-	mediumLinkDensityThreshold  = 0.3
-	lowLinkDensityThreshold     = 0.15
-	highDensityMultiplier       = 1.2
-	lowDensityMultiplier        = 0.7
-	highLinkDensityPenalty      = 0.2
-	mediumLinkDensityPenalty    = 0.5
-	lowLinkDensityPenalty       = 0.75
-	commaBonusThreshold         = 5
-	commaBonusMultiplier        = 10
-)
-
 var (
 	positiveStrongPatterns = map[string]int{
 		"content": strongPositiveScore, "article": strongPositiveScore, "main": strongPositiveScore,
@@ -76,10 +45,73 @@ var (
 		"script": true, "style": true, "noscript": true, "nav": true,
 		"aside": true, "footer": true, "header": true, "form": true,
 	}
+	// HTML5 inline elements - elements that should NOT add newlines or paragraph spacing
+	// These elements flow with text on the same line
+	inlineElements = map[string]bool{
+		// Text formatting (presentational)
+		"font": true, "b": true, "i": true, "u": true, "s": true, "strike": true,
+		"del": true, "ins": true, "strong": true, "em": true,
+		"mark": true, "small": true, "sub": true, "sup": true,
+		"big": true, "tt": true,
+
+		// Semantic inline
+		"span": true, "a": true, "code": true, "kbd": true, "samp": true,
+		"var": true, "abbr": true, "cite": true, "q": true, "dfn": true,
+		"time": true, "data": true, "ruby": true, "rt": true, "rp": true,
+		"bdi": true, "wbr": true,
+
+		// Media and embedded
+		"img": true, "svg": true, "picture": true,
+		"video": true, "audio": true, "canvas": true,
+		"object": true, "embed": true, "iframe": true,
+		"map": true,
+
+		// Form controls
+		"input": true, "button": true, "select": true,
+		"textarea": true, "label": true, "output": true,
+
+		// Line break (special inline)
+		"br": true,
+
+		// Metadata (should not affect layout)
+		"script": true, "style": true, "link": true, "meta": true, "title": true,
+	}
+	// HTML5 block elements - elements that should add newlines and paragraph spacing
+	// Organized by category for better maintainability
 	blockElements = map[string]bool{
-		"p": true, "div": true, "h1": true, "h2": true, "h3": true, "h4": true, "h5": true, "h6": true,
-		"article": true, "section": true, "blockquote": true, "pre": true, "ul": true, "ol": true,
-		"li": true, "table": true, "tr": true, "td": true, "th": true, "br": true, "hr": true,
+		// Text containers
+		"p": true, "div": true, "pre": true, "blockquote": true,
+
+		// Headings
+		"h1": true, "h2": true, "h3": true, "h4": true, "h5": true, "h6": true,
+
+		// Semantic HTML5 sections (high priority)
+		"article": true, "section": true, "main": true, "nav": true, "aside": true,
+		"header": true, "footer": true, "figure": true, "figcaption": true,
+
+		// Lists
+		"ul": true, "ol": true, "li": true, "dl": true, "dt": true, "dd": true,
+
+		// Tables
+		"table": true, "thead": true, "tbody": true, "tfoot": true, "tr": true, "td": true, "th": true,
+
+		// Forms
+		"form": true, "fieldset": true,
+
+		// Interactive elements
+		"details": true, "summary": true, "dialog": true,
+
+		// Other block elements
+		"hr": true, "address": true,
+
+		// Structural elements (low priority, rarely appear in content extraction)
+		"body": true, "html": true, "head": true,
+
+		// Deprecated elements
+		"center": true,
+
+		// Media/Interactive elements
+		"canvas": true,
 	}
 	tagScores = map[string]int{
 		"article": 1000,
@@ -268,13 +300,21 @@ func calculatePatternScore(value string, patterns map[string]int) int {
 	return score
 }
 
-func MatchesPattern(value string, patterns map[string]bool) bool {
+// matchesPattern checks if value contains any pattern from the map with word boundaries.
+// This is an internal helper used by ShouldRemoveElement.
+func matchesPattern(value string, patterns map[string]bool) bool {
 	for pattern := range patterns {
 		if hasWordBoundary(value, pattern, boundaryStandard) {
 			return true
 		}
 	}
 	return false
+}
+
+// MatchesPattern is the exported version of matchesPattern for testing purposes.
+// It checks if value contains any pattern from the map with word boundaries.
+func MatchesPattern(value string, patterns map[string]bool) bool {
+	return matchesPattern(value, patterns)
 }
 
 // CalculateContentDensity calculates text-to-tag ratio.
@@ -327,8 +367,10 @@ func ShouldRemoveElement(n *html.Node) bool {
 		switch attr.Key {
 		case "class", "id":
 			lowerVal := strings.ToLower(attr.Val)
-			if MatchesPattern(lowerVal, removePatterns) {
-				return true
+			for pattern := range removePatterns {
+				if hasWordBoundary(lowerVal, pattern, boundaryStandard) {
+					return true
+				}
 			}
 		case "style":
 			lowerStyle := strings.ToLower(attr.Val)
@@ -347,4 +389,10 @@ func ShouldRemoveElement(n *html.Node) bool {
 
 func IsBlockElement(tag string) bool {
 	return blockElements[tag]
+}
+
+// IsInlineElement returns true if the tag is a known inline element.
+// Inline elements should not add newlines or paragraph spacing.
+func IsInlineElement(tag string) bool {
+	return inlineElements[tag]
 }

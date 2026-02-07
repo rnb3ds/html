@@ -109,7 +109,7 @@ if err != nil {
 defer processor.Close()
 
 // Extract with defaults
-result, _ := processor.ExtractWithDefaults(htmlBytes)
+result, _ := processor.Extract(htmlBytes, html.DefaultExtractConfig())
 
 // Extract from file
 result, _ = processor.ExtractFromFile("page.html", html.DefaultExtractConfig())
@@ -213,8 +213,8 @@ if err != nil {
 defer processor.Close()
 
 // Automatic caching enabled
-result1, _ := processor.ExtractWithDefaults(htmlBytes)
-result2, _ := processor.ExtractWithDefaults(htmlBytes) // Cache hit!
+result1, _ := processor.Extract(htmlBytes, html.DefaultExtractConfig())
+result2, _ := processor.Extract(htmlBytes, html.DefaultExtractConfig()) // Cache hit!
 
 // Check performance
 stats := processor.GetStatistics()
@@ -319,16 +319,15 @@ processor, err := html.New(config)
 defer processor.Close()
 
 // Extraction
-processor.Extract(htmlBytes []byte, config ExtractConfig) (*Result, error)
-processor.ExtractWithDefaults(htmlBytes []byte) (*Result, error)
-processor.ExtractFromFile(filePath string, config ExtractConfig) (*Result, error)
+processor.Extract(htmlBytes []byte, configs ...ExtractConfig) (*Result, error)
+processor.ExtractFromFile(filePath string, configs ...ExtractConfig) (*Result, error)
 
 // Batch
-processor.ExtractBatch(contents [][]byte, config ExtractConfig) ([]*Result, error)
-processor.ExtractBatchFiles(paths []string, config ExtractConfig) ([]*Result, error)
+processor.ExtractBatch(contents [][]byte, configs ...ExtractConfig) ([]*Result, error)
+processor.ExtractBatchFiles(paths []string, configs ...ExtractConfig) ([]*Result, error)
 
 // Links
-processor.ExtractAllLinks(htmlBytes []byte, config LinkExtractionConfig) ([]LinkResource, error)
+processor.ExtractAllLinks(htmlBytes []byte, configs ...LinkExtractionConfig) ([]LinkResource, error)
 
 // Monitoring
 processor.GetStatistics() Statistics
@@ -445,7 +444,7 @@ type AudioInfo struct {
 type LinkResource struct {
     URL   string  // Resource URL
     Title string  // Resource title
-    Type  string  // Resource type: css, js, image, video, audio, icon, link, or media
+    Type  string  // Resource type: css, js, image, video, audio, icon, link
 }
 ```
 
@@ -511,12 +510,14 @@ See [examples/](examples) directory for complete, runnable code:
 |---------------------------------------------------------------|--------------------------------------|
 | [01_quick_start.go](examples/01_quick_start.go)               | Quick start with one-liners          |
 | [02_content_extraction.go](examples/02_content_extraction.go) | Content extraction basics            |
-| [03_media_and_links.go](examples/03_media_and_links.go)       | Media and link extraction            |
-| [04_advanced_usage.go](examples/04_advanced_usage.go)         | Advanced features & batch processing |
-| [05_output_formats.go](examples/05_output_formats.go)         | JSON and Markdown output formats     |
-| [06_error_handling.go](examples/06_error_handling.go)         | Error handling patterns              |
-| [07_real_world.go](examples/07_real_world.go)                 | Real-world use cases                 |
-| [08_compatibility.go](examples/08_compatibility.go)           | golang.org/x/net/html compatibility  |
+| [03_links_and_urls.go](examples/03_links_and_urls.go)         | Link extraction & URL resolution     |
+| [04_media_extraction.go](examples/04_media_extraction.go)     | Media files extraction               |
+| [05_config_performance.go](examples/05_config_performance.go) | Configuration & performance tuning   |
+| [06_http_integration.go](examples/06_http_integration.go)     | HTTP integration patterns            |
+| [07_advanced_usage.go](examples/07_advanced_usage.go)         | Advanced features & batch processing |
+| [08_output_formats.go](examples/08_output_formats.go)         | JSON and Markdown output formats     |
+| [09_error_handling.go](examples/09_error_handling.go)         | Error handling patterns              |
+| [10_real_world.go](examples/10_real_world.go)                 | Real-world use cases                 |
 
 ---
 
@@ -559,7 +560,7 @@ for i := 0; i < 100; i++ {
     wg.Add(1)
     go func() {
         defer wg.Done()
-        processor.ExtractWithDefaults(htmlBytes)
+        processor.Extract(htmlBytes, html.DefaultExtractConfig())
     }()
 }
 wg.Wait()
@@ -578,95 +579,3 @@ MIT License - See [LICENSE](LICENSE) file for details.
 ---
 
 **Crafted with care for the Go community** ❤️ | If this project helps you, please give it a ⭐️ Star!
-
----
-
-## Error Handling
-
-The library provides specific error types for different failure scenarios:
-
-```go
-var (
-    ErrInputTooLarge     = errors.New("html: input size exceeds maximum")
-    ErrInvalidHTML       = errors.New("html: invalid HTML content")
-    ErrInvalidConfig     = errors.New("html: invalid configuration")
-    ErrProcessorClosed   = errors.New("html: processor closed")
-    ErrFileNotFound      = errors.New("html: file not found")
-    ErrInvalidFilePath   = errors.New("html: invalid file path")
-    ErrMaxDepthExceeded  = errors.New("html: max depth exceeded")
-    ErrProcessingTimeout = errors.New("html: processing timeout")
-)
-```
-
-### Error Handling Best Practices
-
-```go
-result, err := html.Extract(htmlBytes)
-if err != nil {
-    if errors.Is(err, html.ErrInputTooLarge) {
-        // Handle oversized input
-    } else if errors.Is(err, html.ErrInvalidHTML) {
-        // Handle malformed HTML
-    } else if errors.Is(err, html.ErrProcessorClosed) {
-        // Handle closed processor
-    } else {
-        // Handle other errors
-        log.Printf("Extraction failed: %v", err)
-    }
-    return
-}
-```
-
----
-
-## Character Encoding Support
-
-The library automatically detects and converts content from 15+ character encodings:
-
-### Supported Encodings
-
-**Unicode:**
-- UTF-8, UTF-16 LE, UTF-16 BE
-
-**Western European:**
-- Windows-1252, ISO-8859-1 through ISO-8859-16
-
-**East Asian:**
-- GBK, Big5, Shift_JIS, EUC-JP, ISO-2022-JP, EUC-KR
-
-### Encoding Detection
-
-The library uses a three-tier detection strategy:
-1. **BOM Detection**: Byte Order Mark for UTF-8/UTF-16
-2. **Meta Tag Detection**: HTML `<meta charset>` and `http-equiv` headers
-3. **Smart Detection**: Statistical analysis with confidence scoring
-
-### Manual Encoding Override
-
-```go
-config := html.ExtractConfig{
-    Encoding: "windows-1252", // Force specific encoding
-}
-result, _ := html.Extract(htmlBytes, config)
-```
-
----
-
-## Recent Improvements
-
-### Performance & Quality (2026-02-07)
-
-- ✅ **Fixed LRU Cache Bug**: Implemented proper doubly-linked list for correct eviction
-- ✅ **Optimized String Operations**: Reduced redundant ToLower conversions
-- ✅ **Lazy Regex Compilation**: Faster startup with sync.Once
-- ✅ **Improved Statistics**: Added ResetStatistics() method
-- ✅ **Unified URL Validation**: Single source of truth for validation
-
-### Test Suite Optimization (2026-02-07)
-
-- ✅ **87.1% Coverage**: Up from 81.7% (+6.6% improvement)
-- ✅ **Removed Redundancy**: Eliminated duplicate tests
-- ✅ **Better Organization**: Consolidated and structured tests
-- ✅ **Comprehensive Docs**: Created testing strategy guide
-
----

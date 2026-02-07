@@ -535,7 +535,7 @@ func TestIsBlockElement(t *testing.T) {
 		{"ol", true},
 		{"li", true},
 		{"table", true},
-		{"br", true},
+		{"br", false},  // BR is now inline, not block
 		{"hr", true},
 		{"span", false},
 		{"a", false},

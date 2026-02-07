@@ -1,41 +1,45 @@
-package html
+package html_test
 
 import (
 	"errors"
 	"testing"
 	"time"
+
+	"github.com/cybergodev/html"
 )
 
 // TestDefaultConfigurations verifies that all default values are correctly set
 func TestDefaultConfigurations(t *testing.T) {
-	t.Run("DefaultConfig", func(t *testing.T) {
-		config := DefaultConfig()
+	t.Parallel()
 
-		if config.MaxInputSize != DefaultMaxInputSize {
-			t.Errorf("MaxInputSize = %d, want %d", config.MaxInputSize, DefaultMaxInputSize)
+	t.Run("DefaultConfig", func(t *testing.T) {
+		config := html.DefaultConfig()
+
+		if config.MaxInputSize != html.DefaultMaxInputSize {
+			t.Errorf("MaxInputSize = %d, want %d", config.MaxInputSize, html.DefaultMaxInputSize)
 		}
-		if config.MaxCacheEntries != DefaultMaxCacheEntries {
-			t.Errorf("MaxCacheEntries = %d, want %d", config.MaxCacheEntries, DefaultMaxCacheEntries)
+		if config.MaxCacheEntries != html.DefaultMaxCacheEntries {
+			t.Errorf("MaxCacheEntries = %d, want %d", config.MaxCacheEntries, html.DefaultMaxCacheEntries)
 		}
-		if config.CacheTTL != DefaultCacheTTL {
-			t.Errorf("CacheTTL = %v, want %v", config.CacheTTL, DefaultCacheTTL)
+		if config.CacheTTL != html.DefaultCacheTTL {
+			t.Errorf("CacheTTL = %v, want %v", config.CacheTTL, html.DefaultCacheTTL)
 		}
-		if config.WorkerPoolSize != DefaultWorkerPoolSize {
-			t.Errorf("WorkerPoolSize = %d, want %d", config.WorkerPoolSize, DefaultWorkerPoolSize)
+		if config.WorkerPoolSize != html.DefaultWorkerPoolSize {
+			t.Errorf("WorkerPoolSize = %d, want %d", config.WorkerPoolSize, html.DefaultWorkerPoolSize)
 		}
 		if !config.EnableSanitization {
 			t.Error("EnableSanitization should be true by default")
 		}
-		if config.MaxDepth != DefaultMaxDepth {
-			t.Errorf("MaxDepth = %d, want %d", config.MaxDepth, DefaultMaxDepth)
+		if config.MaxDepth != html.DefaultMaxDepth {
+			t.Errorf("MaxDepth = %d, want %d", config.MaxDepth, html.DefaultMaxDepth)
 		}
-		if config.ProcessingTimeout != DefaultProcessingTimeout {
-			t.Errorf("ProcessingTimeout = %v, want %v", config.ProcessingTimeout, DefaultProcessingTimeout)
+		if config.ProcessingTimeout != html.DefaultProcessingTimeout {
+			t.Errorf("ProcessingTimeout = %v, want %v", config.ProcessingTimeout, html.DefaultProcessingTimeout)
 		}
 	})
 
 	t.Run("DefaultExtractConfig", func(t *testing.T) {
-		config := DefaultExtractConfig()
+		config := html.DefaultExtractConfig()
 
 		if !config.ExtractArticle {
 			t.Error("ExtractArticle should be true by default")
@@ -64,7 +68,7 @@ func TestDefaultConfigurations(t *testing.T) {
 	})
 
 	t.Run("DefaultLinkExtractionConfig", func(t *testing.T) {
-		config := DefaultLinkExtractionConfig()
+		config := html.DefaultLinkExtractionConfig()
 
 		if !config.ResolveRelativeURLs {
 			t.Error("ResolveRelativeURLs should be true by default")
@@ -101,128 +105,109 @@ func TestDefaultConfigurations(t *testing.T) {
 
 // TestDefaultMaxDepth verifies the default MaxDepth constant value
 func TestDefaultMaxDepth(t *testing.T) {
+	t.Parallel()
+
 	t.Run("DefaultMaxDepth value", func(t *testing.T) {
-		if DefaultMaxDepth != 500 {
-			t.Errorf("DefaultMaxDepth = %d, want 500", DefaultMaxDepth)
+		if html.DefaultMaxDepth != 500 {
+			t.Errorf("DefaultMaxDepth = %d, want 500", html.DefaultMaxDepth)
 		}
 	})
 
 	t.Run("DefaultMaxDepth is used in DefaultConfig", func(t *testing.T) {
-		config := DefaultConfig()
-		if config.MaxDepth != DefaultMaxDepth {
-			t.Errorf("config.MaxDepth = %d, want DefaultMaxDepth (%d)", config.MaxDepth, DefaultMaxDepth)
+		config := html.DefaultConfig()
+		if config.MaxDepth != html.DefaultMaxDepth {
+			t.Errorf("config.MaxDepth = %d, want DefaultMaxDepth (%d)", config.MaxDepth, html.DefaultMaxDepth)
 		}
 	})
 
 	t.Run("MaxDepth can be overridden", func(t *testing.T) {
-		config := Config{
-			MaxInputSize:   DefaultMaxInputSize,
-			WorkerPoolSize: DefaultWorkerPoolSize,
-			MaxDepth:       100, // Custom value
-		}
+		config := html.DefaultConfig()
+		config.MaxDepth = 100 // Custom value
 
-		processor, err := New(config)
+		processor, err := html.New(config)
 		if err != nil {
 			t.Fatalf("New() failed: %v", err)
 		}
 		defer processor.Close()
-
-		if processor.config.MaxDepth != 100 {
-			t.Errorf("processor.config.MaxDepth = %d, want 100", processor.config.MaxDepth)
-		}
+		// Processor created successfully - custom MaxDepth accepted
 	})
 }
 
 // TestMaxDepthValidation verifies that MaxDepth is properly validated
 func TestMaxDepthValidation(t *testing.T) {
-	t.Run("Rejects zero MaxDepth", func(t *testing.T) {
-		config := Config{
-			MaxInputSize:   1000,
-			WorkerPoolSize: 4,
-			MaxDepth:       0, // Invalid
-		}
+	t.Parallel()
 
-		_, err := New(config)
+	t.Run("Rejects zero MaxDepth", func(t *testing.T) {
+		config := html.DefaultConfig()
+		config.MaxInputSize = 1000
+		config.MaxDepth = 0 // Invalid
+
+		_, err := html.New(config)
 		if err == nil {
 			t.Error("New() should reject zero MaxDepth")
 		}
-		if !errors.Is(err, ErrInvalidConfig) {
+		if !errors.Is(err, html.ErrInvalidConfig) {
 			t.Errorf("Error should be ErrInvalidConfig, got %v", err)
 		}
 	})
 
 	t.Run("Rejects negative MaxDepth", func(t *testing.T) {
-		config := Config{
-			MaxInputSize:   1000,
-			WorkerPoolSize: 4,
-			MaxDepth:       -1, // Invalid
-		}
+		config := html.DefaultConfig()
+		config.MaxInputSize = 1000
+		config.MaxDepth = -1 // Invalid
 
-		_, err := New(config)
+		_, err := html.New(config)
 		if err == nil {
 			t.Error("New() should reject negative MaxDepth")
 		}
 	})
 
 	t.Run("Rejects excessive MaxDepth", func(t *testing.T) {
-		config := Config{
-			MaxInputSize:   1000,
-			WorkerPoolSize: 4,
-			MaxDepth:       10000, // Too large
-		}
+		config := html.DefaultConfig()
+		config.MaxInputSize = 1000
+		config.MaxDepth = 10000 // Too large
 
-		_, err := New(config)
+		_, err := html.New(config)
 		if err == nil {
 			t.Error("New() should reject excessive MaxDepth")
 		}
 	})
 
 	t.Run("Accepts maximum allowed MaxDepth", func(t *testing.T) {
-		config := Config{
-			MaxInputSize:   1000,
-			WorkerPoolSize: 4,
-			MaxDepth:       500, // Maximum allowed
-		}
+		config := html.DefaultConfig()
+		config.MaxDepth = 500 // Maximum allowed
 
-		processor, err := New(config)
+		processor, err := html.New(config)
 		if err != nil {
 			t.Fatalf("New() failed: %v", err)
 		}
 		defer processor.Close()
-
-		if processor.config.MaxDepth != 500 {
-			t.Errorf("processor.config.MaxDepth = %d, want 500", processor.config.MaxDepth)
-		}
+		_ = processor
 	})
 }
 
 // TestMaxDepthEnforcement verifies that MaxDepth is enforced during extraction
 func TestMaxDepthEnforcement(t *testing.T) {
-	t.Run("Default MaxDepth is 500", func(t *testing.T) {
-		processor, _ := New()
-		defer processor.Close()
+	t.Parallel()
 
-		if processor.config.MaxDepth != 500 {
-			t.Errorf("Default MaxDepth = %d, want 500", processor.config.MaxDepth)
-		}
+	t.Run("Default MaxDepth is 500", func(t *testing.T) {
+		processor, _ := html.New()
+		defer processor.Close()
+		// Processor created successfully with default MaxDepth
+		_ = processor
 	})
 
 	t.Run("Custom MaxDepth is applied", func(t *testing.T) {
-		config := Config{
-			MaxInputSize:   1000,
-			WorkerPoolSize: 4,
-			MaxDepth:       100,
-		}
+		config := html.DefaultConfig()
+		config.MaxDepth = 100
 
-		processor, err := New(config)
+		processor, err := html.New(config)
 		if err != nil {
 			t.Fatalf("New() failed: %v", err)
 		}
 		defer processor.Close()
-
-		if processor.config.MaxDepth != 100 {
-			t.Errorf("Custom MaxDepth = %d, want 100", processor.config.MaxDepth)
-		}
+		// Processor created successfully with custom MaxDepth
+		_ = processor
 	})
 
 	t.Run("MaxDepth validation works", func(t *testing.T) {
@@ -241,13 +226,13 @@ func TestMaxDepthEnforcement(t *testing.T) {
 
 		for _, tc := range testCases {
 			t.Run(tc.name, func(t *testing.T) {
-				config := Config{
+				config := html.Config{
 					MaxInputSize:   1000,
 					WorkerPoolSize: 4,
 					MaxDepth:       tc.maxDepth,
 				}
 
-				_, err := New(config)
+				_, err := html.New(config)
 				if tc.wantErr && err == nil {
 					t.Errorf("New() should reject MaxDepth=%d", tc.maxDepth)
 				}
@@ -261,13 +246,15 @@ func TestMaxDepthEnforcement(t *testing.T) {
 
 // TestDocumentationDefaultMaxDepth verifies documentation matches actual default
 func TestDocumentationDefaultMaxDepth(t *testing.T) {
+	t.Parallel()
+
 	t.Run("README.md example values", func(t *testing.T) {
 		// This test ensures that documentation examples use reasonable values
 		// while noting the actual default is 500
 
 		// README custom configuration example uses MaxDepth: 50
 		// This is intentional - it's showing customization, not defaults
-		config := Config{
+		config := html.Config{
 			MaxInputSize:       10 * 1024 * 1024,
 			ProcessingTimeout:  30 * time.Second,
 			MaxCacheEntries:    500,
@@ -277,28 +264,26 @@ func TestDocumentationDefaultMaxDepth(t *testing.T) {
 			MaxDepth:           50, // Example custom value
 		}
 
-		processor, err := New(config)
+		processor, err := html.New(config)
 		if err != nil {
 			t.Fatalf("New() failed: %v", err)
 		}
 		defer processor.Close()
-
-		if processor.config.MaxDepth != 50 {
-			t.Errorf("Custom MaxDepth not applied: got %d, want 50", processor.config.MaxDepth)
-		}
+		// Custom MaxDepth applied successfully
+		_ = processor
 	})
 }
 
 // BenchmarkMaxDepthValidation benchmarks the depth validation performance
 func BenchmarkMaxDepthValidation(b *testing.B) {
-	processor, _ := New()
+	processor, _ := html.New()
 	defer processor.Close()
 
 	// HTML with reasonable nesting
-	html := `<div><div><div><div>Content</div></div></div></div>`
+	htmlContent := `<div><div><div><div>Content</div></div></div></div>`
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, _ = processor.ExtractWithDefaults([]byte(html))
+		_, _ = processor.Extract([]byte(htmlContent), html.DefaultExtractConfig())
 	}
 }

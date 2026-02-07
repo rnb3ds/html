@@ -10,11 +10,6 @@ import (
 	"golang.org/x/net/html"
 )
 
-const (
-	// Initial capacity for table column widths slice
-	initialColWidthsCap = 12
-)
-
 type trackedBuilder struct {
 	*strings.Builder
 	lastChar byte
@@ -74,7 +69,7 @@ func ensureSpacingTracked(tb *trackedBuilder, char byte) {
 	}
 }
 
-func ExtractTextWithStructureAndImages(node *html.Node, sb *strings.Builder, depth int, imageCounter *int, tableFormat string) {
+func ExtractTextWithStructureAndImages(node *html.Node, sb *strings.Builder, _ int, imageCounter *int, tableFormat string) {
 	if node == nil {
 		return
 	}
@@ -83,10 +78,10 @@ func ExtractTextWithStructureAndImages(node *html.Node, sb *strings.Builder, dep
 	}
 
 	tb := newTrackedBuilder(sb)
-	extractTextWithStructureOptimized(node, tb, depth, imageCounter, tableFormat)
+	extractTextWithStructure(node, tb, imageCounter, tableFormat, nil, 0)
 }
 
-func extractTextWithStructureOptimized(node *html.Node, tb *trackedBuilder, depth int, imageCounter *int, tableFormat string) {
+func extractTextWithStructure(node *html.Node, tb *trackedBuilder, imageCounter *int, tableFormat string, parentBlock *html.Node, depth int) {
 	if node == nil {
 		return
 	}
@@ -103,9 +98,46 @@ func extractTextWithStructureOptimized(node *html.Node, tb *trackedBuilder, dept
 		textData = strings.ReplaceAll(textData, "\n", " ")
 		textData = strings.ReplaceAll(textData, "\r", "")
 
-		if content := strings.TrimSpace(textData); content != "" {
-			ensureSpacingTracked(tb, ' ')
-			tb.WriteString(content)
+		// Check if we're inside an inline/namespace element
+		isInsideInline := false
+		if parentBlock != nil && parentBlock.Type == html.ElementNode {
+			isInsideInline = IsInlineElement(parentBlock.Data) || isNamespaceTag(parentBlock.Data)
+		}
+
+		if isInsideInline {
+			// Inside inline elements, handle trailing space based on next sibling
+			hasTrailingSpace := strings.HasSuffix(textData, " ") || strings.HasSuffix(textData, "\t")
+			content := strings.TrimSpace(textData)
+			if content != "" {
+				tb.WriteString(content)
+				// Preserve trailing space UNLESS next sibling is a namespace tag
+				// Namespace tags (ix:*, xbrl:*, etc.) should be concatenated without spaces
+				if hasTrailingSpace {
+					shouldPreserveSpace := true
+					if node.NextSibling != nil && node.NextSibling.Type == html.ElementNode {
+						// Check if next sibling is a namespace tag
+						nextTag := node.NextSibling.Data
+						if isNamespaceTag(nextTag) || knownInlineNamespacePrefixes[getNamespacePrefix(nextTag)] {
+							shouldPreserveSpace = false
+						}
+					}
+					if shouldPreserveSpace {
+						tb.WriteByte(' ')
+					}
+				}
+			}
+		} else {
+			// For regular text nodes, check for trailing space and preserve it
+			hasTrailingSpace := strings.HasSuffix(textData, " ") || strings.HasSuffix(textData, "\t")
+			content := strings.TrimSpace(textData)
+			if content != "" {
+				ensureSpacingTracked(tb, ' ')
+				tb.WriteString(content)
+				// Preserve trailing space from original HTML
+				if hasTrailingSpace {
+					tb.WriteByte(' ')
+				}
+			}
 		}
 		return
 	}
@@ -118,6 +150,14 @@ func extractTextWithStructureOptimized(node *html.Node, tb *trackedBuilder, dept
 			tb.WriteString("]\n")
 			return
 		}
+		if node.Data == "br" {
+			// BR creates a single line break, not paragraph spacing
+			// Only add newline if we have content and don't already have one
+			if tb.Builder.Len() > 0 && tb.lastChar != '\n' {
+				tb.WriteByte('\n')
+			}
+			return
+		}
 		if node.Data == "table" {
 			extractTableTracked(node, tb, tableFormat)
 			return
@@ -125,14 +165,43 @@ func extractTextWithStructureOptimized(node *html.Node, tb *trackedBuilder, dept
 		// Check if this is a paragraph-level block element that needs double newlines
 		// Elements like li, br, hr, tr, td, th should not add extra spacing
 		isParagraphBlock := isParagraphLevelBlockElement(node.Data)
+
+		// Structure-aware: for unknown tags, dynamically determine if they should be treated as block elements
 		isBlockElement := IsBlockElement(node.Data)
+		if !isBlockElement && !isParagraphBlock {
+			isBlockElement = shouldTreatAsBlockElement(node)
+			// If dynamically determined to be a block, also treat as paragraph block
+			if isBlockElement {
+				isParagraphBlock = true
+			}
+		}
+
 		startLen := tb.Len()
 		if isBlockElement && startLen > 0 {
 			ensureNewlineTracked(tb)
+			// Add Markdown list prefix based on padding-left level
+			paddingLeft := extractPaddingLeft(node)
+			if paddingLeft > 0 {
+				listPrefix := getListPrefix(paddingLeft)
+				if listPrefix != "" {
+					tb.WriteString(listPrefix)
+				}
+			}
 			startLen = tb.Len()
+		} else if isBlockElement && startLen == 0 {
+			// First element - add list prefix if it has padding-left
+			paddingLeft := extractPaddingLeft(node)
+			if paddingLeft > 0 {
+				listPrefix := getListPrefix(paddingLeft)
+				if listPrefix != "" {
+					tb.WriteString(listPrefix)
+				}
+				startLen = tb.Len()
+			}
 		}
+
 		for child := node.FirstChild; child != nil; child = child.NextSibling {
-			extractTextWithStructureOptimized(child, tb, depth+1, imageCounter, tableFormat)
+			extractTextWithStructure(child, tb, imageCounter, tableFormat, node, depth+1)
 		}
 		hasContent := tb.Len() > startLen
 		if isBlockElement && hasContent {
@@ -142,30 +211,266 @@ func extractTextWithStructureOptimized(node *html.Node, tb *trackedBuilder, dept
 				tb.WriteByte('\n')
 			}
 		}
-		if !isBlockElement && hasContent && depth > 0 && node.NextSibling != nil {
+		// Add spacing for non-root inline elements (depth > 0)
+		// This ensures proper spacing between inline elements at the same level
+		if !isBlockElement && hasContent && node.NextSibling != nil && depth > 0 {
 			ensureSpacingTracked(tb, ' ')
 		}
 	} else {
 		for child := node.FirstChild; child != nil; child = child.NextSibling {
-			extractTextWithStructureOptimized(child, tb, depth+1, imageCounter, tableFormat)
+			extractTextWithStructure(child, tb, imageCounter, tableFormat, parentBlock, depth+1)
 		}
 	}
 }
 
 // isParagraphLevelBlockElement returns true if the element is a block element that should
 // be separated by paragraph spacing (double newlines) in the output.
-// Elements like li, br, hr, tr, td, th are block elements but don't need paragraph spacing.
+//
+// Paragraph-level block elements create visual separation with blank lines in Markdown:
+// - Text containers: p, div, pre, blockquote
+// - Headings: h1-h6
+// - Semantic sections: article, section, main, figure, figcaption, address
+// - Lists: ul, ol, dl
+// - Tables: table
+// - Forms: fieldset
+// - Interactive: details, summary, dialog
+// - Media: canvas
+//
+// Block elements WITHOUT paragraph spacing (treated as inline blocks):
+// - List items: li, dt, dd
+// - Table structure: thead, tbody, tfoot, tr, td, th
+// - Self-closing: hr
+// - Structural: body, html, head
+// - Semantic (non-content): nav, aside, header, footer, form
 func isParagraphLevelBlockElement(tag string) bool {
 	switch tag {
+	// Paragraph-level blocks (add double newlines)
 	case "p", "div", "h1", "h2", "h3", "h4", "h5", "h6",
-		"article", "section", "blockquote", "pre", "ul", "ol", "table":
+		"article", "section", "main", "blockquote", "pre",
+		"ul", "ol", "dl", "table",
+		"figure", "figcaption", "address",
+		"fieldset", "details", "summary", "dialog",
+		"canvas":
 		return true
-	case "li", "br", "hr", "tr", "td", "th":
+
+	// Block elements but no paragraph spacing (compact layout)
+	case "li", "dt", "dd",
+		"thead", "tbody", "tfoot", "tr", "td", "th",
+		"hr",
+		"body", "html", "head",
+		"nav", "aside", "header", "footer", "form",
+		"center":
 		return false
+
 	default:
 		// For unknown elements, use IsBlockElement as fallback
 		return IsBlockElement(tag)
 	}
+}
+
+// isNamespaceTag checks if a tag is a namespaced tag (contains ':').
+// Examples: ix:nonnumeric, xbrl:value, dei:CityAreaCode
+func isNamespaceTag(tag string) bool {
+	return strings.Contains(tag, ":")
+}
+
+// getNamespacePrefix extracts the namespace prefix from a namespaced tag.
+// For "ix:nonnumeric", it returns "ix".
+func getNamespacePrefix(tag string) string {
+	parts := strings.SplitN(tag, ":", 2)
+	if len(parts) == 2 {
+		return parts[0]
+	}
+	return ""
+}
+
+// knownInlineNamespacePrefixes contains namespace prefixes that are typically
+// used for inline data markers in structured documents like XBRL/SEC filings.
+var knownInlineNamespacePrefixes = map[string]bool{
+	"ix":      true, // Inline XBRL - used for inline facts in documents
+	"xbrl":    true, // XBRL core elements
+	"dei":     true, // Document and Entity Information
+	"us-gaap": true, // US GAAP taxonomy
+	"ifrs":    true, // IFRS taxonomy
+	"link":    true, // XLink elements (often inline)
+	"xlink":   true, // Alternative XLink namespace
+}
+
+// shouldTreatNamespaceTagAsInline determines if a namespaced tag should be
+// treated as an inline element based on context, content, and namespace.
+func shouldTreatNamespaceTagAsInline(node *html.Node) bool {
+	if node == nil || node.Type != html.ElementNode {
+		return false
+	}
+
+	// Rule 1: Analyze content structure first (highest priority)
+	// This ensures that content characteristics override namespace assumptions
+	hasElementChildren := false
+	textLength := 0
+	textNodeCount := 0
+	newlineCount := 0
+
+	for child := node.FirstChild; child != nil; child = child.NextSibling {
+		switch child.Type {
+		case html.ElementNode:
+			hasElementChildren = true
+		case html.TextNode:
+			text := strings.TrimSpace(child.Data)
+			if text != "" {
+				textNodeCount++
+				textLength += len(text)
+			}
+			// Count newlines in original text (before trimming)
+			newlineCount += strings.Count(child.Data, "\n")
+		}
+	}
+
+	// Tags with element children are NOT inline
+	if hasElementChildren {
+		return false
+	}
+
+	// Tags with multi-line content are NOT inline
+	if newlineCount > 0 {
+		return false
+	}
+
+	// Tags with long content are NOT inline
+	if textLength > 50 {
+		return false
+	}
+
+	// Tags with multiple text nodes are NOT inline
+	if textNodeCount > 1 {
+		return false
+	}
+
+	// Rule 2: Check if the parent is an inline element
+	// Tags inside inline containers (span, a, font, etc.) should be inline
+	if node.Parent != nil && node.Parent.Type == html.ElementNode {
+		if IsInlineElement(node.Parent.Data) {
+			return true
+		}
+	}
+
+	// Rule 3: Known inline namespaces are inline by default
+	// Only apply this if content characteristics don't suggest otherwise
+	tag := node.Data
+	prefix := getNamespacePrefix(tag)
+	if knownInlineNamespacePrefixes[prefix] {
+		return true
+	}
+
+	return false
+}
+
+// shouldTreatAsBlockElement dynamically determines if an unknown/custom tag
+// should be treated as a block-level element based on its structure and content.
+// This enables proper handling of custom tag formats like SEC documents.
+func shouldTreatAsBlockElement(node *html.Node) bool {
+	if node == nil || node.Type != html.ElementNode {
+		return false
+	}
+
+	// Check if this is a namespaced tag (e.g., ix:nonnumeric, xbrl:value)
+	// These require special handling as they're often inline data markers
+	if isNamespaceTag(node.Data) {
+		// Use specialized logic for namespace tags based on context and content
+		return !shouldTreatNamespaceTagAsInline(node)
+	}
+
+	// Known inline elements should never be treated as block elements
+	// This prevents bugs where long text in inline elements (like <font>)
+	// triggers the text length heuristic
+	if IsInlineElement(node.Data) {
+		return false
+	}
+
+	// Analyze the node's structure and content
+	hasElementChildren := false
+	hasTextContent := false
+	textLength := 0
+	newlineCount := 0
+	childCount := 0
+
+	for child := node.FirstChild; child != nil; child = child.NextSibling {
+		childCount++
+
+		switch child.Type {
+		case html.ElementNode:
+			hasElementChildren = true
+		case html.TextNode:
+			text := strings.TrimSpace(child.Data)
+			if text != "" {
+				hasTextContent = true
+				textLength += len(text)
+				// Count newlines in original text (before trimming)
+				newlineCount += strings.Count(child.Data, "\n")
+			}
+		}
+	}
+
+	// Decision rules for treating as block element:
+
+	// Rule 1: Container tags with multiple children are likely block-level
+	if childCount > 1 || hasElementChildren {
+		return true
+	}
+
+	// Rule 2: Tags with substantial text content are likely block-level
+	// This catches custom tags that wrap meaningful content
+	if hasTextContent && textLength > 50 {
+		return true
+	}
+
+	// Rule 3: Tags containing multi-line text are likely block-level
+	if newlineCount > 0 {
+		return true
+	}
+
+	// Rule 4: Tags with uppercase names and hyphens (common in structured data formats like SEC)
+	// Examples: <SEC-DOCUMENT>, <ACCEPTANCE-DATETIME>, <SEC-HEADER>
+	tag := node.Data
+	if isStructuredDataTag(tag) {
+		return true
+	}
+
+	// Rule 5: Check if parent is a block element - children of blocks tend to be blocks
+	// This handles nested structures
+	if node.Parent != nil && node.Parent.Type == html.ElementNode {
+		parentTag := node.Parent.Data
+		if isStructuredDataTag(parentTag) {
+			// Children of structured data tags are typically block-level
+			return true
+		}
+	}
+
+	return false
+}
+
+// isStructuredDataTag checks if a tag name matches patterns used in structured data formats.
+// These patterns include:
+//   - Tags with hyphens or underscores (sec-document, ACCEPTANCE_DATETIME)
+//   - Long tag names suggesting metadata fields
+//
+// Note: HTML parser converts all tag names to lowercase, so we check for lowercase patterns
+func isStructuredDataTag(tag string) bool {
+	if tag == "" {
+		return false
+	}
+
+	// Tags with hyphens or underscores are common in structured data formats
+	// (HTML parser converts to lowercase, so we check for lowercase patterns)
+	if strings.Contains(tag, "-") || strings.Contains(tag, "_") {
+		return true
+	}
+
+	// Long tag names are typically metadata/structural fields
+	if len(tag) > 8 {
+		return true
+	}
+
+	return false
 }
 
 // extractTableTracked extracts HTML table content and converts it to the specified format.
@@ -288,7 +593,6 @@ func extractRowCells(rowNode *html.Node) []cellData {
 // Structure rows are used in Markdown tables to specify column widths.
 func isStructureRow(cells []cellData) bool {
 	hasWidthDefinitions := true
-	hasComplexChildElements := false
 	hasRealContent := false
 
 	for _, cell := range cells {
@@ -300,7 +604,7 @@ func isStructureRow(cells []cellData) bool {
 		}
 	}
 
-	return hasWidthDefinitions && !hasRealContent && !hasComplexChildElements
+	return hasWidthDefinitions && !hasRealContent
 }
 
 // expandColspanCells expands cells with colspan > 1 into multiple placeholder cells.
@@ -364,7 +668,7 @@ func extractTableAsMarkdown(tableData [][]cellData, tb *trackedBuilder, maxCols 
 	colMaxWidths := calculateMaxColumnWidths(tableData, maxCols)
 
 	// Filter out columns that are entirely empty expanded cells
-	_, newToOldCol := filterExpandedColumns(tableData, maxCols)
+	newToOldCol := filterExpandedColumns(tableData, maxCols)
 	numIncludedCols := len(newToOldCol)
 
 	// Build arrays for included columns only
@@ -511,7 +815,7 @@ func calculateMaxColumnWidths(tableData [][]cellData, maxCols int) []int {
 
 // filterExpandedColumns identifies columns that should be excluded.
 // Returns a list of included column indices (columns with real content).
-func filterExpandedColumns(tableData [][]cellData, maxCols int) ([]int, []int) {
+func filterExpandedColumns(tableData [][]cellData, maxCols int) []int {
 	includeCol := make([]bool, maxCols)
 	newToOldCol := make([]int, 0, maxCols)
 
@@ -531,17 +835,7 @@ func filterExpandedColumns(tableData [][]cellData, maxCols int) ([]int, []int) {
 		}
 	}
 
-	// Build mapping from new to old indices
-	oldToNewCol := make([]int, maxCols)
-	numIncluded := 0
-	for j, included := range includeCol {
-		if included {
-			oldToNewCol[j] = numIncluded
-			numIncluded++
-		}
-	}
-
-	return oldToNewCol, newToOldCol
+	return newToOldCol
 }
 
 // filterArray filters a string array to include only specified indices.

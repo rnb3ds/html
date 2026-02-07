@@ -7,6 +7,10 @@ import (
 	"golang.org/x/net/html"
 )
 
+const (
+	maxDataURILength = 100000 // Maximum data URL length (100KB) for security
+)
+
 var tagsToRemove = []string{
 	"script", "style", "noscript", "iframe",
 	"embed", "object", "form", "input", "button",
@@ -310,7 +314,8 @@ func isValidDataURL(url string) bool {
 	dataPart := url[commaIdx+1:]
 
 	// Enforce maximum data URL size to prevent memory exhaustion
-	if len(url) > 100000 {
+	// Uses the same limit as IsValidURL for consistency
+	if len(url) > maxDataURILength {
 		return false
 	}
 
@@ -359,16 +364,16 @@ func isSafeMediaType(mediaType string) bool {
 	// Whitelist of safe media types
 	safeTypes := map[string]bool{
 		// Image types (explicit whitelist for security)
-		"image/gif":              true,
-		"image/jpeg":             true,
-		"image/jpg":              true,
-		"image/png":              true,
-		"image/webp":             true,
-		"image/bmp":              true,
-		"image/x-icon":           true,
+		"image/gif":                true,
+		"image/jpeg":               true,
+		"image/jpg":                true,
+		"image/png":                true,
+		"image/webp":               true,
+		"image/bmp":                true,
+		"image/x-icon":             true,
 		"image/vnd.microsoft.icon": true,
-		"image/avif":             true,
-		"image/apng":             true,
+		"image/avif":               true,
+		"image/apng":               true,
 		// Note: image/svg+xml is NOT included because SVG can contain JavaScript
 		// and other executable content that poses XSS risks
 		// Font types

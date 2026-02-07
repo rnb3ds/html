@@ -8,7 +8,6 @@ import (
 	"io"
 	"regexp"
 	"strings"
-	"sync"
 	"unicode/utf8"
 
 	"golang.org/x/text/encoding"
@@ -22,22 +21,10 @@ import (
 )
 
 var (
-	charsetPattern     *regexp.Regexp
-	charsetPatternAlt  *regexp.Regexp
-	regexCompileOnce   sync.Once
-)
-
-// initCharsetPatterns initializes regex patterns using sync.Once for thread safety
-func initCharsetPatterns() {
-	charsetPattern = regexp.MustCompile(`(?i)<meta\s+[^>]*http-equiv=["']?content-type["']?[^>]*content=["']?[^;]*;\s*charset=([^"'\s>]+)`)
+	// Pre-compiled regex patterns for charset detection
+	charsetPattern    = regexp.MustCompile(`(?i)<meta\s+[^>]*http-equiv=["']?content-type["']?[^>]*content=["']?[^;]*;\s*charset=([^"'\s>]+)`)
 	charsetPatternAlt = regexp.MustCompile(`(?i)<meta\s+charset=["']?([^"'\s>]+)`)
-}
-
-// getCharsetPatterns returns the compiled regex patterns (lazy initialization)
-func getCharsetPatterns() (*regexp.Regexp, *regexp.Regexp) {
-	regexCompileOnce.Do(initCharsetPatterns)
-	return charsetPattern, charsetPatternAlt
-}
+)
 
 // EncodingDetector handles charset detection and conversion
 type EncodingDetector struct {
@@ -59,10 +46,10 @@ func NewEncodingDetector() *EncodingDetector {
 
 // EncodingMatch represents a detected encoding with confidence score
 type EncodingMatch struct {
-	Charset   string
-	Confidence int    // 0-100
-	Score      int    // Detailed score
-	Valid      bool   // Whether decoding produced valid UTF-8
+	Charset    string
+	Confidence int  // 0-100
+	Score      int  // Detailed score
+	Valid      bool // Whether decoding produced valid UTF-8
 }
 
 // DetectCharset attempts to detect the character encoding from HTML content
@@ -105,20 +92,20 @@ func (ed *EncodingDetector) DetectCharsetBasic(data []byte) string {
 	if utf8.Valid(data) {
 		// Data appears to be valid UTF-8, but let's check the meta tag anyway
 		// to avoid false positives (e.g., ASCII-only Windows-1252 files are also valid UTF-8)
-		if len(data) > 1024 {
-			data = data[:1024]
+		sampleSize := 1024
+		if len(data) > sampleSize {
+			data = data[:sampleSize]
 		}
 		htmlStart := string(data)
 
 		// If meta tag explicitly declares UTF-8, confirm it
-		pattern, patternAlt := getCharsetPatterns()
-		if matches := pattern.FindStringSubmatch(htmlStart); len(matches) > 1 {
+		if matches := charsetPattern.FindStringSubmatch(htmlStart); len(matches) > 1 {
 			declaredCharset := normalizeCharset(matches[1])
 			if declaredCharset == "utf-8" {
 				return "utf-8"
 			}
 		}
-		if matches := patternAlt.FindStringSubmatch(htmlStart); len(matches) > 1 {
+		if matches := charsetPatternAlt.FindStringSubmatch(htmlStart); len(matches) > 1 {
 			declaredCharset := normalizeCharset(matches[1])
 			if declaredCharset == "utf-8" {
 				return "utf-8"
@@ -133,19 +120,19 @@ func (ed *EncodingDetector) DetectCharsetBasic(data []byte) string {
 	}
 
 	// Try to detect from meta tags (first 1024 bytes should be enough)
-	if len(data) > 1024 {
-		data = data[:1024]
+	sampleSize := 1024
+	if len(data) > sampleSize {
+		data = data[:sampleSize]
 	}
 	htmlStart := string(data)
 
 	// Try primary pattern: <meta http-equiv="Content-Type" content="... charset=...">
-	pattern, patternAlt := getCharsetPatterns()
-	if matches := pattern.FindStringSubmatch(htmlStart); len(matches) > 1 {
+	if matches := charsetPattern.FindStringSubmatch(htmlStart); len(matches) > 1 {
 		return normalizeCharset(matches[1])
 	}
 
 	// Try alternative pattern: <meta charset="...">
-	if matches := patternAlt.FindStringSubmatch(htmlStart); len(matches) > 1 {
+	if matches := charsetPatternAlt.FindStringSubmatch(htmlStart); len(matches) > 1 {
 		return normalizeCharset(matches[1])
 	}
 
@@ -426,7 +413,8 @@ func DetectAndConvertToUTF8String(data []byte, forcedEncoding string) (string, s
 	return string(convertedBytes), detectedCharset, nil
 }
 
-// tryAllEncodings attempts to decode the data with multiple encodings and scores each result
+// tryAllEncodings attempts to decode the data with multiple encodings and scores each result.
+// Optimized to avoid redundant UTF-8 validation and conversions.
 func (ed *EncodingDetector) tryAllEncodings(data []byte) []EncodingMatch {
 	// Common encodings to try, ordered by likelihood
 	candidateEncodings := []struct {
@@ -435,23 +423,26 @@ func (ed *EncodingDetector) tryAllEncodings(data []byte) []EncodingMatch {
 	}{
 		{"utf-8", 100},
 		{"windows-1252", 90},
-		{"gbk", 80},              // Simplified Chinese
-		{"shift_jis", 75},        // Japanese
-		{"euc-jp", 70},           // Japanese
-		{"euc-kr", 65},           // Korean
-		{"big5", 60},             // Traditional Chinese
-		{"iso-8859-1", 50},       // Western European
-		{"iso-8859-2", 45},       // Central European
-		{"windows-1250", 43},     // Central European
-		{"windows-1251", 40},     // Cyrillic
-		{"iso-8859-5", 38},       // Cyrillic
-		{"iso-2022-jp", 35},      // Japanese (ISO-2022-JP)
+		{"gbk", 80},          // Simplified Chinese
+		{"shift_jis", 75},    // Japanese
+		{"euc-jp", 70},       // Japanese
+		{"euc-kr", 65},       // Korean
+		{"big5", 60},         // Traditional Chinese
+		{"iso-8859-1", 50},   // Western European
+		{"iso-8859-2", 45},   // Central European
+		{"windows-1250", 43}, // Central European
+		{"windows-1251", 40}, // Cyrillic
+		{"iso-8859-5", 38},   // Cyrillic
+		{"iso-2022-jp", 35},  // Japanese (ISO-2022-JP)
 	}
+
+	// Pre-check UTF-8 validity once (avoids redundant checks in scoreEncodingMatch)
+	isUTF8Valid := utf8.Valid(data)
 
 	matches := make([]EncodingMatch, 0, len(candidateEncodings))
 
 	for _, candidate := range candidateEncodings {
-		score := ed.scoreEncodingMatch(data, candidate.name)
+		score := ed.scoreEncodingMatchOptimized(data, candidate.name, isUTF8Valid)
 		if score > 0 {
 			confidence := calculateConfidence(score, candidate.prio)
 			matches = append(matches, EncodingMatch{
@@ -466,12 +457,16 @@ func (ed *EncodingDetector) tryAllEncodings(data []byte) []EncodingMatch {
 	return matches
 }
 
-// scoreEncodingMatch scores how well a charset matches the data
-func (ed *EncodingDetector) scoreEncodingMatch(data []byte, charset string) int {
+// scoreEncodingMatchOptimized scores how well a charset matches the data.
+// Optimized version that accepts pre-computed UTF-8 validity to avoid redundant checks.
+func (ed *EncodingDetector) scoreEncodingMatchOptimized(data []byte, charset string, isUTF8Valid bool) int {
 	normalizedCharset := normalizeCharset(charset)
 
-	// UTF-8 special case: direct validation
+	// UTF-8 special case: use pre-computed validity
 	if normalizedCharset == "utf-8" {
+		if !isUTF8Valid {
+			return 0
+		}
 		return ed.scoreUTF8(data)
 	}
 
@@ -491,6 +486,11 @@ func (ed *EncodingDetector) scoreEncodingMatch(data []byte, charset string) int 
 
 	// Score the decoded result
 	return ed.scoreDecodedData(decoded, data, normalizedCharset)
+}
+
+// scoreEncodingMatch scores how well a charset matches the data
+func (ed *EncodingDetector) scoreEncodingMatch(data []byte, charset string) int {
+	return ed.scoreEncodingMatchOptimized(data, charset, utf8.Valid(data))
 }
 
 // scoreUTF8 scores UTF-8 data
@@ -696,16 +696,6 @@ func hasCyrillicCharacters(data []byte) bool {
 			(r >= 0x0500 && r <= 0x052F) || // Cyrillic Supplement
 			(r >= 0x2DE0 && r <= 0x2DFF) || // Cyrillic Extended-A
 			(r >= 0xA640 && r <= 0xA69F) { // Cyrillic Extended-B
-			return true
-		}
-	}
-	return false
-}
-
-// hasWindows1252Characters checks for typical Windows-1252 characters (0x80-0x9F range)
-func hasWindows1252Characters(data []byte) bool {
-	for _, b := range data {
-		if b >= 0x80 && b <= 0x9F {
 			return true
 		}
 	}

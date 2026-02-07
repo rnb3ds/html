@@ -58,22 +58,25 @@ const (
 // may not be UTF-8, such as content from HTTP responses, databases, or files.
 //
 // Parameters:
-//   htmlBytes - Raw HTML bytes (auto-detects encoding)
-//   configs - Optional extraction configurations
+//
+//	htmlBytes - Raw HTML bytes (auto-detects encoding)
+//	configs - Optional extraction configurations
 //
 // Returns:
-//   *Result - Extracted content with UTF-8 encoded text
-//   error - Error if extraction fails
+//
+//	*Result - Extracted content with UTF-8 encoded text
+//	error - Error if extraction fails
 //
 // Example:
-//   // HTTP response
-//   resp, _ := http.Get(url)
-//   bytes, _ := io.ReadAll(resp.Body)
-//   result, _ := html.Extract(bytes)
 //
-//   // File
-//   bytes, _ := os.ReadFile("document.html")
-//   result, _ := html.Extract(bytes)
+//	// HTTP response
+//	resp, _ := http.Get(url)
+//	bytes, _ := io.ReadAll(resp.Body)
+//	result, _ := html.Extract(bytes)
+//
+//	// File
+//	bytes, _ := os.ReadFile("document.html")
+//	result, _ := html.Extract(bytes)
 func Extract(htmlBytes []byte, configs ...ExtractConfig) (*Result, error) {
 	processor, _ := New()
 	defer processor.Close()
@@ -84,17 +87,20 @@ func Extract(htmlBytes []byte, configs ...ExtractConfig) (*Result, error) {
 // Use this when you have a file path instead of raw bytes.
 //
 // Parameters:
-//   filePath - Path to the HTML file
-//   configs - Optional extraction configurations
+//
+//	filePath - Path to the HTML file
+//	configs - Optional extraction configurations
 //
 // Returns:
-//   *Result - Extracted content with UTF-8 encoded text
-//   error - Error if file reading or extraction fails
+//
+//	*Result - Extracted content with UTF-8 encoded text
+//	error - Error if file reading or extraction fails
 //
 // Example:
-//   result, _ := html.ExtractFromFile("document.html", html.ExtractConfig{
-//       InlineImageFormat: "markdown",
-//   })
+//
+//	result, _ := html.ExtractFromFile("document.html", html.ExtractConfig{
+//	    InlineImageFormat: "markdown",
+//	})
 func ExtractFromFile(filePath string, configs ...ExtractConfig) (*Result, error) {
 	processor, _ := New()
 	defer processor.Close()
@@ -105,15 +111,18 @@ func ExtractFromFile(filePath string, configs ...ExtractConfig) (*Result, error)
 // The method automatically detects character encoding and converts to UTF-8.
 //
 // Parameters:
-//   htmlBytes - Raw HTML bytes (auto-detects encoding)
+//
+//	htmlBytes - Raw HTML bytes (auto-detects encoding)
 //
 // Returns:
-//   string - Extracted plain text in UTF-8
-//   error - Error if extraction fails
+//
+//	string - Extracted plain text in UTF-8
+//	error - Error if extraction fails
 //
 // Example:
-//   bytes, _ := os.ReadFile("document.html")
-//   text, _ := html.ExtractText(bytes)
+//
+//	bytes, _ := os.ReadFile("document.html")
+//	text, _ := html.ExtractText(bytes)
 func ExtractText(htmlBytes []byte) (string, error) {
 	result, err := Extract(htmlBytes)
 	if err != nil {
@@ -126,16 +135,19 @@ func ExtractText(htmlBytes []byte) (string, error) {
 // The method automatically detects character encoding and converts to UTF-8.
 //
 // Parameters:
-//   htmlBytes - Raw HTML bytes (auto-detects encoding)
-//   configs - Optional link extraction configurations
+//
+//	htmlBytes - Raw HTML bytes (auto-detects encoding)
+//	configs - Optional link extraction configurations
 //
 // Returns:
-//   []LinkResource - List of extracted links with UTF-8 encoded titles
-//   error - Error if extraction fails
+//
+//	[]LinkResource - List of extracted links with UTF-8 encoded titles
+//	error - Error if extraction fails
 //
 // Example:
-//   bytes, _ := os.ReadFile("document.html")
-//   links, _ := html.ExtractAllLinks(bytes)
+//
+//	bytes, _ := os.ReadFile("document.html")
+//	links, _ := html.ExtractAllLinks(bytes)
 func ExtractAllLinks(htmlBytes []byte, configs ...LinkExtractionConfig) ([]LinkResource, error) {
 	processor, _ := New()
 	defer processor.Close()
@@ -166,27 +178,30 @@ const (
 	DefaultMaxDepth          = 500
 	DefaultProcessingTimeout = 30 * time.Second
 
-	maxURLLength        = 2000
-	maxHTMLForRegex     = 1000000
-	maxRegexMatches     = 1000
-	wordsPerMinute      = 200
-	maxCacheKeySize     = 64 * 1024
-	cacheKeySample      = 4096
-	initialTextSize     = 4096
-	initialSliceCap     = 16
-	initialMapCap       = 8
+	// Configuration limits
 	maxConfigInputSize  = 50 * 1024 * 1024
 	maxConfigWorkerSize = 256
 	maxConfigDepth      = 500
-	maxDataURILength    = 100000
 
-	// Buffer size estimates for various operations
-	imageHTMLBufExtra = 64   // Extra space for image HTML attributes
-	extractTagCap      = 16   // Initial capacity for tag attribute extraction
-	linkMapCap         = 64   // Initial capacity for link extraction map
+	// Processing limits
+	maxURLLength     = 2000
+	maxHTMLForRegex  = 1000000
+	maxRegexMatches  = 1000
+	maxDataURILength = 100000
+	maxCacheKeySize  = 64 * 1024
+	cacheKeySample   = 4096
 
-	// Thresholds for string operations
-	maxShortStringLength = 32 // Max length for case-insensitive string comparisons
+	// Buffer size estimates
+	initialTextSize   = 4096
+	initialSliceCap   = 16
+	initialMapCap     = 8
+	imageHTMLBufExtra = 64
+	extractTagCap     = 16
+	linkMapCap        = 64
+
+	// Processing thresholds
+	wordsPerMinute       = 200
+	maxShortStringLength = 32
 )
 
 var (
@@ -401,12 +416,14 @@ type Statistics struct {
 // If no configuration is provided, it uses DefaultConfig().
 //
 // The function signature uses variadic arguments to make the config optional:
-//   processor, err := html.New()              // Uses DefaultConfig()
-//   processor, err := html.New(config)        // Uses custom config
+//
+//	processor, err := html.New()              // Uses DefaultConfig()
+//	processor, err := html.New(config)        // Uses custom config
 //
 // The returned processor must be closed when no longer needed:
-//   processor, err := html.New()
-//   defer processor.Close()
+//
+//	processor, err := html.New()
+//	defer processor.Close()
 func New(configs ...Config) (*Processor, error) {
 	var config Config
 
@@ -439,6 +456,9 @@ func New(configs ...Config) (*Processor, error) {
 // 5. Processes content with caching support
 // 6. Updates statistics and returns result
 func (p *Processor) Extract(htmlBytes []byte, configs ...ExtractConfig) (*Result, error) {
+	if p == nil {
+		return nil, ErrProcessorClosed
+	}
 	if p.closed.Load() {
 		return nil, ErrProcessorClosed
 	}
@@ -505,11 +525,10 @@ func (p *Processor) processWithTimeout(htmlContent string, config ExtractConfig)
 	return result, nil
 }
 
-func (p *Processor) ExtractWithDefaults(htmlBytes []byte) (*Result, error) {
-	return p.Extract(htmlBytes, DefaultExtractConfig())
-}
-
 func (p *Processor) ExtractFromFile(filePath string, configs ...ExtractConfig) (*Result, error) {
+	if p == nil {
+		return nil, ErrProcessorClosed
+	}
 	if p.closed.Load() {
 		return nil, ErrProcessorClosed
 	}
@@ -522,9 +541,9 @@ func (p *Processor) ExtractFromFile(filePath string, configs ...ExtractConfig) (
 	// Clean the file path to resolve any "." or ".." components
 	cleanPath := filepath.Clean(filePath)
 
-	// After cleaning, check if the path starts with parent directory reference
-	// This catches path traversal attempts like "../file"
-	if strings.HasPrefix(cleanPath, ".."+string(filepath.Separator)) || cleanPath == ".." {
+	// After cleaning, check if the path contains parent directory references
+	// This catches path traversal attempts like "../file", "subdir/../../file", etc.
+	if strings.Contains(cleanPath, "..") {
 		return nil, fmt.Errorf("%w: path traversal detected: %s", ErrInvalidFilePath, cleanPath)
 	}
 
@@ -542,6 +561,9 @@ func (p *Processor) ExtractFromFile(filePath string, configs ...ExtractConfig) (
 }
 
 func (p *Processor) ExtractBatch(htmlContents [][]byte, configs ...ExtractConfig) ([]*Result, error) {
+	if p == nil {
+		return nil, ErrProcessorClosed
+	}
 	if p.closed.Load() {
 		return nil, ErrProcessorClosed
 	}
@@ -573,6 +595,9 @@ func (p *Processor) ExtractBatch(htmlContents [][]byte, configs ...ExtractConfig
 }
 
 func (p *Processor) ExtractBatchFiles(filePaths []string, configs ...ExtractConfig) ([]*Result, error) {
+	if p == nil {
+		return nil, ErrProcessorClosed
+	}
 	if p.closed.Load() {
 		return nil, ErrProcessorClosed
 	}
@@ -607,6 +632,9 @@ func (p *Processor) ExtractBatchFiles(filePaths []string, configs ...ExtractConf
 // The method automatically detects character encoding and converts to UTF-8 before
 // extracting links, ensuring that link titles and text are properly decoded.
 func (p *Processor) ExtractAllLinks(htmlBytes []byte, configs ...LinkExtractionConfig) ([]LinkResource, error) {
+	if p == nil {
+		return nil, ErrProcessorClosed
+	}
 	if p.closed.Load() {
 		return nil, ErrProcessorClosed
 	}
@@ -689,6 +717,9 @@ func collectResults(results []*Result, errs []error, names []string) ([]*Result,
 }
 
 func (p *Processor) GetStatistics() Statistics {
+	if p == nil {
+		return Statistics{}
+	}
 	totalProcessed := p.stats.totalProcessed.Load()
 	totalTime := time.Duration(p.stats.totalProcessTime.Load())
 	var avgTime time.Duration
@@ -707,12 +738,18 @@ func (p *Processor) GetStatistics() Statistics {
 // ClearCache clears the cache contents but preserves cumulative statistics.
 // Use ResetStatistics to reset statistics counters.
 func (p *Processor) ClearCache() {
+	if p == nil {
+		return
+	}
 	p.cache.Clear()
 }
 
 // ResetStatistics resets all statistics counters to zero.
 // This preserves cache entries while clearing the accumulated metrics.
 func (p *Processor) ResetStatistics() {
+	if p == nil {
+		return
+	}
 	p.stats.cacheHits.Store(0)
 	p.stats.cacheMisses.Store(0)
 	p.stats.errorCount.Store(0)
@@ -721,6 +758,9 @@ func (p *Processor) ResetStatistics() {
 }
 
 func (p *Processor) Close() error {
+	if p == nil {
+		return nil
+	}
 	if !p.closed.CompareAndSwap(false, true) {
 		return nil
 	}
@@ -770,7 +810,7 @@ func (p *Processor) processContent(htmlContent string, opts ExtractConfig) (*Res
 
 	doc, err := stdxhtml.Parse(strings.NewReader(htmlContent))
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrInvalidHTML, err)
+		return nil, fmt.Errorf("%w: %w", ErrInvalidHTML, err)
 	}
 
 	// Validate depth during extraction to avoid duplicate traversal
@@ -793,12 +833,6 @@ func (p *Processor) validateDepthTraversal(n *Node, depth int) error {
 		}
 	}
 	return nil
-}
-
-// validateDepth is a simple depth validation helper.
-// NOTE: For better performance, use validateDepthTraversal integrated into extraction.
-func (p *Processor) validateDepth(n *Node, depth int) error {
-	return p.validateDepthTraversal(n, depth)
 }
 
 func (p *Processor) extractFromDocument(doc *Node, htmlContent string, opts ExtractConfig) (*Result, error) {
@@ -1300,7 +1334,7 @@ func (p *Processor) extractTagAttributes(htmlContent, tagName string, attrNames 
 // findTagIgnoreCase performs case-insensitive tag search more efficiently
 // by using a combination of Index for candidate positions and EqualFold for verification
 func findTagIgnoreCase(html, lowerTag string) int {
-	if len(html) < len(lowerTag) {
+	if len(lowerTag) == 0 || len(html) < len(lowerTag) {
 		return -1
 	}
 
@@ -1558,7 +1592,7 @@ func (p *Processor) extractAllLinksFromContent(htmlContent string, config LinkEx
 
 	doc, err := stdxhtml.Parse(strings.NewReader(htmlContent))
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrInvalidHTML, err)
+		return nil, fmt.Errorf("%w: %w", ErrInvalidHTML, err)
 	}
 
 	// Validate depth during extraction to avoid duplicate traversal
@@ -1630,7 +1664,7 @@ func (p *Processor) detectBaseURL(doc *Node) string {
 		default:
 			if firstAbsoluteURL == "" {
 				for _, attr := range n.Attr {
-					if (attr.Key == "href" || attr.Key == "src") && p.isAbsoluteURL(attr.Val) {
+					if (attr.Key == "href" || attr.Key == "src") && internal.IsExternalURL(attr.Val) {
 						if base := p.extractBaseFromURL(attr.Val); base != "" {
 							firstAbsoluteURL = base
 							break
@@ -1652,105 +1686,23 @@ func (p *Processor) detectBaseURL(doc *Node) string {
 }
 
 func (p *Processor) normalizeBaseURL(baseURL string) string {
-	if baseURL == "" {
-		return ""
-	}
-
-	// Skip non-HTTP URLs like data:, javascript:, mailto:, etc.
-	if strings.Contains(baseURL, ":") && !strings.HasPrefix(baseURL, "http://") && !strings.HasPrefix(baseURL, "https://") {
-		return ""
-	}
-
-	lastSlash := strings.LastIndexByte(baseURL, '/')
-	if lastSlash < 0 {
-		return baseURL + "/"
-	}
-
-	if lastSlash < len(baseURL)-1 {
-		return baseURL[:lastSlash+1]
-	}
-
-	return baseURL
-}
-
-func (p *Processor) isAbsoluteURL(url string) bool {
-	return strings.HasPrefix(url, "http://") ||
-		strings.HasPrefix(url, "https://") ||
-		strings.HasPrefix(url, "//")
+	return internal.NormalizeBaseURL(baseURL)
 }
 
 func (p *Processor) extractBaseFromURL(url string) string {
-	if !p.isAbsoluteURL(url) {
-		return ""
-	}
-
-	start := 0
-	if idx := strings.Index(url, "://"); idx >= 0 {
-		start = idx + 3
-	} else if strings.HasPrefix(url, "//") {
-		start = 2
-	}
-
-	if pathStart := strings.IndexByte(url[start:], '/'); pathStart >= 0 {
-		return url[:start+pathStart+1]
-	}
-
-	return url + "/"
+	return internal.ExtractBaseFromURL(url)
 }
 
 func (p *Processor) isDifferentDomain(baseURL, targetURL string) bool {
-	if !p.isAbsoluteURL(baseURL) || !p.isAbsoluteURL(targetURL) {
-		return false
-	}
-
-	baseDomain := p.extractDomain(baseURL)
-	targetDomain := p.extractDomain(targetURL)
-
-	return baseDomain != targetDomain
+	return internal.IsDifferentDomain(baseURL, targetURL)
 }
 
 func (p *Processor) extractDomain(url string) string {
-	start := 0
-	if idx := strings.Index(url, "://"); idx >= 0 {
-		start = idx + 3
-	} else if strings.HasPrefix(url, "//") {
-		start = 2
-	}
-
-	if pathStart := strings.IndexByte(url[start:], '/'); pathStart >= 0 {
-		return url[start : start+pathStart]
-	}
-
-	return url[start:]
+	return internal.ExtractDomain(url)
 }
 
 func (p *Processor) resolveURL(baseURL, relativeURL string) string {
-	if relativeURL == "" || baseURL == "" {
-		return relativeURL
-	}
-
-	if p.isAbsoluteURL(relativeURL) {
-		return relativeURL
-	}
-
-	if len(relativeURL) >= 2 && relativeURL[0] == '/' && relativeURL[1] == '/' {
-		if strings.HasPrefix(baseURL, "https:") {
-			return "https:" + relativeURL
-		}
-		return "http:" + relativeURL
-	}
-
-	if relativeURL[0] == '/' {
-		if idx := strings.Index(baseURL, "://"); idx >= 0 {
-			if domainEnd := strings.IndexByte(baseURL[idx+3:], '/'); domainEnd >= 0 {
-				return baseURL[:idx+3+domainEnd] + relativeURL
-			}
-			return baseURL + relativeURL
-		}
-		return relativeURL
-	}
-
-	return baseURL + relativeURL
+	return internal.ResolveURL(baseURL, relativeURL)
 }
 
 func (p *Processor) extractLinksFromDocument(doc *Node, baseURL string, config LinkExtractionConfig, linkMap map[string]LinkResource) {
@@ -1995,6 +1947,7 @@ func (p *Processor) extractLinkTagLinks(n *Node, baseURL string, config LinkExtr
 			resourceType = "css"
 			include = true
 		}
+		// Prevent fallthrough to next case
 	case "icon", "shortcut icon", "apple-touch-icon", "apple-touch-icon-precomposed":
 		if config.IncludeIcons {
 			resourceType = "icon"
@@ -2158,21 +2111,24 @@ func (p *Processor) extractEmbedLinks(n *Node, baseURL string, linkMap map[strin
 // from the HTML bytes and converts it to UTF-8 before processing.
 //
 // Parameters:
-//   htmlBytes - Raw HTML bytes (auto-detects encoding)
+//
+//	htmlBytes - Raw HTML bytes (auto-detects encoding)
 //
 // Returns:
-//   string - Markdown content in UTF-8
-//   error - Error if conversion fails
+//
+//	string - Markdown content in UTF-8
+//	error - Error if conversion fails
 //
 // Example:
-//   // HTTP response
-//   resp, _ := http.Get(url)
-//   bytes, _ := io.ReadAll(resp.Body)
-//   markdown, _ := html.ExtractToMarkdown(bytes)
 //
-//   // File
-//   bytes, _ := os.ReadFile("document.html")
-//   markdown, _ := html.ExtractToMarkdown(bytes)
+//	// HTTP response
+//	resp, _ := http.Get(url)
+//	bytes, _ := io.ReadAll(resp.Body)
+//	markdown, _ := html.ExtractToMarkdown(bytes)
+//
+//	// File
+//	bytes, _ := os.ReadFile("document.html")
+//	markdown, _ := html.ExtractToMarkdown(bytes)
 func ExtractToMarkdown(htmlBytes []byte) (string, error) {
 	processor, _ := New()
 	defer processor.Close()
