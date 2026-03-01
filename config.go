@@ -56,6 +56,7 @@ type Config struct {
 	EnableSanitization bool
 	MaxDepth           int
 	ProcessingTimeout  time.Duration
+	Audit              AuditConfig
 }
 
 // DefaultConfig returns the default processor configuration.
@@ -68,6 +69,30 @@ func DefaultConfig() Config {
 		EnableSanitization: true,
 		MaxDepth:           DefaultMaxDepth,
 		ProcessingTimeout:  DefaultProcessingTimeout,
+		Audit:              DefaultAuditConfig(),
+	}
+}
+
+// HighSecurityConfig returns a configuration optimized for high-security environments.
+// This configuration uses stricter limits to mitigate potential DoS attacks and
+// is recommended for financial, healthcare, and government applications.
+//
+// Security enhancements over DefaultConfig:
+//   - Smaller MaxInputSize (10MB vs 50MB) to limit memory exposure
+//   - Lower MaxDepth (100 vs 500) to prevent deep nesting attacks
+//   - Shorter ProcessingTimeout (10s vs 30s) for faster attack detection
+//   - Fewer cache entries to reduce memory footprint
+//   - Audit logging enabled for compliance requirements
+func HighSecurityConfig() Config {
+	return Config{
+		MaxInputSize:       10 * 1024 * 1024, // 10MB - reduced for security
+		MaxCacheEntries:    500,              // Reduced cache size
+		CacheTTL:           30 * time.Minute, // Shorter TTL
+		WorkerPoolSize:     2,                // Fewer workers for controlled resource usage
+		EnableSanitization: true,             // Always enabled in high-security mode
+		MaxDepth:           100,              // Reduced depth limit
+		ProcessingTimeout:  10 * time.Second, // Shorter timeout
+		Audit:              HighSecurityAuditConfig(),
 	}
 }
 
@@ -120,6 +145,34 @@ func DefaultExtractConfig() ExtractConfig {
 		PreserveVideos:    true,
 		PreserveAudios:    true,
 		InlineImageFormat: "none",
+		TableFormat:       "markdown",
+	}
+}
+
+// TextOnlyExtractConfig returns an ExtractConfig for extracting plain text only.
+// This disables all media preservation and uses no inline image format.
+func TextOnlyExtractConfig() ExtractConfig {
+	return ExtractConfig{
+		ExtractArticle:    true,
+		PreserveImages:    false,
+		PreserveLinks:     false,
+		PreserveVideos:    false,
+		PreserveAudios:    false,
+		InlineImageFormat: "none",
+		TableFormat:       "markdown",
+	}
+}
+
+// FullContentExtractConfig returns an ExtractConfig for extracting all content.
+// This enables all media preservation and uses markdown format for inline images.
+func FullContentExtractConfig() ExtractConfig {
+	return ExtractConfig{
+		ExtractArticle:    true,
+		PreserveImages:    true,
+		PreserveLinks:     true,
+		PreserveVideos:    true,
+		PreserveAudios:    true,
+		InlineImageFormat: "markdown",
 		TableFormat:       "markdown",
 	}
 }

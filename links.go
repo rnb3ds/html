@@ -13,15 +13,38 @@ import (
 // For repeated extractions or custom configuration (cache, timeout, etc.), use
 // Processor.ExtractAllLinks instead.
 func ExtractAllLinks(htmlBytes []byte, configs ...LinkExtractionConfig) ([]LinkResource, error) {
-	processor, _ := New()
+	processor, err := New()
+	if err != nil {
+		return nil, fmt.Errorf("create processor: %w", err)
+	}
 	defer processor.Close()
 	return processor.ExtractAllLinks(htmlBytes, configs...)
+}
+
+// ExtractAllLinksFromFile extracts all links from an HTML file with automatic encoding detection.
+// This is a convenience function that creates a temporary Processor with default settings.
+// For repeated extractions or custom configuration (cache, timeout, etc.), use
+// Processor.ExtractAllLinksFromFile instead.
+func ExtractAllLinksFromFile(filePath string, configs ...LinkExtractionConfig) ([]LinkResource, error) {
+	processor, err := New()
+	if err != nil {
+		return nil, fmt.Errorf("create processor: %w", err)
+	}
+	defer processor.Close()
+	return processor.ExtractAllLinksFromFile(filePath, configs...)
 }
 
 // ExtractAllLinks extracts all links from HTML bytes with automatic encoding detection.
 // The method automatically detects character encoding and converts to UTF-8 before
 // extracting links, ensuring that link titles and text are properly decoded.
-func (p *Processor) ExtractAllLinks(htmlBytes []byte, configs ...LinkExtractionConfig) ([]LinkResource, error) {
+func (p *Processor) ExtractAllLinks(htmlBytes []byte, configs ...LinkExtractionConfig) (links []LinkResource, err error) {
+	// Defense-in-depth: recover from unexpected panics
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("%w: %v", ErrInternalPanic, r)
+		}
+	}()
+
 	if p == nil {
 		return nil, ErrProcessorClosed
 	}
@@ -44,14 +67,13 @@ func (p *Processor) ExtractAllLinks(htmlBytes []byte, configs ...LinkExtractionC
 	startTime := now()
 
 	// Detect encoding and convert to UTF-8
-	utf8String, _, err := internal.DetectAndConvertToUTF8String(htmlBytes, "")
-	if err != nil {
+	utf8String, _, convErr := internal.DetectAndConvertToUTF8String(htmlBytes, "")
+	if convErr != nil {
 		p.stats.errorCount.Add(1)
-		return nil, fmt.Errorf("encoding detection failed: %w", err)
+		return nil, fmt.Errorf("encoding detection failed: %w", convErr)
 	}
 
 	// Process with timeout if configured
-	var links []LinkResource
 	if p.config.ProcessingTimeout > 0 {
 		links, err = p.extractLinksWithTimeout(utf8String, config)
 	} else {
@@ -68,6 +90,49 @@ func (p *Processor) ExtractAllLinks(htmlBytes []byte, configs ...LinkExtractionC
 	p.stats.totalProcessed.Add(1)
 
 	return links, nil
+}
+
+// ExtractAllLinksFromFile extracts all links from an HTML file with automatic encoding detection.
+// Use this when you have a file path instead of raw bytes.
+func (p *Processor) ExtractAllLinksFromFile(filePath string, configs ...LinkExtractionConfig) (links []LinkResource, err error) {
+	// Defense-in-depth: recover from unexpected panics
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("%w: %v", ErrInternalPanic, r)
+		}
+	}()
+
+	if p == nil {
+		return nil, ErrProcessorClosed
+	}
+	if p.closed.Load() {
+		return nil, ErrProcessorClosed
+	}
+
+	// Validate file path
+	if filePath == "" {
+		return nil, fmt.Errorf("%w: empty file path", ErrInvalidFilePath)
+	}
+
+	// Clean the file path to resolve any "." or ".." components
+	cleanPath := filepathClean(filePath)
+
+	// After cleaning, check if the path contains parent directory references
+	// This catches path traversal attempts like "../file", "subdir/../../file", etc.
+	if stringsContains(cleanPath, "..") {
+		p.audit.RecordPathTraversal(filePath)
+		return nil, fmt.Errorf("%w: path traversal detected: %s", ErrInvalidFilePath, cleanPath)
+	}
+
+	data, readErr := readFile(cleanPath)
+	if readErr != nil {
+		if osIsNotExist(readErr) {
+			return nil, fmt.Errorf("%w: %s", ErrFileNotFound, cleanPath)
+		}
+		return nil, fmt.Errorf("read file %q: %w", cleanPath, readErr)
+	}
+
+	return p.ExtractAllLinks(data, configs...)
 }
 
 func (p *Processor) extractLinksWithTimeout(htmlContent string, config LinkExtractionConfig) ([]LinkResource, error) {
@@ -186,10 +251,6 @@ func (p *Processor) extractBaseFromURL(url string) string {
 
 func (p *Processor) isDifferentDomain(baseURL, targetURL string) bool {
 	return internal.IsDifferentDomain(baseURL, targetURL)
-}
-
-func (p *Processor) extractDomain(url string) string {
-	return internal.ExtractDomain(url)
 }
 
 func (p *Processor) resolveURL(baseURL, relativeURL string) string {

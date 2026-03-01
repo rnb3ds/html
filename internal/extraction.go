@@ -103,8 +103,8 @@ func extractTextWithStructure(node *html.Node, tb *table.TrackedBuilder, imageCo
 			return
 		}
 		if node.Data == "table" {
-			// Use the table package for table extraction
-			table.Extract(node, tb, tableFormat, getCellAlign, getColSpan, getRowSpan, getCellWidth, GetTextContent, WalkNodes)
+			// Use the table processor for table extraction
+			TableProcessor().Extract(node, tb, tableFormat)
 			return
 		}
 		// Check if this is a paragraph-level block element that needs double newlines

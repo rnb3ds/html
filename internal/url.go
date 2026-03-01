@@ -120,7 +120,7 @@ func ResolveURL(baseURL, relativeURL string) string {
 	}
 
 	// Handle absolute paths (/path)
-	if relativeURL[0] == '/' {
+	if len(relativeURL) > 0 && relativeURL[0] == '/' {
 		if idx := strings.Index(baseURL, "://"); idx >= 0 {
 			domainEnd := strings.IndexByte(baseURL[idx+3:], '/')
 			if domainEnd >= 0 {

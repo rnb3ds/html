@@ -41,6 +41,7 @@ type Processor struct {
 	config *Config
 	cache  *internal.Cache
 	scorer internal.Scorer
+	audit  *AuditCollector
 	closed atomic.Bool
 	stats  struct {
 		totalProcessed   atomic.Int64
@@ -58,46 +59,35 @@ type Processor struct {
 //
 //	processor, err := html.New()                    // Uses DefaultConfig()
 //	processor, err := html.New(config)              // Uses custom Config struct
-//	processor, err := html.New(html.WithCache(1000, time.Hour))  // Uses functional options
-//	processor, err := html.New(config, html.WithMaxDepth(200))   // Mix of both
+//	processor, err := html.New(config, myScorer)    // Config with custom Scorer
 //
 // The returned processor must be closed when no longer needed:
 //
 //	processor, err := html.New()
 //	defer processor.Close()
-//
-// With custom scorer:
-//
-//	processor, err := html.New(html.WithScorer(myScorer))
-func New(opts ...any) (*Processor, error) {
+func New(configs ...any) (*Processor, error) {
 	config := DefaultConfig()
 	var customScorer Scorer
 
-	for _, opt := range opts {
-		switch v := opt.(type) {
+	for _, cfg := range configs {
+		switch v := cfg.(type) {
 		case Config:
-			// Full Config struct provided
 			config = v
-		case Option:
-			// Functional option provided
-			if err := v(&config); err != nil {
-				return nil, err
-			}
 		case Scorer:
-			// Custom scorer provided
 			customScorer = v
 		default:
-			return nil, fmt.Errorf("%w: unsupported option type %T", ErrInvalidConfig, opt)
+			return nil, fmt.Errorf("%w: unsupported option type %T (expected Config or Scorer)", ErrInvalidConfig, cfg)
 		}
 	}
 
-	if err := validateConfig(config); err != nil {
+	if err := config.Validate(); err != nil {
 		return nil, err
 	}
 
 	p := &Processor{
 		config: &config,
 		cache:  internal.NewCache(config.MaxCacheEntries, config.CacheTTL),
+		audit:  NewAuditCollector(config.Audit),
 	}
 
 	// Set up scorer
@@ -108,12 +98,6 @@ func New(opts ...any) (*Processor, error) {
 	}
 
 	return p, nil
-}
-
-// validateConfig validates the processor configuration.
-// Deprecated: Use Config.Validate() directly.
-func validateConfig(c Config) error {
-	return c.Validate()
 }
 
 // GetStatistics returns current processing statistics.
@@ -134,6 +118,23 @@ func (p *Processor) GetStatistics() Statistics {
 		ErrorCount:         p.stats.errorCount.Load(),
 		AverageProcessTime: avgTime,
 	}
+}
+
+// GetAuditLog returns the audit log entries collected during processing.
+// Returns nil if audit logging is not enabled.
+func (p *Processor) GetAuditLog() []AuditEntry {
+	if p == nil || p.audit == nil {
+		return nil
+	}
+	return p.audit.GetEntries()
+}
+
+// ClearAuditLog clears all collected audit log entries.
+func (p *Processor) ClearAuditLog() {
+	if p == nil || p.audit == nil {
+		return
+	}
+	p.audit.Clear()
 }
 
 // ClearCache clears the cache contents but preserves cumulative statistics.
@@ -168,6 +169,9 @@ func (p *Processor) Close() error {
 		return nil
 	}
 	p.cache.Clear()
+	if p.audit != nil {
+		p.audit.Close()
+	}
 	return nil
 }
 

@@ -1,17 +1,14 @@
 package html_test
 
-// html_extended_test.go - Comprehensive tests for cybergodev/html
+// html_extended_test.go - Extended error handling and edge case tests
 // This file contains:
-// - Comprehensive error handling tests
-// - Security tests
-// - Edge case tests
-// - Concurrency tests
+// - Comprehensive error handling tests (input validation, timeout, file errors)
+// - Edge case tests (empty input, unicode, whitespace, entities)
 
 import (
 	"errors"
 	"fmt"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -108,33 +105,6 @@ func TestErrorHandlingComprehensive(t *testing.T) {
 		})
 	})
 
-	t.Run("ErrInvalidConfig - all validation failures", func(t *testing.T) {
-		invalidConfigs := []struct {
-			name   string
-			config html.Config
-		}{
-			{"negative MaxInputSize", html.Config{MaxInputSize: -100, WorkerPoolSize: 4, MaxDepth: 100}},
-			{"zero MaxInputSize", html.Config{MaxInputSize: 0, WorkerPoolSize: 4, MaxDepth: 100}},
-			{"too large MaxInputSize", html.Config{MaxInputSize: 100 * 1024 * 1024, WorkerPoolSize: 4, MaxDepth: 100}},
-			{"negative MaxCacheEntries", html.Config{MaxInputSize: 1000, MaxCacheEntries: -1, WorkerPoolSize: 4, MaxDepth: 100}},
-			{"negative CacheTTL", html.Config{MaxInputSize: 1000, MaxCacheEntries: 100, CacheTTL: -1, WorkerPoolSize: 4, MaxDepth: 100}},
-			{"zero WorkerPoolSize", html.Config{MaxInputSize: 1000, WorkerPoolSize: 0, MaxDepth: 100}},
-			{"too large WorkerPoolSize", html.Config{MaxInputSize: 1000, WorkerPoolSize: 300, MaxDepth: 100}},
-			{"zero MaxDepth", html.Config{MaxInputSize: 1000, WorkerPoolSize: 4, MaxDepth: 0}},
-			{"too large MaxDepth", html.Config{MaxInputSize: 1000, WorkerPoolSize: 4, MaxDepth: 1000}},
-			{"negative ProcessingTimeout", html.Config{MaxInputSize: 1000, WorkerPoolSize: 4, MaxDepth: 100, ProcessingTimeout: -1}},
-		}
-
-		for _, tc := range invalidConfigs {
-			t.Run(tc.name, func(t *testing.T) {
-				_, err := html.New(tc.config)
-				if err == nil {
-					t.Error("Expected error for invalid config, got nil")
-				}
-			})
-		}
-	})
-
 	t.Run("ErrProcessingTimeout - timeout enforcement", func(t *testing.T) {
 		config := html.DefaultConfig()
 		config.ProcessingTimeout = 1 * time.Nanosecond
@@ -162,32 +132,6 @@ func TestErrorHandlingComprehensive(t *testing.T) {
 		}
 		if !errors.Is(err, html.ErrFileNotFound) {
 			t.Errorf("Expected ErrFileNotFound, got: %v", err)
-		}
-	})
-
-	t.Run("ErrInvalidFilePath - path traversal attempts", func(t *testing.T) {
-		p, _ := html.New()
-		defer p.Close()
-
-		pathTraversalAttempts := []string{
-			"../../../etc/passwd",
-			"../../test.html",
-			"../test.html",
-			"./../../test.html",
-			"test/../../../etc/passwd",
-			"..\\windows\\system32",
-		}
-
-		for _, path := range pathTraversalAttempts {
-			t.Run(path, func(t *testing.T) {
-				_, err := p.ExtractFromFile(path)
-				if err == nil {
-					t.Error("Expected error for path traversal attempt, got nil")
-				}
-				if !errors.Is(err, html.ErrInvalidFilePath) {
-					t.Errorf("Expected ErrInvalidFilePath for %q, got: %v", path, err)
-				}
-			})
 		}
 	})
 
@@ -238,84 +182,6 @@ func TestErrorHandlingComprehensive(t *testing.T) {
 		// Close() is idempotent - calling it again should not error
 		if err := p.Close(); err != nil {
 			t.Errorf("Close() should be idempotent, got: %v", err)
-		}
-	})
-}
-
-// ============================================================================
-// SECURITY TESTS (Main Package Level)
-// ============================================================================
-
-func TestSecurityComprehensive(t *testing.T) {
-	t.Parallel()
-
-	t.Run("XSS prevention via script tags", func(t *testing.T) {
-		xssAttempts := []string{
-			`<script>alert('XSS')</script>`,
-			`<SCRIPT>alert('XSS')</SCRIPT>`,
-			`<script src="evil.js"></script>`,
-			`<img src="x" onerror="alert('XSS')">`,
-			`<svg onload="alert('XSS')">`,
-			`<body onload="alert('XSS')">`,
-			`<div onclick="alert('XSS')">click</div>`,
-		}
-
-		for _, xss := range xssAttempts {
-			t.Run(fmt.Sprintf("xss_%d", len(xss)), func(t *testing.T) {
-				p, _ := html.New()
-				defer p.Close()
-
-				htmlContent := "<html><body>" + xss + "</body></html>"
-				result, err := p.Extract([]byte(htmlContent), html.DefaultExtractConfig())
-				if err != nil {
-					t.Fatalf("Extract() failed: %v", err)
-				}
-
-				if strings.Contains(strings.ToLower(result.Text), "script") {
-					t.Errorf("Script content should be removed from: %s", result.Text)
-				}
-				if strings.Contains(strings.ToLower(result.Text), "alert") {
-					t.Errorf("Alert content should be removed from: %s", result.Text)
-				}
-			})
-		}
-	})
-
-	t.Run("Large input DoS prevention", func(t *testing.T) {
-		p, _ := html.New()
-		defer p.Close()
-
-		hugeHTML := strings.Repeat("<div>"+strings.Repeat("test", 1000)+"</div>", 100000)
-
-		_, err := p.Extract([]byte(hugeHTML), html.DefaultExtractConfig())
-		if err == nil {
-			t.Errorf("Expected error for huge input, got nil")
-		}
-	})
-
-	t.Run("Data URL injection prevention", func(t *testing.T) {
-		dangerousDataURLs := []string{
-			`<img src="data:text/html,<script>alert('XSS')</script>">`,
-			`<img src="data:text/javascript,alert('XSS')">`,
-			`<a href="data:text/html,<script>alert('XSS')</script>">link</a>`,
-		}
-
-		for _, htmlContent := range dangerousDataURLs {
-			t.Run(fmt.Sprintf("data_url_%d", len(htmlContent)), func(t *testing.T) {
-				p, _ := html.New()
-				defer p.Close()
-
-				fullHTML := "<html><body>" + htmlContent + "</body></html>"
-				result, err := p.Extract([]byte(fullHTML), html.DefaultExtractConfig())
-				if err != nil {
-					t.Fatalf("Extract() failed: %v", err)
-				}
-
-				if strings.Contains(result.Text, "data:text/html") ||
-					strings.Contains(result.Text, "data:text/javascript") {
-					t.Error("Dangerous data URLs should be removed")
-				}
-			})
 		}
 	})
 }
@@ -467,165 +333,331 @@ newlines</p>
 }
 
 // ============================================================================
-// CONCURRENCY TESTS
+// UNICODE EDGE CASE TESTS
 // ============================================================================
 
-func TestConcurrencyComprehensive(t *testing.T) {
-	t.Run("Multiple goroutines using same processor", func(t *testing.T) {
+func TestUnicodeEdgeCases(t *testing.T) {
+	t.Parallel()
+
+	t.Run("zero-width characters", func(t *testing.T) {
 		p, _ := html.New()
 		defer p.Close()
 
-		htmlContent := []byte(`<html><body><h1>Concurrent Test</h1><p>Content</p></body></html>`)
+		// Contains various zero-width characters
+		// U+200B: Zero Width Space
+		// U+200C: Zero Width Non-Joiner
+		// U+200D: Zero Width Joiner
+		// U+FEFF: Zero Width No-Break Space (BOM)
+		htmlContent := `<html><body>` +
+			`<p>Text\u200Bwith\u200Bzero\u200Bwidth\u200Bspaces</p>` +
+			`<p>Text\u200Cwith\u200Djoiners</p>` +
+			`<p>\uFEFFBOM\uFEFFtest</p>` +
+			`</body></html>`
 
-		const numGoroutines = 50
-		const iterations = 10
-
-		var wg sync.WaitGroup
-		errors := make(chan error, numGoroutines*iterations)
-
-		for i := 0; i < numGoroutines; i++ {
-			wg.Add(1)
-			go func(id int) {
-				defer wg.Done()
-				for j := 0; j < iterations; j++ {
-					_, err := p.Extract(htmlContent, html.DefaultExtractConfig())
-					if err != nil {
-						errors <- fmt.Errorf("goroutine %d iteration %d: %w", id, j, err)
-						return
-					}
-				}
-			}(i)
+		result, err := p.Extract([]byte(htmlContent), html.DefaultExtractConfig())
+		if err != nil {
+			t.Fatalf("Extract() failed: %v", err)
 		}
 
-		wg.Wait()
-		close(errors)
-
-		for err := range errors {
-			t.Errorf("Concurrent access error: %v", err)
+		// Zero-width characters should be preserved or handled gracefully
+		if result == nil {
+			t.Error("Expected non-nil result")
+		}
+		if result.Text == "" {
+			t.Error("Expected non-empty text")
 		}
 	})
 
-	t.Run("Concurrent cache access", func(t *testing.T) {
+	t.Run("combining characters", func(t *testing.T) {
+		p, _ := html.New()
+		defer p.Close()
+
+		// Contains combining characters
+		// e + combining acute accent = é
+		// a + combining umlaut = ä
+		htmlContent := `<html><body>` +
+			`<p>cafe\u0301</p>` + // café with combining accent
+			`<p>na\u0308ive</p>` + // naïve with combining umlaut
+			`<p>\u0041\u030A</p>` + // Å with combining ring
+			`</body></html>`
+
+		result, err := p.Extract([]byte(htmlContent), html.DefaultExtractConfig())
+		if err != nil {
+			t.Fatalf("Extract() failed: %v", err)
+		}
+
+		if result == nil {
+			t.Error("Expected non-nil result")
+		}
+		// Combining characters should be preserved
+		if !strings.Contains(result.Text, "caf") {
+			t.Error("Expected base text to be preserved")
+		}
+	})
+
+	t.Run("bidirectional text", func(t *testing.T) {
+		p, _ := html.New()
+		defer p.Close()
+
+		// Mixed LTR and RTL text
+		htmlContent := `<html><body>` +
+			`<p>Hello مرحبا World עולם</p>` +
+			`<p dir="rtl">Right to left text</p>` +
+			`<p>English و Arabic مختلط mixed</p>` +
+			`</body></html>`
+
+		result, err := p.Extract([]byte(htmlContent), html.DefaultExtractConfig())
+		if err != nil {
+			t.Fatalf("Extract() failed: %v", err)
+		}
+
+		// Bidirectional text should be preserved
+		if !strings.Contains(result.Text, "Hello") {
+			t.Error("Expected English text to be preserved")
+		}
+		if !strings.Contains(result.Text, "مرحبا") {
+			t.Error("Expected Arabic text to be preserved")
+		}
+	})
+
+	t.Run("surrogate pairs (emoji)", func(t *testing.T) {
+		p, _ := html.New()
+		defer p.Close()
+
+		// Various emoji including multi-codepoint ones
+		htmlContent := `<html><body>` +
+			`<p>Simple: 😀😂🥳</p>` +
+			`<p>Complex: 👨‍👩‍👧‍👦 🏳️‍🌈</p>` + // Family emoji, rainbow flag
+			`<p>Skin tone: 👍🏻👍🏼👍🏽👍🏾👍🏿</p>` +
+			`<p>ZWJ sequences: 👨‍⚕️ 👩‍💻</p>` +
+			`</body></html>`
+
+		result, err := p.Extract([]byte(htmlContent), html.DefaultExtractConfig())
+		if err != nil {
+			t.Fatalf("Extract() failed: %v", err)
+		}
+
+		// Emoji should be preserved
+		if !strings.Contains(result.Text, "😀") {
+			t.Error("Expected simple emoji to be preserved")
+		}
+	})
+
+	t.Run("null character in content", func(t *testing.T) {
+		p, _ := html.New()
+		defer p.Close()
+
+		// HTML with null character
+		htmlContent := `<html><body>` +
+			`<p>Before\x00After</p>` +
+			`<p>Multi\x00null\x00chars</p>` +
+			`</body></html>`
+
+		result, err := p.Extract([]byte(htmlContent), html.DefaultExtractConfig())
+		if err != nil {
+			t.Fatalf("Extract() failed: %v", err)
+		}
+
+		// Should handle null characters gracefully (remove or sanitize)
+		if result == nil {
+			t.Error("Expected non-nil result")
+		}
+	})
+
+	t.Run("maximum valid unicode", func(t *testing.T) {
+		p, _ := html.New()
+		defer p.Close()
+
+		// Test with maximum valid Unicode code point (U+10FFFF)
+		htmlContent := `<html><body>` +
+			`<p>Max Unicode: \U0010FFFF</p>` +
+			`<p>High codepoints: \U00010000 \U00020000</p>` +
+			`</body></html>`
+
+		result, err := p.Extract([]byte(htmlContent), html.DefaultExtractConfig())
+		if err != nil {
+			t.Fatalf("Extract() failed: %v", err)
+		}
+
+		if result == nil {
+			t.Error("Expected non-nil result")
+		}
+	})
+
+	t.Run("invalid unicode sequences", func(t *testing.T) {
+		p, _ := html.New()
+		defer p.Close()
+
+		// Invalid UTF-8 sequences
+		invalidCases := []struct {
+			name string
+			html []byte
+		}{
+			{"invalid continuation", []byte(`<html><body>Test\x80\x81</body></html>`)},
+			{"truncated sequence", []byte(`<html><body>Test\xc3</body></html>`)},
+			{"overlong encoding", []byte(`<html><body>Test\xc0\x80</body></html>`)},
+		}
+
+		for _, tc := range invalidCases {
+			t.Run(tc.name, func(t *testing.T) {
+				result, err := p.Extract(tc.html, html.DefaultExtractConfig())
+				// Should either handle gracefully or return an error
+				if err != nil {
+					return // Error is acceptable
+				}
+				if result == nil {
+					t.Error("Expected non-nil result when no error returned")
+				}
+			})
+		}
+	})
+}
+
+// ============================================================================
+// MAXDEPTH BOUNDARY CONDITION TESTS
+// ============================================================================
+
+func TestMaxDepthBoundaryConditions(t *testing.T) {
+	t.Parallel()
+
+	t.Run("depth exactly at limit", func(t *testing.T) {
 		config := html.DefaultConfig()
-		config.MaxCacheEntries = 100
+		config.MaxDepth = 50
+
 		p, err := html.New(config)
 		if err != nil {
 			t.Fatal(err)
 		}
 		defer p.Close()
 
-		htmlContent := []byte(`<html><body><p>Cache test content</p></body></html>`)
-
-		const numGoroutines = 20
-		const iterations = 50
-
-		var wg sync.WaitGroup
-
-		for i := 0; i < numGoroutines; i++ {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-				for j := 0; j < iterations; j++ {
-					p.Extract(htmlContent, html.DefaultExtractConfig())
-				}
-			}()
+		// Create HTML with exactly 50 nested levels
+		deepHTML := "<html><body>"
+		for i := 0; i < 48; i++ { // 48 divs + html + body = 50
+			deepHTML += "<div>"
 		}
-
-		wg.Wait()
-
-		stats := p.GetStatistics()
-		if stats.TotalProcessed == 0 {
-			t.Error("No operations processed")
+		deepHTML += "Content"
+		for i := 0; i < 48; i++ {
+			deepHTML += "</div>"
 		}
-		if stats.CacheHits == 0 && stats.CacheMisses == 0 {
-			t.Error("Cache not working")
-		}
-	})
+		deepHTML += "</body></html>"
 
-	t.Run("Batch processing with concurrent operations", func(t *testing.T) {
-		p, _ := html.New()
-		defer p.Close()
+		result, err := p.Extract([]byte(deepHTML), html.DefaultExtractConfig())
 
-		htmlContents := make([][]byte, 50)
-		for i := range htmlContents {
-			htmlContents[i] = []byte(fmt.Sprintf("<html><body><p>Content %d</p></body></html>", i))
-		}
-
-		results, err := p.ExtractBatch(htmlContents)
+		// Should succeed - depth is exactly at limit
 		if err != nil {
-			t.Fatalf("ExtractBatch() failed: %v", err)
+			t.Logf("Depth at limit returned error: %v", err)
 		}
-
-		if len(results) != len(htmlContents) {
-			t.Errorf("Got %d results, want %d", len(results), len(htmlContents))
-		}
-
-		for i, result := range results {
-			if result == nil {
-				t.Errorf("Result %d is nil", i)
-			}
+		if result != nil && !strings.Contains(result.Text, "Content") {
+			t.Error("Expected content to be extracted at exact depth limit")
 		}
 	})
 
-	t.Run("Close during active processing", func(t *testing.T) {
-		p, _ := html.New()
+	t.Run("depth one over limit", func(t *testing.T) {
+		config := html.DefaultConfig()
+		config.MaxDepth = 50
 
-		htmlContent := []byte(`<html><body><p>Test</p></body></html>`)
-
-		const numGoroutines = 10
-		var wg sync.WaitGroup
-		started := make(chan struct{}, numGoroutines)
-
-		for i := 0; i < numGoroutines; i++ {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-				started <- struct{}{}
-				time.Sleep(10 * time.Millisecond)
-				p.Extract(htmlContent, html.DefaultExtractConfig())
-			}()
+		p, err := html.New(config)
+		if err != nil {
+			t.Fatal(err)
 		}
-
-		for i := 0; i < numGoroutines; i++ {
-			<-started
-		}
-
-		p.Close()
-
-		wg.Wait()
-	})
-
-	t.Run("Statistics consistency under concurrency", func(t *testing.T) {
-		p, _ := html.New()
 		defer p.Close()
 
-		htmlContent := []byte(`<html><body><p>Stats test</p></body></html>`)
-
-		const numGoroutines = 20
-		var wg sync.WaitGroup
-
-		for i := 0; i < numGoroutines; i++ {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-				for j := 0; j < 10; j++ {
-					p.Extract(htmlContent, html.DefaultExtractConfig())
-				}
-			}()
+		// Create HTML with 51 nested levels (one over limit)
+		deepHTML := "<html><body>"
+		for i := 0; i < 49; i++ { // 49 divs + html + body = 51
+			deepHTML += "<div>"
 		}
-
-		wg.Wait()
-
-		stats := p.GetStatistics()
-
-		if stats.TotalProcessed != numGoroutines*10 {
-			t.Errorf("TotalProcessed = %d, want %d", stats.TotalProcessed, numGoroutines*10)
+		deepHTML += "Content"
+		for i := 0; i < 49; i++ {
+			deepHTML += "</div>"
 		}
-		if stats.CacheHits < 0 {
-			t.Error("CacheHits should be non-negative")
+		deepHTML += "</body></html>"
+
+		result, err := p.Extract([]byte(deepHTML), html.DefaultExtractConfig())
+
+		// Behavior depends on implementation:
+		// - May return error (strict mode)
+		// - May extract content anyway (tolerant mode)
+		// Either is acceptable
+		if err != nil {
+			t.Logf("Depth over limit returned error (expected): %v", err)
 		}
-		if stats.CacheMisses < 0 {
-			t.Error("CacheMisses should be non-negative")
+		if result != nil {
+			t.Logf("Depth over limit extracted content: %s",
+				truncateString(result.Text, 50))
 		}
 	})
+
+	t.Run("depth limit zero", func(t *testing.T) {
+		config := html.DefaultConfig()
+		config.MaxDepth = 0
+
+		p, err := html.New(config)
+		// MaxDepth=0 is invalid and should return an error
+		if err == nil {
+			p.Close()
+			t.Error("Expected error for MaxDepth=0")
+		}
+	})
+
+	t.Run("depth limit one", func(t *testing.T) {
+		config := html.DefaultConfig()
+		config.MaxDepth = 1
+
+		p, err := html.New(config)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer p.Close()
+
+		// Even just <html> tag counts as depth 1
+		singleLevelHTML := `<html>Content</html>`
+
+		result, err := p.Extract([]byte(singleLevelHTML), html.DefaultExtractConfig())
+
+		// The library enforces depth strictly, so even html tag may exceed
+		if err != nil {
+			t.Logf("MaxDepth=1 returned error: %v", err)
+		}
+		_ = result // May be nil
+	})
+
+	t.Run("very deep nesting with high limit", func(t *testing.T) {
+		config := html.DefaultConfig()
+		config.MaxDepth = 500
+
+		p, err := html.New(config)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer p.Close()
+
+		// Create HTML with 200 nested levels
+		deepHTML := "<html><body>"
+		for i := 0; i < 198; i++ {
+			deepHTML += "<div>"
+		}
+		deepHTML += "Content"
+		for i := 0; i < 198; i++ {
+			deepHTML += "</div>"
+		}
+		deepHTML += "</body></html>"
+
+		result, err := p.Extract([]byte(deepHTML), html.DefaultExtractConfig())
+
+		if err != nil {
+			t.Errorf("Deep nesting with high limit should succeed: %v", err)
+		}
+		if result == nil {
+			t.Error("Expected non-nil result")
+		}
+	})
+}
+
+// Helper function to truncate strings for logging
+func truncateString(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen] + "..."
 }

@@ -6,33 +6,35 @@
 [![Performance](https://img.shields.io/badge/performance-high%20performance-green.svg)](https://github.com/cybergodev/html)
 [![Thread Safe](https://img.shields.io/badge/thread%20safe-yes-brightgreen.svg)](https://github.com/cybergodev/html)
 
+**一个用于智能 HTML 内容提取的 Go 库。** 兼容 `golang.org/x/net/html` —— 可作为直接替代品使用，并获得增强的内容提取功能。
 
-**一个用于智能 HTML 内容提取的 Go 库。** 与 `golang.org/x/net/html` 兼容 — 可作为直接替代品使用，并获得增强的内容提取功能。
+**[📖 English Documentation](README.md)** - 英文文档
 
-#### **[📖 English Documentation](README.md)** - 用户指南
+## ✨ 核心特性
 
-## ✨ 核心功能
+### 内容提取
+- **文章检测**：使用评分算法识别主要内容（文本密度、链接密度、语义标签）
+- **智能文本提取**：保留结构、处理换行、计算字数和阅读时间
+- **媒体提取**：提取图片、视频、音频及其元数据（URL、尺寸、alt 文本、类型检测）
+- **链接分析**：外部/内部链接检测、nofollow 属性识别、锚文本提取
 
-### 🎯 内容提取
-- **文章检测**: 使用评分算法识别主要内容（文本密度、链接密度、语义标签）
-- **智能文本提取**: 保留结构、处理换行、计算字数和阅读时间
-- **媒体提取**: 图片、视频、音频及其元数据（URL、尺寸、替代文本、类型检测）
-- **链接分析**: 外部/内部链接检测、nofollow 属性、锚文本提取
+### 性能优势
+- **内容寻址缓存**：基于 FNV-128a 的键值，支持 TTL 和 LRU 淘汰策略
+- **批处理**：可配置 Worker Pool 的并行提取，支持 Context
+- **线程安全**：无需外部同步即可并发使用
+- **资源限制**：可配置输入大小、嵌套深度和超时保护
 
-### ⚡ 性能
-- **内容寻址缓存**: 基于 SHA256 的键、TTL 和 LRU 淘汰策略
-- **批处理**: 可配置工作池的并行提取
-- **线程安全**: 支持并发使用，无需外部同步
-- **资源限制**: 可配置的输入大小、嵌套深度和超时保护
+### 安全特性
+- **HTML 净化**：移除危险标签和属性
+- **审计日志**：跟踪安全事件以满足合规要求
+- **输入验证**：大小限制、深度限制、路径遍历防护
 
-### 📖 使用场景
-- **新闻聚合器**: 从新闻网站提取文章内容
-- **网页爬虫**: 从 HTML 页面获取结构化数据
-- **内容管理**: 将 HTML 转换为 Markdown 或其他格式
-- **搜索引擎**: 索引主要内容，排除导航/广告
-- **数据分析**: 大规模提取和分析网页内容
-- **RSS/Feed 生成器**: 从 HTML 内容生成订阅源
-- **文档工具**: 将 HTML 文档转换为其他格式
+### 应用场景
+- **新闻聚合器**：从新闻网站提取文章内容
+- **网页爬虫**：从 HTML 页面获取结构化数据
+- **内容管理**：将 HTML 转换为 Markdown 或其他格式
+- **搜索引擎**：索引主要内容，排除导航和广告
+- **数据分析**：大规模提取和分析网页内容
 
 ---
 
@@ -47,21 +49,31 @@ go get github.com/cybergodev/html
 ## ⚡ 5 分钟快速入门
 
 ```go
-import "github.com/cybergodev/html"
+package main
 
-// 从 HTML 提取纯文本
-htmlBytes := []byte(`
-    <html>
-        <nav>导航菜单</nav>
-        <article><h1>Hello World</h1><p>内容在这里...</p></article>
-        <footer>页脚</footer>
-    </html>
-`)
-text, _ := html.ExtractText(htmlBytes)
-fmt.Println(text) // "Hello World\n内容在这里..."
+import (
+    "fmt"
+    "github.com/cybergodev/html"
+)
+
+func main() {
+    // 从 HTML 中提取纯文本
+    htmlBytes := []byte(`
+        <html>
+            <nav>导航栏</nav>
+            <article><h1>你好世界</h1><p>这里是内容...</p></article>
+            <footer>页脚</footer>
+        </html>
+    `)
+    text, err := html.ExtractText(htmlBytes)
+    if err != nil {
+        panic(err)
+    }
+    fmt.Println(text) // "你好世界\n这里是内容..."
+}
 ```
 
-**就这么简单！** 库会自动:
+**就这么简单！** 库会自动：
 - 移除导航、页脚、广告
 - 提取主要内容
 - 清理空白字符
@@ -70,85 +82,116 @@ fmt.Println(text) // "Hello World\n内容在这里..."
 
 ## 🚀 快速指南
 
-### 一行代码函数
+### 单行函数
 
-只想快速完成工作？使用这些包级函数:
+只想快速完成任务？使用这些包级函数：
 
 ```go
-// 仅提取文本
-text, _ := html.ExtractText(htmlBytes)
+package main
 
-// 提取所有内容
-result, _ := html.Extract(htmlBytes)
-fmt.Println(result.Title)     // Hello World
-fmt.Println(result.Text)      // 内容在这里...
-fmt.Println(result.WordCount) // 4
+import (
+    "fmt"
+    "github.com/cybergodev/html"
+)
 
-// 提取所有资源链接
-links, _ := html.ExtractAllLinks(htmlBytes)
+func main() {
+    htmlBytes := []byte(`<html><body><h1>标题</h1><p>内容在这里...</p></body></html>`)
 
-// 转换格式
-markdown, _ := html.ExtractToMarkdown(htmlBytes)
-jsonData, _ := html.ExtractToJSON(htmlBytes)
+    // 仅提取文本
+    text, _ := html.ExtractText(htmlBytes)
+
+    // 提取所有内容
+    result, _ := html.Extract(htmlBytes)
+    fmt.Println(result.Title)     // 标题
+    fmt.Println(result.Text)      // 内容在这里...
+    fmt.Println(result.WordCount) // 2
+
+    // 提取所有资源链接
+    links, _ := html.ExtractAllLinks(htmlBytes)
+
+    // 格式转换
+    markdown, _ := html.ExtractToMarkdown(htmlBytes)
+    jsonData, _ := html.ExtractToJSON(htmlBytes)
+}
 ```
 
-**适用场景:** 简单脚本、一次性任务、快速原型开发
+**适用场景：** 简单脚本、一次性任务、快速原型开发
 
 ---
 
-### 基础 Processor 用法
+### 基础 Processor 使用
 
-需要更多控制？创建一个处理器:
+需要更多控制？创建一个 Processor：
 
 ```go
-// 使用默认配置创建处理器
-processor, err := html.New()
-if err != nil {
-    log.Fatal(err)
+package main
+
+import (
+    "fmt"
+    "log"
+    "github.com/cybergodev/html"
+)
+
+func main() {
+    // 使用默认配置创建 Processor
+    processor, err := html.New()
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer processor.Close()
+
+    htmlBytes := []byte(`<html><body><h1>标题</h1><p>内容</p></body></html>`)
+
+    // 使用默认配置提取
+    result, _ := processor.Extract(htmlBytes, html.DefaultExtractConfig())
+
+    // 从文件提取
+    result, _ = processor.ExtractFromFile("page.html", html.DefaultExtractConfig())
+
+    // 批量处理
+    htmlContents := [][]byte{htmlBytes, htmlBytes, htmlBytes}
+    results, _ := processor.ExtractBatch(htmlContents, html.DefaultExtractConfig())
+
+    fmt.Printf("已处理 %d 个文档\n", len(results))
 }
-defer processor.Close()
-
-// 使用默认配置提取
-result, _ := processor.Extract(htmlBytes, html.DefaultExtractConfig())
-
-// 从文件提取
-result, _ = processor.ExtractFromFile("page.html", html.DefaultExtractConfig())
-
-// 批处理
-htmlContents := [][]byte{html1, html2, html3}
-results, _ := processor.ExtractBatch(htmlContents, html.DefaultExtractConfig())
 ```
 
-**适用场景:** 多次提取、处理多个文件、网页爬虫
+**适用场景：** 多次提取、处理大量文件、网络爬虫
 
 ---
 
 ### 自定义配置
 
-微调提取内容:
+精细调整提取内容：
 
 ```go
-config := html.ExtractConfig{
-    ExtractArticle:    true,       // 自动检测主要内容
-    PreserveImages:    true,       // 提取图片元数据
-    PreserveLinks:     true,       // 提取链接元数据
-    PreserveVideos:    false,      // 跳过视频
-    PreserveAudios:    false,      // 跳过音频
-    InlineImageFormat: "none",     // 选项: "none", "placeholder", "markdown", "html"
-    TableFormat:       "markdown", // 选项: "markdown", "html"
-    Encoding:          "",         // 从 meta 标签自动检测，或指定: "utf-8", "windows-1252" 等
-}
+package main
 
-processor, err := html.New()
-if err != nil {
-    log.Fatal(err)
-}
-defer processor.Close()
+import (
+    "fmt"
+    "github.com/cybergodev/html"
+)
 
-result, _ := processor.Extract(htmlBytes, config)
+func main() {
+    htmlBytes := []byte(`<html><body><h1>标题</h1><img src="img.jpg"><p>内容</p></body></html>`)
+
+    config := html.ExtractConfig{
+        ExtractArticle:    true,       // 自动检测主要内容
+        PreserveImages:    true,       // 提取图片元数据
+        PreserveLinks:     true,       // 提取链接元数据
+        PreserveVideos:    false,      // 跳过视频
+        PreserveAudios:    false,      // 跳过音频
+        InlineImageFormat: "none",     // 选项: "none", "placeholder", "markdown", "html"
+        TableFormat:       "markdown", // 选项: "markdown", "html"
+        Encoding:          "",         // 从 meta 标签自动检测，或指定: "utf-8", "windows-1252" 等
+    }
+
+    result, _ := html.Extract(htmlBytes, config)
+    fmt.Printf("找到 %d 张图片\n", len(result.Images))
+}
 ```
 
-**适用场景:** 特定提取需求、格式转换、自定义输出
+**适用场景：** 特定提取需求、格式转换、自定义输出
 
 ---
 
@@ -157,92 +200,153 @@ result, _ := processor.Extract(htmlBytes, config)
 #### 自定义 Processor 配置
 
 ```go
-config := html.Config{
-    MaxInputSize:       10 * 1024 * 1024, // 10MB 限制
-    ProcessingTimeout:  30 * time.Second,
-    MaxCacheEntries:    500,
-    CacheTTL:           30 * time.Minute,
-    WorkerPoolSize:     8,
-    EnableSanitization: true,  // 移除 <script>, <style> 标签
-    MaxDepth:           50,    // 防止深度嵌套攻击
-}
+package main
 
-processor, _ := html.New(config)
-defer processor.Close()
+import (
+    "time"
+    "github.com/cybergodev/html"
+)
+
+func main() {
+    // 方法 1：使用 Config 结构体
+    config := html.Config{
+        MaxInputSize:       10 * 1024 * 1024, // 10MB 限制
+        ProcessingTimeout:  30 * time.Second,
+        MaxCacheEntries:    500,
+        CacheTTL:           30 * time.Minute,
+        WorkerPoolSize:     8,
+        EnableSanitization: true,  // 移除 <script>, <style> 标签
+        MaxDepth:           50,    // 防止深度嵌套攻击
+    }
+    processor, _ := html.New(config)
+    defer processor.Close()
+
+    // 方法 2：使用高安全预设
+    processor2, _ := html.New(html.HighSecurityConfig())
+    defer processor2.Close()
+}
 ```
 
 #### 链接提取
 
 ```go
-// 提取所有资源链接
-links, _ := html.ExtractAllLinks(htmlBytes)
+package main
 
-// 按类型分组
-byType := html.GroupLinksByType(links)
-cssLinks := byType["css"]
-jsLinks := byType["js"]
-images := byType["image"]
+import (
+    "fmt"
+    "github.com/cybergodev/html"
+)
 
-// 高级配置
-processor, err := html.New()
-if err != nil {
-    log.Fatal(err)
+func main() {
+    htmlBytes := []byte(`
+        <html>
+        <head><link rel="stylesheet" href="style.css"></head>
+        <body>
+            <img src="image.jpg">
+            <a href="https://example.com">链接</a>
+            <script src="app.js"></script>
+        </body>
+        </html>
+    `)
+
+    // 提取所有资源链接
+    links, _ := html.ExtractAllLinks(htmlBytes)
+
+    // 按类型分组
+    byType := html.GroupLinksByType(links)
+    cssLinks := byType["css"]
+    jsLinks := byType["js"]
+    images := byType["image"]
+
+    fmt.Printf("CSS: %d, JS: %d, 图片: %d\n", len(cssLinks), len(jsLinks), len(images))
+
+    // 高级配置
+    processor, _ := html.New()
+    defer processor.Close()
+
+    linkConfig := html.LinkExtractionConfig{
+        BaseURL:              "https://example.com",
+        ResolveRelativeURLs:  true,
+        IncludeImages:        true,
+        IncludeVideos:        true,
+        IncludeAudios:        true,
+        IncludeCSS:           true,
+        IncludeJS:            true,
+        IncludeContentLinks:  true,
+        IncludeExternalLinks: true,
+        IncludeIcons:         true,
+    }
+    links, _ = processor.ExtractAllLinks(htmlBytes, linkConfig)
 }
-linkConfig := html.LinkExtractionConfig{
-    BaseURL:               "https://example.com",
-    ResolveRelativeURLs:   true,
-    IncludeImages:         true,
-    IncludeVideos:         true,
-    IncludeAudios:         true,
-    IncludeCSS:            true,
-    IncludeJS:             true,
-    IncludeContentLinks:   true,
-    IncludeExternalLinks:  true,
-    IncludeIcons:          true,
-}
-links, _ = processor.ExtractAllLinks(htmlBytes, linkConfig)
 ```
 
 #### 缓存与统计
 
 ```go
-processor, err := html.New()
-if err != nil {
-    log.Fatal(err)
+package main
+
+import (
+    "fmt"
+    "github.com/cybergodev/html"
+)
+
+func main() {
+    processor, _ := html.New()
+    defer processor.Close()
+
+    htmlBytes := []byte(`<html><body><p>内容</p></body></html>`)
+
+    // 自动启用缓存
+    processor.Extract(htmlBytes, html.DefaultExtractConfig())
+    processor.Extract(htmlBytes, html.DefaultExtractConfig()) // 缓存命中！
+
+    // 查看性能统计
+    stats := processor.GetStatistics()
+    fmt.Printf("缓存命中: %d/%d\n", stats.CacheHits, stats.TotalProcessed)
+
+    // 清除缓存（保留统计数据）
+    processor.ClearCache()
+
+    // 重置统计（保留缓存条目）
+    processor.ResetStatistics()
 }
-defer processor.Close()
-
-// 自动启用缓存
-result1, _ := processor.Extract(htmlBytes, html.DefaultExtractConfig())
-result2, _ := processor.Extract(htmlBytes, html.DefaultExtractConfig()) // 缓存命中！
-
-// 检查性能
-stats := processor.GetStatistics()
-fmt.Printf("缓存命中: %d/%d\n", stats.CacheHits, stats.TotalProcessed)
-
-// 清除缓存（保留统计信息）
-processor.ClearCache()
-
-// 重置统计（保留缓存条目）
-processor.ResetStatistics()
 ```
 
-**适用场景:** 生产应用、性能优化、特定用例
+**适用场景：** 生产应用、性能优化、特定用例
 
 ---
 
 ## 📖 常用示例
 
-可直接复制使用的解决方案:
+常见任务的复制粘贴解决方案：
 
-### 提取文章文本（纯净版）
+### 提取文章文本（纯净）
 
 ```go
 text, _ := html.ExtractText(htmlBytes)
 // 返回不含导航/广告的纯净文本
 ```
 
-### 提取包含图片的内容
+### 从文件提取
+
+```go
+// 从文件提取文本
+text, _ := html.ExtractTextFromFile("page.html")
+
+// 从文件提取完整结果
+result, _ := html.ExtractFromFile("page.html")
+
+// 从文件提取链接
+links, _ := html.ExtractAllLinksFromFile("page.html")
+
+// 将文件转换为 Markdown
+markdown, _ := html.ExtractToMarkdownFromFile("page.html")
+
+// 将文件转换为 JSON
+jsonData, _ := html.ExtractToJSONFromFile("page.html")
+```
+
+### 提取内容与图片
 
 ```go
 result, _ := html.Extract(htmlBytes)
@@ -255,7 +359,7 @@ for _, img := range result.Images {
 
 ```go
 markdown, _ := html.ExtractToMarkdown(htmlBytes)
-// 图片变成: ![alt](url)
+// 图片格式变为: ![alt](url)
 ```
 
 ### 提取所有链接
@@ -275,17 +379,69 @@ minutes := result.ReadingTime.Minutes()
 fmt.Printf("阅读时间: %.1f 分钟", minutes)
 ```
 
-### 批处理文件
+### 批量处理文件
 
 ```go
-processor, err := html.New()
-if err != nil {
-    log.Fatal(err)
-}
+processor, _ := html.New()
 defer processor.Close()
 
 files := []string{"page1.html", "page2.html", "page3.html"}
 results, _ := processor.ExtractBatchFiles(files, html.DefaultExtractConfig())
+```
+
+### 带 Context 的批处理（支持取消）
+
+```go
+package main
+
+import (
+    "context"
+    "time"
+    "github.com/cybergodev/html"
+)
+
+func main() {
+    processor, _ := html.New()
+    defer processor.Close()
+
+    files := []string{"page1.html", "page2.html", "page3.html"}
+
+    // 创建带超时的 context
+    ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+    defer cancel()
+
+    // 支持取消的处理
+    result := processor.ExtractBatchFilesWithContext(ctx, files, html.DefaultExtractConfig())
+
+    fmt.Printf("成功: %d, 失败: %d, 取消: %d\n",
+        result.Success, result.Failed, result.Cancelled)
+}
+```
+
+### 使用预设提取配置
+
+```go
+// 仅文本 - 创建文本专用配置
+textConfig := html.ExtractConfig{
+    ExtractArticle:    true,
+    PreserveImages:    false,
+    PreserveLinks:     false,
+    PreserveVideos:    false,
+    PreserveAudios:    false,
+    InlineImageFormat: "none",
+}
+result, _ := html.Extract(htmlBytes, textConfig)
+
+// 完整内容 - 所有媒体，图片使用 markdown 格式
+fullConfig := html.ExtractConfig{
+    ExtractArticle:    true,
+    PreserveImages:    true,
+    PreserveLinks:     true,
+    PreserveVideos:    true,
+    PreserveAudios:    true,
+    InlineImageFormat: "markdown",
+}
+result, _ = html.Extract(htmlBytes, fullConfig)
 ```
 
 ---
@@ -295,60 +451,122 @@ results, _ := processor.ExtractBatchFiles(files, html.DefaultExtractConfig())
 ### 包级函数
 
 ```go
-// 提取
+// 提取（从字节）
 html.Extract(htmlBytes []byte, configs ...ExtractConfig) (*Result, error)
-html.ExtractText(htmlBytes []byte) (string, error)
+html.ExtractText(htmlBytes []byte, configs ...ExtractConfig) (string, error)
+
+// 提取（从文件）
 html.ExtractFromFile(filePath string, configs ...ExtractConfig) (*Result, error)
+html.ExtractTextFromFile(filePath string, configs ...ExtractConfig) (string, error)
 
-// 格式转换
-html.ExtractToMarkdown(htmlBytes []byte) (string, error)
-html.ExtractToJSON(htmlBytes []byte) ([]byte, error)
+// 格式转换（从字节）
+html.ExtractToMarkdown(htmlBytes []byte, configs ...ExtractConfig) (string, error)
+html.ExtractToJSON(htmlBytes []byte, configs ...ExtractConfig) ([]byte, error)
 
-// 链接
+// 格式转换（从文件）
+html.ExtractToMarkdownFromFile(filePath string, configs ...ExtractConfig) (string, error)
+html.ExtractToJSONFromFile(filePath string, configs ...ExtractConfig) ([]byte, error)
+
+// 链接（从字节）
 html.ExtractAllLinks(htmlBytes []byte, configs ...LinkExtractionConfig) ([]LinkResource, error)
+
+// 链接（从文件）
+html.ExtractAllLinksFromFile(filePath string, configs ...LinkExtractionConfig) ([]LinkResource, error)
 html.GroupLinksByType(links []LinkResource) map[string][]LinkResource
+
+// 批处理
+html.ExtractBatch(htmlContents [][]byte, configs ...ExtractConfig) ([]*Result, error)
+html.ExtractBatchFiles(filePaths []string, configs ...ExtractConfig) ([]*Result, error)
+html.ExtractBatchWithContext(ctx context.Context, htmlContents [][]byte, configs ...ExtractConfig) *BatchResult
+html.ExtractBatchFilesWithContext(ctx context.Context, filePaths []string, configs ...ExtractConfig) *BatchResult
 ```
 
 ### Processor 方法
-
 ```go
 // 创建
 processor, err := html.New()
-// 或使用自定义配置:
-processor, err := html.New(config)
+processor, err := html.New(config)                    // 使用 Config 结构体
+processor, err := html.New(html.HighSecurityConfig()) // 使用预设配置
+processor, err := html.New(myScorer)                  // 使用自定义 Scorer
 defer processor.Close()
 
-// 提取
+// 提取（从字节）
 processor.Extract(htmlBytes []byte, configs ...ExtractConfig) (*Result, error)
+processor.ExtractText(htmlBytes []byte, configs ...ExtractConfig) (string, error)
+
+// 提取（从文件）
 processor.ExtractFromFile(filePath string, configs ...ExtractConfig) (*Result, error)
+processor.ExtractTextFromFile(filePath string, configs ...ExtractConfig) (string, error)
+
+// 格式转换（从字节）
+processor.ExtractToMarkdown(htmlBytes []byte, configs ...ExtractConfig) (string, error)
+processor.ExtractToJSON(htmlBytes []byte, configs ...ExtractConfig) ([]byte, error)
+
+// 格式转换（从文件）
+processor.ExtractToMarkdownFromFile(filePath string, configs ...ExtractConfig) (string, error)
+processor.ExtractToJSONFromFile(filePath string, configs ...ExtractConfig) ([]byte, error)
+
+// 链接（从字节）
+processor.ExtractAllLinks(htmlBytes []byte, configs ...LinkExtractionConfig) ([]LinkResource, error)
+
+// 链接（从文件）
+processor.ExtractAllLinksFromFile(filePath string, configs ...LinkExtractionConfig) ([]LinkResource, error)
 
 // 批处理
 processor.ExtractBatch(contents [][]byte, configs ...ExtractConfig) ([]*Result, error)
 processor.ExtractBatchFiles(paths []string, configs ...ExtractConfig) ([]*Result, error)
-
-// 链接
-processor.ExtractAllLinks(htmlBytes []byte, configs ...LinkExtractionConfig) ([]LinkResource, error)
+processor.ExtractBatchWithContext(ctx context.Context, contents [][]byte, configs ...ExtractConfig) *BatchResult
+processor.ExtractBatchFilesWithContext(ctx context.Context, paths []string, configs ...ExtractConfig) *BatchResult
 
 // 监控
 processor.GetStatistics() Statistics
 processor.ClearCache()
 processor.ResetStatistics()
+processor.GetAuditLog() []AuditEntry
+processor.ClearAuditLog()
 ```
 
 ### 配置函数
 
 ```go
 // Processor 配置
-html.DefaultConfig()            Config
+html.DefaultConfig() Config        // 标准配置
+html.HighSecurityConfig() Config   // 安全优化配置
 
 // 提取配置
-html.DefaultExtractConfig()           ExtractConfig
+html.DefaultExtractConfig() ExtractConfig
 
 // 链接提取配置
-html.DefaultLinkExtractionConfig()           LinkExtractionConfig
+html.DefaultLinkExtractionConfig() LinkExtractionConfig
+
+// 审计配置
+html.DefaultAuditConfig() AuditConfig
+html.HighSecurityAuditConfig() AuditConfig
 ```
 
-**`DefaultConfig()` 的默认值:**
+### 配置函数
+
+```go
+// Processor 配置
+html.DefaultConfig() Config        // 标准配置
+html.HighSecurityConfig() Config   // 安全优化配置
+
+// 提取配置
+html.DefaultExtractConfig() ExtractConfig
+html.TextOnlyExtractConfig() ExtractConfig  // 文本专用预设
+html.FullContentExtractConfig() ExtractConfig // 完整内容预设
+
+// 链接提取配置
+html.DefaultLinkExtractionConfig() LinkExtractionConfig
+
+// 审计配置
+html.DefaultAuditConfig() AuditConfig
+html.HighSecurityAuditConfig() AuditConfig
+```
+
+### 默认配置值
+
+**DefaultConfig():**
 ```go
 Config{
     MaxInputSize:       50 * 1024 * 1024, // 50MB
@@ -361,7 +579,20 @@ Config{
 }
 ```
 
-**`DefaultExtractConfig()` 的默认值:**
+**HighSecurityConfig():**
+```go
+Config{
+    MaxInputSize:       10 * 1024 * 1024, // 10MB - 为安全而减小
+    MaxCacheEntries:    500,              // 减小缓存大小
+    CacheTTL:           30 * time.Minute, // 更短的 TTL
+    WorkerPoolSize:     2,                // 更少的 worker
+    EnableSanitization: true,
+    MaxDepth:           100,              // 减小深度限制
+    ProcessingTimeout:  10 * time.Second, // 更短的超时
+}
+```
+
+**DefaultExtractConfig():**
 ```go
 ExtractConfig{
     ExtractArticle:    true,
@@ -375,19 +606,19 @@ ExtractConfig{
 }
 ```
 
-**`DefaultLinkExtractionConfig()` 的默认值:**
+**DefaultLinkExtractionConfig():**
 ```go
 LinkExtractionConfig{
-    ResolveRelativeURLs:  true,  // 将相对 URL 转换为绝对 URL
-    BaseURL:              "",    // 解析的基础 URL（空 = 自动检测）
-    IncludeImages:        true,  // 提取图片链接
-    IncludeVideos:        true,  // 提取视频链接
-    IncludeAudios:        true,  // 提取音频链接
-    IncludeCSS:           true,  // 提取 CSS 链接
-    IncludeJS:            true,  // 提取 JavaScript 链接
-    IncludeContentLinks:  true,  // 提取内容链接
-    IncludeExternalLinks: true,  // 提取外部域名链接
-    IncludeIcons:         true,  // 提取 favicon/icon 链接
+    ResolveRelativeURLs:  true,
+    BaseURL:              "",    // 自动检测
+    IncludeImages:        true,
+    IncludeVideos:        true,
+    IncludeAudios:        true,
+    IncludeCSS:           true,
+    IncludeJS:            true,
+    IncludeContentLinks:  true,
+    IncludeExternalLinks: true,
+    IncludeIcons:         true,
 }
 ```
 
@@ -397,66 +628,70 @@ LinkExtractionConfig{
 
 ```go
 type Result struct {
-    Text           string        // 纯净文本内容
-    Title          string        // 页面/文章标题
-    Images         []ImageInfo   // 图片元数据
-    Links          []LinkInfo    // 链接元数据
-    Videos         []VideoInfo   // 视频元数据
-    Audios         []AudioInfo   // 音频元数据
-    WordCount      int           // 总字数
-    ReadingTime    time.Duration // 预估阅读时间 (JSON: reading_time_ms 毫秒)
-    ProcessingTime time.Duration // 耗时 (JSON: processing_time_ms 毫秒)
+    Text           string        `json:"text"`
+    Title          string        `json:"title"`
+    Images         []ImageInfo   `json:"images,omitempty"`
+    Links          []LinkInfo    `json:"links,omitempty"`
+    Videos         []VideoInfo   `json:"videos,omitempty"`
+    Audios         []AudioInfo   `json:"audios,omitempty"`
+    WordCount      int           `json:"word_count"`
+    ReadingTime    time.Duration `json:"reading_time_ms"`    // JSON: 毫秒
+    ProcessingTime time.Duration `json:"processing_time_ms"` // JSON: 毫秒
 }
 
 type ImageInfo struct {
-    URL          string  // 图片 URL
-    Alt          string  // 替代文本
-    Title        string  // 标题属性
-    Width        string  // 宽度属性
-    Height       string  // 高度属性
-    IsDecorative bool    // 无替代文本
-    Position     int     // 在文档中的位置
+    URL          string `json:"url"`
+    Alt          string `json:"alt"`
+    Title        string `json:"title"`
+    Width        string `json:"width"`
+    Height       string `json:"height"`
+    IsDecorative bool   `json:"is_decorative"`
+    Position     int    `json:"position"`
 }
 
 type LinkInfo struct {
-    URL        string  // 链接 URL
-    Text       string  // 锚文本
-    Title      string  // 标题属性
-    IsExternal bool    // 外部域名
-    IsNoFollow bool    // rel="nofollow"
+    URL        string `json:"url"`
+    Text       string `json:"text"`
+    Title      string `json:"title"`
+    IsExternal bool   `json:"is_external"`
+    IsNoFollow bool   `json:"is_nofollow"`
 }
 
 type VideoInfo struct {
-    URL      string  // 视频 URL
-    Type     string  // MIME 类型或 "embed"
-    Poster   string  // 海报图片 URL
-    Width    string  // 宽度属性
-    Height   string  // 高度属性
-    Duration string  // 时长属性
+    URL      string `json:"url"`
+    Type     string `json:"type"`
+    Poster   string `json:"poster"`
+    Width    string `json:"width"`
+    Height   string `json:"height"`
+    Duration string `json:"duration"`
 }
 
 type AudioInfo struct {
-    URL      string  // 音频 URL
-    Type     string  // MIME 类型
-    Duration string  // 时长属性
+    URL      string `json:"url"`
+    Type     string `json:"type"`
+    Duration string `json:"duration"`
 }
 
 type LinkResource struct {
-    URL   string  // 资源 URL
-    Title string  // 资源标题
-    Type  string  // 资源类型: css, js, image, video, audio, icon, link
+    URL   string
+    Title string
+    Type  string // "css", "js", "image", "video", "audio", "icon", "link"
 }
-```
 
-### 统计结构
+type BatchResult struct {
+    Results    []*Result
+    Errors     []error
+    Success    int
+    Failed     int
+    Cancelled  int
+}
 
-```go
 type Statistics struct {
-    TotalProcessed     int64         // 执行的提取总数
-    CacheHits          int64         // 缓存命中次数
-    CacheMisses        int64         // 缓存未命中次数
-    ErrorCount         int64         // 遇到的错误数
-    AverageProcessTime time.Duration // 平均每次提取的处理时间
+    TotalProcessed     int64
+    CacheHits          int64
+    CacheMisses        int64
+    ErrorCount         int64
+    AverageProcessTime time.Duration
 }
 ```
 
@@ -464,97 +699,182 @@ type Statistics struct {
 
 ## 🔒 安全特性
 
-库包含内置的安全保护机制:
+本库内置安全防护：
 
-### HTML 清理
-- **危险标签移除**: `<script>`, `<style>`, `<noscript>`, `<iframe>`, `<embed>`, `<object>`, `<form>`, `<input>`, `<button>`
-- **事件处理器移除**: 所有 `on*` 属性（onclick, onerror, onload 等）
-- **危险协议阻止**: `javascript:`, `vbscript:`, `data:`（安全媒体类型除外）
-- **XSS 预防**: 全面的清理以防止跨站脚本攻击
+### HTML 净化
+- **危险标签移除**：`<script>`、`<style>`、`<noscript>`、`<iframe>`、`<embed>`、`<object>`、`<form>`、`<input>`、`<button>`
+- **事件处理器移除**：所有 `on*` 属性（onclick、onerror、onload 等）
+- **危险协议阻止**：`javascript:`、`vbscript:`、`data:`（安全媒体类型除外）
+- **XSS 防护**：全面的净化以防止跨站脚本攻击
 
 ### 输入验证
-- **大小限制**: 可配置的 `MaxInputSize` 防止内存耗尽
-- **深度限制**: `MaxDepth` 防止深度嵌套 HTML 导致的栈溢出
-- **超时保护**: `ProcessingTimeout` 防止畸形输入导致挂起
-- **路径遍历保护**: `ExtractFromFile` 验证文件路径以防止目录遍历攻击
+- **大小限制**：可配置的 `MaxInputSize` 防止内存耗尽
+- **深度限制**：`MaxDepth` 防止深度嵌套 HTML 导致栈溢出
+- **超时保护**：`ProcessingTimeout` 防止格式错误输入导致挂起
+- **路径遍历防护**：`ExtractFromFile` 验证文件路径
 
-### 数据 URL 安全
-仅允许安全的媒体类型数据 URL:
-- **允许**: `data:image/*`, `data:font/*`, `data:application/pdf`
-- **阻止**: `data:text/html`, `data:text/javascript`, `data:text/plain`
+### Data URL 安全
+仅允许安全的媒体类型 data URL：
+- **允许**：`data:image/*`、`data:font/*`、`data:application/pdf`
+- **阻止**：`data:text/html`、`data:text/javascript`、`data:text/plain`
 
----
-
-## 性能基准
-
-基于 `benchmark_test.go`:
-
-| 操作 | 性能 | 说明 |
-|------|------|------|
-| 文本提取 | ~500ns 每个 HTML 文档 | 快速文本提取 |
-| 链接提取 | ~2μs 每个 HTML 文档 | 包含元数据提取 |
-| 完整提取 | ~5μs 每个 HTML 文档 | 启用所有功能 |
-| 缓存命中 | ~100ns | 缓存内容近即时 |
-
-**缓存优势:**
-- **SHA256 键**: 内容寻址缓存
-- **TTL 支持**: 可配置的缓存过期
-- **LRU 淘汰**: 使用双向链表的自动缓存管理
-- **线程安全**: 并发访问无需外部锁
+### 高安全预设
+需要更安全的应用请使用 `html.HighSecurityConfig()`：
+- 更小的输入大小限制（10MB vs 50MB）
+- 更低的深度限制（100 vs 500）
+- 更短的超时（10s vs 30s）
+- 默认启用审计日志
 
 ---
 
-查看 [examples/](examples) 目录获取完整可运行的代码:
+## 🔍 审计日志
 
-| 示例                                                           | 描述                          |
-|----------------------------------------------------------------|-----------------------------------|
-| [01_quick_start.go](examples/01_quick_start.go)               | 快速入门单行代码                |
-| [02_content_extraction.go](examples/02_content_extraction.go) | 内容提取基础                    |
-| [03_links_and_urls.go](examples/03_links_and_urls.go)         | 链接提取与 URL 解析             |
-| [04_media_extraction.go](examples/04_media_extraction.go)     | 媒体文件提取                    |
-| [05_config_performance.go](examples/05_config_performance.go) | 配置与性能调优                  |
-| [06_http_integration.go](examples/06_http_integration.go)     | HTTP 集成模式                   |
-| [07_advanced_usage.go](examples/07_advanced_usage.go)         | 高级功能和批处理                |
-| [08_output_formats.go](examples/08_output_formats.go)         | JSON 和 Markdown 输出格式       |
-| [09_error_handling.go](examples/09_error_handling.go)         | 错误处理模式                    |
-| [10_real_world.go](examples/10_real_world.go)                 | 实际用例                        |
+本库提供全面的审计日志功能以满足安全合规要求：
+
+### 启用审计日志
+
+```go
+// 方法 1：使用 HighSecurityConfig（默认启用审计）
+processor, _ := html.New(html.HighSecurityConfig())
+
+// 方法 2：自定义配置并启用审计
+config := html.DefaultConfig()
+config.Audit = html.AuditConfig{
+    Enabled:            true,
+    LogBlockedTags:     true,
+    LogBlockedAttrs:    true,
+    LogBlockedURLs:     true,
+    LogInputViolations: true,
+    LogDepthViolations: true,
+    LogTimeouts:        true,
+    LogEncodingIssues:  true,
+    LogPathTraversal:   true,
+}
+processor, _ := html.New(config)
+```
+
+### 获取审计日志
+
+```go
+processor, _ := html.New(html.HighSecurityConfig())
+defer processor.Close()
+
+// 处理内容
+processor.Extract(htmlBytes, html.DefaultExtractConfig())
+
+// 获取审计条目
+entries := processor.GetAuditLog()
+for _, entry := range entries {
+    fmt.Printf("[%s] %s: %s\n", entry.Level, entry.EventType, entry.Message)
+}
+
+// 清除审计日志
+processor.ClearAuditLog()
+```
+
+### 审计条目结构
+
+```go
+type AuditEntry struct {
+    Timestamp time.Time      `json:"timestamp"`
+    EventType AuditEventType `json:"event_type"`
+    Level     AuditLevel     `json:"level"`
+    Message   string         `json:"message"`
+    Tag       string         `json:"tag,omitempty"`
+    Attribute string         `json:"attribute,omitempty"`
+    URL       string         `json:"url,omitempty"`
+    InputSize int            `json:"input_size,omitempty"`
+    MaxSize   int            `json:"max_size,omitempty"`
+    Depth     int            `json:"depth,omitempty"`
+    MaxDepth  int            `json:"max_depth,omitempty"`
+    Path      string         `json:"path,omitempty"`
+    RawValue  string         `json:"raw_value,omitempty"`
+}
+```
+
+### 自定义审计输出目标
+
+```go
+import "github.com/cybergodev/html"
+
+// 将审计日志写入文件
+file, _ := os.Create("audit.log")
+fileSink := html.NewWriterAuditSink(file)
+
+// 仅过滤关键事件
+filteredSink := html.NewLevelFilteredSink(fileSink, html.AuditLevelCritical)
+
+// 在配置中使用自定义输出目标
+config := html.DefaultConfig()
+config.Audit = html.AuditConfig{
+    Enabled: true,
+    Sink:    filteredSink,
+}
+processor, _ := html.New(config)
+```
+
+### 内置审计输出目标
+
+| 输出目标 | 描述 |
+|---------|------|
+| `NewLoggerAuditSink()` | 写入 stderr，带 `[AUDIT]` 前缀 |
+| `NewLoggerAuditSinkWithWriter(w)` | 写入自定义 io.Writer |
+| `NewWriterAuditSink(w)` | 以 JSON 行格式写入 io.Writer |
+| `NewChannelAuditSink(bufferSize)` | 发送到通道供外部处理 |
+| `NewMultiSink(sinks...)` | 组合多个输出目标 |
+| `NewFilteredSink(sink, filter)` | 写入前过滤条目 |
+| `NewLevelFilteredSink(sink, level)` | 仅输出指定级别及以上的条目 |
+
+---
+
+## 示例代码
+
+完整的可运行示例请参见 [examples/](examples) 目录：
+
+| 示例 | 描述 |
+|------|------|
+| [01_quick_start.go](examples/01_quick_start.go) | 快速入门（3 步上手） |
+| [02_content_extraction.go](examples/02_content_extraction.go) | 内容提取配置（预设选项、自定义配置） |
+| [03_links_media.go](examples/03_links_media.go) | 链接与媒体提取（URL 解析、图片/视频/音频） |
+| [04_output_formats.go](examples/04_output_formats.go) | 输出格式（JSON、Markdown、表格格式） |
+| [05_configuration.go](examples/05_configuration.go) | 配置与性能（缓存、批处理、并发） |
+| [06_http_integration.go](examples/06_http_integration.go) | HTTP 集成（获取网页、并发处理） |
+| [07_advanced_usage.go](examples/07_advanced_usage.go) | 高级功能（自定义评分器、审计系统、安全配置） |
+| [08_error_handling.go](examples/08_error_handling.go) | 错误处理模式 |
+| [09_real_world.go](examples/09_real_world.go) | 实际应用案例（博客、RSS、文档） |
 
 ---
 
 ## 兼容性
 
-本库是 `golang.org/x/net/html` 的**直接替代品**:
+本库是 `golang.org/x/net/html` 的**直接替代品**：
 
 ```go
-// 只需修改导入
+// 只需更改导入
 - import "golang.org/x/net/html"
 + import "github.com/cybergodev/html"
 
-// 所有现有代码都能工作
+// 所有现有代码继续工作
 doc, err := html.Parse(reader)
 html.Render(writer, doc)
 escaped := html.EscapeString("<script>")
 ```
 
-库重新导出 `golang.org/x/net/html` 的所有常用类型、常量和函数:
-- **类型**: `Node`, `NodeType`, `Token`, `Attribute`, `Tokenizer`, `ParseOption`
-- **常量**: 所有 `NodeType` 和 `TokenType` 常量
-- **函数**: `Parse`, `ParseFragment`, `ParseWithOptions`, `ParseFragmentWithOptions`, `Render`, `EscapeString`, `UnescapeString`, `NewTokenizer`, `NewTokenizerFragment`, `ParseOptionEnableScripting`
+本库重新导出了常用的类型、常量和函数：
+- **类型**：`Node`、`NodeType`、`Token`、`Attribute`、`Tokenizer`、`ParseOption`
+- **常量**：所有 `NodeType` 和 `TokenType` 常量（`ErrorNode`、`TextNode`、`DocumentNode`、`ElementNode` 等）
+- **函数**：`Parse`、`ParseFragment`、`Render`、`EscapeString`、`UnescapeString`、`NewTokenizer`、`NewTokenizerFragment`
 
 ---
 
 ## 线程安全
 
-`Processor` 可安全地并发使用:
+`Processor` 可安全并发使用：
 
 ```go
-processor, err := html.New()
-if err != nil {
-    log.Fatal(err)
-}
+processor, _ := html.New()
 defer processor.Close()
 
-// 可从多个 goroutine 安全使用
 var wg sync.WaitGroup
 for i := 0; i < 100; i++ {
     wg.Add(1)
@@ -570,13 +890,14 @@ wg.Wait()
 
 ## 🤝 贡献
 
-欢迎贡献代码、报告问题和提出建议！
+欢迎贡献！提交 PR 前请阅读贡献指南。
 
 ## 📄 许可证
 
-MIT 许可证 - 详见 [LICENSE](LICENSE) 文件
+MIT 许可证 - 详情见 [LICENSE](LICENSE) 文件。
 
 ---
 
-**为 Go 社区精心打造** ❤️ | 如果这个项目对你有帮助，请给它一个 ⭐️ Star！
+**用心为 Go 社区打造**
 
+如果这个项目对你有帮助，请给个 Star！

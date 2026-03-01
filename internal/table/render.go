@@ -3,8 +3,6 @@ package table
 import (
 	"strconv"
 	"strings"
-
-	"golang.org/x/net/html"
 )
 
 const (
@@ -27,34 +25,6 @@ func ensureColWidthCapacity(colWidths []string, index int) []string {
 	newSlice := make([]string, newCap, newCap+initialColWidthsCap)
 	copy(newSlice, colWidths)
 	return newSlice
-}
-
-// Extract extracts HTML table content and converts it to the specified format.
-// This is the main entry point for table extraction that orchestrates the multi-step process.
-//
-// Deprecated: Use Processor.Extract with CellAccessor and NodeWalker interfaces for better testability.
-// This function is maintained for backward compatibility.
-func Extract(table *html.Node, tb *TrackedBuilder, tableFormat string, getCellAlignFunc func(*html.Node) CellAlignment,
-	getColSpanFunc func(*html.Node) int, getRowSpanFunc func(*html.Node) int, getCellWidthFunc func(*html.Node) string,
-	getTextContentFunc func(*html.Node) string, walkNodesFunc func(*html.Node, func(*html.Node) bool)) {
-	if table == nil {
-		return
-	}
-
-	// Create adapter using the function-based implementation
-	accessor := &FuncCellAccessor{
-		GetAlignmentFunc:   getCellAlignFunc,
-		GetColSpanFunc:     getColSpanFunc,
-		GetRowSpanFunc:     getRowSpanFunc,
-		GetWidthFunc:       getCellWidthFunc,
-		GetTextContentFunc: getTextContentFunc,
-	}
-	walker := &FuncNodeWalker{
-		WalkFunc: walkNodesFunc,
-	}
-
-	processor := NewProcessor(accessor, walker)
-	processor.Extract(table, tb, tableFormat)
 }
 
 // isStructureRow determines if a row contains only width definitions (no real content).
@@ -390,7 +360,8 @@ func renderHTMLCell(tb *TrackedBuilder, cell CellData) {
 	if cell.IsHeader {
 		tag = "th"
 	}
-	tb.WriteString("    <" + tag)
+	tb.WriteString("    <")
+	tb.WriteString(tag)
 
 	// Add style attribute
 	style := buildCellStyle(cell)
@@ -417,7 +388,9 @@ func renderHTMLCell(tb *TrackedBuilder, cell CellData) {
 	// Write cell content
 	tb.WriteString(">")
 	tb.WriteString(cell.Text)
-	tb.WriteString("</" + tag + ">\n")
+	tb.WriteString("</")
+	tb.WriteString(tag)
+	tb.WriteString(">\n")
 }
 
 // buildCellStyle constructs the style attribute value for a table cell.

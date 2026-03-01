@@ -8,9 +8,55 @@ import (
 	"golang.org/x/net/html"
 )
 
+// htmlCellAccessor implements table.CellAccessor using the existing helper functions.
+type htmlCellAccessor struct{}
+
+// GetAlignment implements table.CellAccessor.
+func (a *htmlCellAccessor) GetAlignment(node *html.Node) table.CellAlignment {
+	return getCellAlign(node)
+}
+
+// GetColSpan implements table.CellAccessor.
+func (a *htmlCellAccessor) GetColSpan(node *html.Node) int {
+	return getColSpan(node)
+}
+
+// GetRowSpan implements table.CellAccessor.
+func (a *htmlCellAccessor) GetRowSpan(node *html.Node) int {
+	return getRowSpan(node)
+}
+
+// GetWidth implements table.CellAccessor.
+func (a *htmlCellAccessor) GetWidth(node *html.Node) string {
+	return getCellWidth(node)
+}
+
+// GetTextContent implements table.CellAccessor.
+func (a *htmlCellAccessor) GetTextContent(node *html.Node) string {
+	return GetTextContent(node)
+}
+
+// htmlNodeWalker implements table.NodeWalker using the existing WalkNodes function.
+type htmlNodeWalker struct{}
+
+// Walk implements table.NodeWalker.
+func (w *htmlNodeWalker) Walk(node *html.Node, callback func(*html.Node) bool) {
+	WalkNodes(node, callback)
+}
+
+// defaultTableAccessor is the default accessor instance for table extraction.
+var defaultTableAccessor = &htmlCellAccessor{}
+
+// defaultTableWalker is the default walker instance for table extraction.
+var defaultTableWalker = &htmlNodeWalker{}
+
+// TableProcessor returns the table processor with default accessor and walker.
+func TableProcessor() *table.Processor {
+	return table.NewProcessor(defaultTableAccessor, defaultTableWalker)
+}
+
 // Type aliases for table package types (for internal use)
 type cellAlign = table.CellAlignment
-type cellData = table.CellData
 
 // Constants for cell alignment (for internal use)
 const (

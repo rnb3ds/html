@@ -31,6 +31,10 @@ var (
 
 	// ErrInvalidFilePath is returned when file path validation fails.
 	ErrInvalidFilePath = errors.New("html: invalid file path")
+
+	// ErrInternalPanic is returned when an unexpected panic occurs during processing.
+	// This error indicates an internal bug and should be reported to the library maintainers.
+	ErrInternalPanic = errors.New("html: internal panic recovered")
 )
 
 // InputError provides context for input-related errors.

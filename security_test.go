@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
+	"unicode/utf8"
 
 	"github.com/cybergodev/html"
 )
@@ -165,7 +167,7 @@ func TestDeepNestingDoSPrevention(t *testing.T) {
 	}
 	defer p.Close()
 
-	// Create deeply nested HTML
+	// Create deeply nested HTML (100 levels, exceeding MaxDepth of 50)
 	deepHTML := "<html><body>"
 	for i := 0; i < 100; i++ {
 		deepHTML += "<div>"
@@ -177,13 +179,34 @@ func TestDeepNestingDoSPrevention(t *testing.T) {
 	deepHTML += "</body></html>"
 
 	result, err := p.Extract([]byte(deepHTML), html.DefaultExtractConfig())
+
+	// The library should either:
+	// 1. Process successfully (being tolerant of deep nesting), OR
+	// 2. Return a clear error (rejecting the input)
+	// Either behavior is acceptable for DoS prevention
 	if err != nil {
-		// Deep nesting should either work or return a clear error
-		t.Logf("Deep nesting handled with: %v", err)
+		// Error is acceptable - input was rejected
+		if !strings.Contains(err.Error(), "depth") &&
+			!strings.Contains(err.Error(), "invalid") &&
+			err != html.ErrInvalidHTML {
+			t.Errorf("Unexpected error for deep nesting: %v", err)
+		}
+		return
 	}
-	if result != nil && strings.Contains(result.Text, "Content") {
-		// Content should still be extracted if processing succeeded
-		t.Log("Content extracted from deeply nested HTML")
+
+	// If processing succeeded, verify the result is valid
+	if result == nil {
+		t.Fatal("Expected non-nil result when no error returned")
+	}
+
+	// Content should be extracted if processing succeeded
+	if !strings.Contains(result.Text, "Content") {
+		t.Errorf("Expected 'Content' in extracted text, got: %q", result.Text)
+	}
+
+	// Verify text is not empty
+	if result.Text == "" {
+		t.Error("Expected non-empty text extraction from deeply nested HTML")
 	}
 }
 
@@ -324,12 +347,39 @@ func TestInvalidUTF8Handling(t *testing.T) {
 	}
 
 	result, err := p.Extract(invalidUTF8, html.DefaultExtractConfig())
+
+	// The library should handle invalid UTF-8 gracefully:
+	// 1. Either process it (sanitizing/replacing invalid sequences), OR
+	// 2. Return a clear error
 	if err != nil {
-		t.Logf("Invalid UTF-8 handled with error: %v", err)
+		// Error is acceptable - invalid input was rejected
+		if !strings.Contains(err.Error(), "encoding") &&
+			!strings.Contains(err.Error(), "utf") &&
+			!strings.Contains(err.Error(), "invalid") &&
+			err != html.ErrInvalidHTML {
+			t.Errorf("Unexpected error for invalid UTF-8: %v", err)
+		}
+		return
 	}
-	if result != nil && result.Text == "" {
-		// Empty result is acceptable for severely invalid input
-		t.Log("Empty result for invalid UTF-8")
+
+	// If processing succeeded, verify the result is valid
+	if result == nil {
+		t.Fatal("Expected non-nil result when no error returned")
+	}
+
+	// The text should be valid UTF-8 (no replacement characters from invalid sequences)
+	// Check that result.Text is valid UTF-8
+	for i, r := range result.Text {
+		if r == utf8.RuneError {
+			// Check if this is a valid RuneError or an invalid sequence
+			// The library should sanitize invalid sequences
+			t.Logf("RuneError found at position %d in result text", i)
+		}
+	}
+
+	// Content should be present (the valid "Content" text)
+	if !strings.Contains(result.Text, "Content") {
+		t.Errorf("Expected 'Content' in extracted text, got: %q", result.Text)
 	}
 }
 
@@ -351,14 +401,31 @@ func TestControlCharacterHandling(t *testing.T) {
 		t.Fatalf("Extract() failed: %v", err)
 	}
 
-	// Control characters may be preserved in the text - that's acceptable behavior
-	// The important thing is that extraction doesn't crash and returns a result
+	// Verify the result is valid
 	if result == nil {
-		t.Error("Expected non-nil result")
+		t.Fatal("Expected non-nil result")
 	}
 
-	// Just verify that extraction completed successfully
-	_ = result.Text
+	// The text should be non-empty
+	if result.Text == "" {
+		t.Error("Expected non-empty text extraction")
+	}
+
+	// Verify that some content was extracted (control chars may be sanitized or preserved)
+	// The key requirement is that extraction doesn't crash
+	if !strings.Contains(result.Text, "Content") && !strings.Contains(result.Text, "with") {
+		t.Errorf("Expected 'Content' or 'with' in extracted text, got: %q", result.Text)
+	}
+
+	// Check that null bytes are handled safely (removed or replaced, not causing issues)
+	if strings.Contains(result.Text, "\x00") {
+		// Null bytes in output may be acceptable but should be documented
+		t.Logf("Warning: Null byte present in extracted text")
+	}
+
+	// Verify no control characters in the printable range cause crashes
+	// The extraction should complete without panicking
+	t.Logf("Successfully extracted text with length %d from control character input", len(result.Text))
 }
 
 // TestNullByteInjection tests null byte handling in URLs and paths
@@ -454,5 +521,165 @@ func BenchmarkDoSPreventionChecks(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		_, _ = p.Extract(htmlContent, html.DefaultExtractConfig())
+	}
+}
+
+// TestSVGXSSPrevention tests that SVG-based XSS attacks are blocked
+func TestSVGXSSPrevention(t *testing.T) {
+	t.Parallel()
+
+	p, err := html.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer p.Close()
+
+	svgPayloads := []struct {
+		name string
+		html string
+	}{
+		{
+			name: "svg with onload event",
+			html: `<html><body><svg onload="alert('XSS')"><circle cx="50"/></svg><p>Content</p></body></html>`,
+		},
+		{
+			name: "svg with embedded script",
+			html: `<html><body><svg><script>alert('XSS')</script></svg><p>Content</p></body></html>`,
+		},
+		{
+			name: "svg with foreignObject",
+			html: `<html><body><svg><foreignObject><body onload="alert('XSS')"></body></foreignObject></svg><p>Content</p></body></html>`,
+		},
+		{
+			name: "svg animate element",
+			html: `<html><body><svg><animate onbegin="alert('XSS')" attributeName="x"/></svg><p>Content</p></body></html>`,
+		},
+		{
+			name: "svg use xlink",
+			html: `<html><body><svg><use xlink:href="data:image/svg+xml,<svg onload='alert(1)'/>"/></svg><p>Content</p></body></html>`,
+		},
+		{
+			name: "svg set element",
+			html: `<html><body><svg><set onbegin="alert('XSS')"/></svg><p>Content</p></body></html>`,
+		},
+	}
+
+	for _, tt := range svgPayloads {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := p.Extract([]byte(tt.html), html.DefaultExtractConfig())
+			if err != nil {
+				t.Fatalf("Extract() failed: %v", err)
+			}
+
+			extractedText := strings.ToLower(result.Text)
+			if strings.Contains(extractedText, "alert") {
+				t.Errorf("SVG XSS payload not sanitized: %s", extractedText)
+			}
+			if strings.Contains(extractedText, "onload") {
+				t.Errorf("SVG onload event not removed: %s", extractedText)
+			}
+		})
+	}
+}
+
+// TestMathMLXSSPrevention tests that MathML-based XSS attacks are blocked
+func TestMathMLXSSPrevention(t *testing.T) {
+	t.Parallel()
+
+	p, err := html.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer p.Close()
+
+	mathPayloads := []struct {
+		name string
+		html string
+	}{
+		{
+			name: "math with annotation-xml",
+			html: `<html><body><math><annotation-xml encoding="application/xhtml+xml"><script>alert('XSS')</script></annotation-xml></math><p>Content</p></body></html>`,
+		},
+		{
+			name: "math with javascript href",
+			html: `<html><body><math href="javascript:alert('XSS')"><mtext>click</mtext></math><p>Content</p></body></html>`,
+		},
+	}
+
+	for _, tt := range mathPayloads {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := p.Extract([]byte(tt.html), html.DefaultExtractConfig())
+			if err != nil {
+				t.Fatalf("Extract() failed: %v", err)
+			}
+
+			extractedText := strings.ToLower(result.Text)
+			if strings.Contains(extractedText, "alert") {
+				t.Errorf("MathML XSS payload not sanitized: %s", extractedText)
+			}
+		})
+	}
+}
+
+// TestHighSecurityConfig tests the high-security configuration
+func TestHighSecurityConfig(t *testing.T) {
+	t.Parallel()
+
+	config := html.HighSecurityConfig()
+
+	// Verify security-enhanced settings
+	if config.MaxInputSize > 10*1024*1024 {
+		t.Errorf("HighSecurityConfig MaxInputSize should be <= 10MB, got %d", config.MaxInputSize)
+	}
+	if config.MaxDepth > 100 {
+		t.Errorf("HighSecurityConfig MaxDepth should be <= 100, got %d", config.MaxDepth)
+	}
+	if config.ProcessingTimeout > 15*time.Second {
+		t.Errorf("HighSecurityConfig ProcessingTimeout should be <= 15s, got %v", config.ProcessingTimeout)
+	}
+	if !config.EnableSanitization {
+		t.Error("HighSecurityConfig should always have EnableSanitization=true")
+	}
+
+	// Test that high-security config works
+	p, err := html.New(config)
+	if err != nil {
+		t.Fatalf("Failed to create processor with HighSecurityConfig: %v", err)
+	}
+	defer p.Close()
+
+	// Test with normal content
+	htmlContent := []byte(`<html><body><h1>Test</h1><p>Content</p></body></html>`)
+	result, err := p.Extract(htmlContent, html.DefaultExtractConfig())
+	if err != nil {
+		t.Fatalf("Extract() failed: %v", err)
+	}
+	if result.Text == "" {
+		t.Error("Expected non-empty text extraction")
+	}
+
+	// Test that oversized input is rejected
+	largeHTML := make([]byte, 15*1024*1024) // 15MB, exceeds 10MB limit
+	_, err = p.Extract(largeHTML, html.DefaultExtractConfig())
+	if err == nil {
+		t.Error("Expected error for oversized input in high-security mode")
+	}
+}
+
+// TestHighSecurityConfigStricterThanDefault verifies high-security is more restrictive
+func TestHighSecurityConfigStricterThanDefault(t *testing.T) {
+	t.Parallel()
+
+	defaultConfig := html.DefaultConfig()
+	highSecConfig := html.HighSecurityConfig()
+
+	if highSecConfig.MaxInputSize >= defaultConfig.MaxInputSize {
+		t.Error("HighSecurityConfig MaxInputSize should be smaller than default")
+	}
+	if highSecConfig.MaxDepth >= defaultConfig.MaxDepth {
+		t.Error("HighSecurityConfig MaxDepth should be smaller than default")
+	}
+	if highSecConfig.ProcessingTimeout >= defaultConfig.ProcessingTimeout {
+		t.Error("HighSecurityConfig ProcessingTimeout should be shorter than default")
 	}
 }

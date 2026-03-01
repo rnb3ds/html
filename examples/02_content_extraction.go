@@ -4,6 +4,7 @@ package main
 
 import (
 	"fmt"
+	"log"
 
 	"github.com/cybergodev/html"
 	"github.com/cybergodev/html/examples/truncate"
@@ -12,27 +13,18 @@ import (
 // This example demonstrates how to customize content extraction.
 // Learn how to control what gets extracted and how it's formatted.
 func main() {
-	fmt.Println("=== Content Extraction Options ===\n ")
+	fmt.Println("=== Content Extraction Options ===\n")
 
-	// Sample HTML with various elements
 	sampleHTML := `
 		<html>
 			<head><title>Go Interfaces Guide</title></head>
 			<body>
-				<nav>Menu • About • Contact</nav>
-				<aside>
-					<div class="ad">Sponsored Content</div>
-				</aside>
-				<main>
-					<article>
-						<h1>Understanding Go Interfaces</h1>
-						<p>Interfaces provide a way to specify the behavior of an object.</p>
-						<img src="diagram.jpg" alt="Interface Diagram" width="600" height="400">
-						<h2>Key Benefits</h2>
-						<p>Decoupling and flexibility are the main advantages.</p>
-					</article>
-				</main>
-				<footer>Copyright 2024</footer>
+				<article>
+					<h1>Understanding Go Interfaces</h1>
+					<p>Interfaces provide a way to specify behavior.</p>
+					<img src="diagram.jpg" alt="Interface Diagram" width="600">
+					<a href="https://go.dev/tour/">Go Tour</a>
+				</article>
 			</body>
 		</html>
 	`
@@ -41,107 +33,90 @@ func main() {
 	defer processor.Close()
 
 	// ============================================================
-	// OPTION 1: Quick text extraction
+	// 1. Default extraction
 	// ============================================================
-	fmt.Println("Option 1: Quick Text Extraction")
-	fmt.Println("--------------------------------")
-
-	// Use default config for text extraction
+	fmt.Println("1. Default extraction:")
 	result, _ := processor.Extract([]byte(sampleHTML))
-	fmt.Printf("Default: %d words, %d images, %d links\n",
+	fmt.Printf("   Words: %d, Images: %d, Links: %d\n\n",
 		result.WordCount, len(result.Images), len(result.Links))
 
 	// ============================================================
-	// OPTION 2: Text only (no media)
+	// 2. Text-only (using preset config)
 	// ============================================================
-	fmt.Println("\nOption 2: Text Only")
-	fmt.Println("-------------------")
-
-	textOnlyConfig := html.ExtractConfig{
-		ExtractArticle:    true,
-		PreserveImages:    false,
-		PreserveLinks:     false,
-		PreserveVideos:    false,
-		PreserveAudios:    false,
-		InlineImageFormat: "none",
-	}
+	fmt.Println("2. Text-only (using TextOnlyExtractConfig()):")
+	textOnlyConfig := html.TextOnlyExtractConfig()
 	result, _ = processor.Extract([]byte(sampleHTML), textOnlyConfig)
-	fmt.Printf("Text only: %d words, %d images\n", result.WordCount, len(result.Images))
+	fmt.Printf("   %s\n\n", truncate.Truncate(result.Text, 60))
 
 	// ============================================================
-	// OPTION 3: Full content with markdown images
+	// 3. Full content with markdown images
 	// ============================================================
-	fmt.Println("\nOption 3: Full Content with Markdown")
-	fmt.Println("------------------------------------")
+	fmt.Println("3. Full content (using FullContentExtractConfig()):")
+	fullConfig := html.FullContentExtractConfig()
+	result, _ = processor.Extract([]byte(sampleHTML), fullConfig)
+	fmt.Printf("   %s\n\n", truncate.Truncate(result.Text, 80))
 
-	fullConfig := html.ExtractConfig{
+	// ============================================================
+	// 4. Custom configuration
+	// ============================================================
+	fmt.Println("4. Custom configuration (images + links, no videos):")
+	customConfig := html.ExtractConfig{
 		ExtractArticle:    true,
 		PreserveImages:    true,
 		PreserveLinks:     true,
-		PreserveVideos:    true,
-		PreserveAudios:    true,
+		PreserveVideos:    false,
+		PreserveAudios:    false,
 		InlineImageFormat: "markdown",
-		TableFormat:       "markdown",
 	}
-	result, _ = processor.Extract([]byte(sampleHTML), fullConfig)
-	fmt.Printf("Full content: %s\n", truncate.Truncate(result.Text, 80))
+	result, _ = processor.Extract([]byte(sampleHTML), customConfig)
+	fmt.Printf("   %s\n\n", truncate.Truncate(result.Text, 80))
 
 	// ============================================================
-	// OPTION 4: Image embedding formats
+	// 5. Image format options
 	// ============================================================
-	fmt.Println("\nOption 4: Image Embedding Formats")
-	fmt.Println("---------------------------------")
+	fmt.Println("5. Image format options:")
+	imageHTML := `<img src="photo.jpg" alt="Photo">`
 
-	imageFormats := []struct {
-		name   string
-		format string
-	}{
-		{"none", "none"},
-		{"markdown", "markdown"},
-		{"html", "html"},
-		{"placeholder", "placeholder"},
-	}
-
-	for _, f := range imageFormats {
+	for _, format := range []string{"none", "markdown", "html", "placeholder"} {
 		config := html.DefaultExtractConfig()
-		config.InlineImageFormat = f.format
-		result, _ = processor.Extract([]byte(sampleHTML), config)
-		fmt.Printf("  %s: %s\n", f.name, truncate.Truncate(result.Text, 50))
+		config.InlineImageFormat = format
+		result, _ := processor.Extract([]byte(imageHTML), config)
+		fmt.Printf("   %-12s: %s\n", format, truncate.Truncate(result.Text, 40))
 	}
 
 	// ============================================================
-	// OPTION 5: Table formatting
+	// 6. Encoding specification
 	// ============================================================
-	fmt.Println("\nOption 5: Table Formatting")
-	fmt.Println("--------------------------")
+	fmt.Println("\n6. Encoding specification (for non-UTF-8 HTML):")
+	config := html.DefaultExtractConfig()
+	config.Encoding = "windows-1252" // Explicit encoding
+	fmt.Println("   Set Encoding field for non-UTF-8 content")
+	fmt.Println("   Supported: UTF-8, GBK, Big5, Shift_JIS, Windows-1250/1251/1252, ISO-8859-*")
 
-	tableHTML := `<html><body>
-		<table>
-			<tr><th>Product</th><th>Price</th></tr>
-			<tr><td>Go Book</td><td>$29.99</td></tr>
-		</table>
-	</body></html>`
+	// ============================================================
+	// 7. Extract from file
+	// ============================================================
+	fmt.Println("\n7. Extract from file:")
+	fmt.Println("   result, err := processor.ExtractFromFile(\"article.html\")")
+	fmt.Println("   // Auto-detects encoding (UTF-8, GBK, Shift_JIS, etc.)")
 
-	for _, format := range []string{"markdown", "html"} {
-		config := html.DefaultExtractConfig()
-		config.TableFormat = format
-		result, _ = processor.Extract([]byte(tableHTML), config)
-		fmt.Printf("\nFormat: %s\n%s\n", format, result.Text)
+	// ============================================================
+	// Summary
+	// ============================================================
+	fmt.Println("\n=== Configuration Summary ===")
+	fmt.Println("• TextOnlyExtractConfig()   - Plain text, no media")
+	fmt.Println("• FullContentExtractConfig() - All media with markdown formatting")
+	fmt.Println("• InlineImageFormat: none | markdown | html | placeholder")
+	fmt.Println("• TableFormat:    markdown | html")
+	fmt.Println("• Encoding:       Specify for non-UTF-8 content")
+}
+
+// Demonstrate file extraction (commented to avoid file not found error)
+func demonstrateFileExtraction(processor *html.Processor) {
+	result, err := processor.ExtractFromFile("article.html")
+	if err != nil {
+		log.Printf("File error: %v", err)
+		return
 	}
-
-	// ============================================================
-	// OPTION 6: Encoding specification
-	// ============================================================
-	fmt.Println("\nOption 6: Encoding Specification")
-	fmt.Println("--------------------------------")
-
-	// For non-UTF-8 HTML, specify the encoding
-	encodedHTML := `<html><body><h1>Test</h1><p>Content</p></body></html>`
-
-	encodingConfig := html.DefaultExtractConfig()
-	encodingConfig.Encoding = "windows-1252" // Specify encoding explicitly
-	result, _ = processor.Extract([]byte(encodedHTML), encodingConfig)
-	fmt.Printf("With encoding: %s\n", result.Title)
-
-	fmt.Println("\n✓ You now know all extraction options!")
+	fmt.Printf("File content: %s\n", result.Title)
 }

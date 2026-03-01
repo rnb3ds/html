@@ -100,8 +100,15 @@ func CleanText(text string, whitespaceRegex *regexp.Regexp) string {
 		whitespaceRegex = defaultWhitespaceRegex
 	}
 	textLen := len(text)
-	var result strings.Builder
-	result.Grow(textLen / cleanTextGrowthFactor)
+
+	// Use pooled builder for better memory efficiency
+	sb := BuilderPool.Get().(*strings.Builder)
+	defer func() {
+		sb.Reset()
+		BuilderPool.Put(sb)
+	}()
+
+	sb.Grow(textLen / cleanTextGrowthFactor)
 	start := 0
 	previousWasEmpty := false
 
@@ -131,13 +138,13 @@ func CleanText(text string, whitespaceRegex *regexp.Regexp) string {
 					if content != "" {
 						line := indent + content
 						isEmpty = false
-						if result.Len() > 0 {
+						if sb.Len() > 0 {
 							if previousWasEmpty {
-								result.WriteByte('\n')
+								sb.WriteByte('\n')
 							}
-							result.WriteByte('\n')
+							sb.WriteByte('\n')
 						}
-						result.WriteString(line)
+						sb.WriteString(line)
 					}
 				} else {
 					// No leading indentation, compress all whitespace
@@ -145,13 +152,13 @@ func CleanText(text string, whitespaceRegex *regexp.Regexp) string {
 					line = strings.TrimRight(line, " ")
 					if line != "" {
 						isEmpty = false
-						if result.Len() > 0 {
+						if sb.Len() > 0 {
 							if previousWasEmpty {
-								result.WriteByte('\n')
+								sb.WriteByte('\n')
 							}
-							result.WriteByte('\n')
+							sb.WriteByte('\n')
 						}
-						result.WriteString(line)
+						sb.WriteString(line)
 					}
 				}
 			}
@@ -160,7 +167,7 @@ func CleanText(text string, whitespaceRegex *regexp.Regexp) string {
 			start = i + 1
 		}
 	}
-	return ReplaceHTMLEntities(unwantedCharReplacer.Replace(result.String()))
+	return ReplaceHTMLEntities(unwantedCharReplacer.Replace(sb.String()))
 }
 
 func WalkNodes(node *html.Node, fn func(*html.Node) bool) {
@@ -185,7 +192,13 @@ func FindElementByTag(doc *html.Node, tagName string) *html.Node {
 }
 
 func GetTextContent(node *html.Node) string {
-	var sb strings.Builder
+	// Use pooled builder for better memory efficiency
+	sb := BuilderPool.Get().(*strings.Builder)
+	defer func() {
+		sb.Reset()
+		BuilderPool.Put(sb)
+	}()
+
 	sb.Grow(builderInitialSize)
 	prevEndedWithSpace := false
 
@@ -341,54 +354,63 @@ func fastReplaceCommonEntities(text string) string {
 		return text
 	}
 
-	var sb strings.Builder
+	// Use pooled builder for better memory efficiency
+	sb := BuilderPool.Get().(*strings.Builder)
+	defer func() {
+		sb.Reset()
+		BuilderPool.Put(sb)
+	}()
+
 	sb.Grow(len(text))
 
+	textLen := len(text)
 	i := 0
-	for i < len(text) {
+	for i < textLen {
 		if text[i] != '&' {
 			sb.WriteByte(text[i])
 			i++
 			continue
 		}
 
-		// Check if we have enough characters for an entity
-		if i+4 >= len(text) {
+		// Check if we have at least 4 characters for the shortest entity (&lt;)
+		remaining := textLen - i
+		if remaining < 4 {
 			sb.WriteByte(text[i])
 			i++
 			continue
 		}
 
 		// Fast switch for common entities (ordered by frequency)
+		// Each case checks bounds before slicing to prevent panic
 		switch {
-		case text[i:i+5] == "&amp;":
+		case remaining >= 5 && text[i:i+5] == "&amp;":
 			sb.WriteByte('&')
 			i += 5
-		case text[i:i+6] == "&nbsp;":
+		case remaining >= 6 && text[i:i+6] == "&nbsp;":
 			sb.WriteByte(' ')
 			i += 6
-		case text[i:i+4] == "&lt;":
+		case remaining >= 4 && text[i:i+4] == "&lt;":
 			sb.WriteByte('<')
 			i += 4
-		case text[i:i+4] == "&gt;":
+		case remaining >= 4 && text[i:i+4] == "&gt;":
 			sb.WriteByte('>')
 			i += 4
-		case text[i:i+6] == "&quot;":
+		case remaining >= 6 && text[i:i+6] == "&quot;":
 			sb.WriteByte('"')
 			i += 6
-		case text[i:i+6] == "&apos;":
+		case remaining >= 6 && text[i:i+6] == "&apos;":
 			sb.WriteByte('\'')
 			i += 6
-		case text[i:i+6] == "&copy;":
+		case remaining >= 6 && text[i:i+6] == "&copy;":
 			sb.WriteString("©")
 			i += 6
-		case text[i:i+5] == "&reg;":
+		case remaining >= 5 && text[i:i+5] == "&reg;":
 			sb.WriteString("®")
 			i += 5
-		case text[i:i+7] == "&mdash;":
+		case remaining >= 7 && text[i:i+7] == "&mdash;":
 			sb.WriteString("—")
 			i += 7
-		case text[i:i+7] == "&ndash;":
+		case remaining >= 7 && text[i:i+7] == "&ndash;":
 			sb.WriteString("–")
 			i += 7
 		default:
@@ -403,13 +425,19 @@ func fastReplaceCommonEntities(text string) string {
 
 // replaceHTMLEntitiesFull handles numeric entities and unknown named entities.
 func replaceHTMLEntitiesFull(text string) string {
-	result := strings.Builder{}
-	result.Grow(len(text))
+	// Use pooled builder for better memory efficiency
+	sb := BuilderPool.Get().(*strings.Builder)
+	defer func() {
+		sb.Reset()
+		BuilderPool.Put(sb)
+	}()
+
+	sb.Grow(len(text))
 
 	i := 0
 	for i < len(text) {
 		if text[i] != '&' {
-			result.WriteByte(text[i])
+			sb.WriteByte(text[i])
 			i++
 			continue
 		}
@@ -417,14 +445,14 @@ func replaceHTMLEntitiesFull(text string) string {
 		// Find the end of the entity (semicolon or end of string)
 		end := i + 1
 		if end >= len(text) {
-			result.WriteByte(text[i])
+			sb.WriteByte(text[i])
 			break
 		}
 
 		// Check if this is a numeric entity
 		if text[end] == '#' {
 			replaced, consumed := replaceNumericEntity(text, i)
-			result.WriteString(replaced)
+			sb.WriteString(replaced)
 			i += consumed
 			continue
 		}
@@ -433,7 +461,7 @@ func replaceHTMLEntitiesFull(text string) string {
 		semi := strings.IndexByte(text[i:], ';')
 		if semi == -1 {
 			// No semicolon found, write the '&' and continue
-			result.WriteByte(text[i])
+			sb.WriteByte(text[i])
 			i++
 			continue
 		}
@@ -444,7 +472,7 @@ func replaceHTMLEntitiesFull(text string) string {
 
 		// Validate entity name (alphanumeric only)
 		if !isValidEntityName(entityName) {
-			result.WriteByte(text[i])
+			sb.WriteByte(text[i])
 			i++
 			continue
 		}
@@ -452,11 +480,11 @@ func replaceHTMLEntitiesFull(text string) string {
 		// Try to decode using standard library for unknown entities
 		// This handles HTML5 named entities not in our replacer
 		decoded := decodeEntityFallback("&" + entityName + ";")
-		result.WriteString(decoded)
+		sb.WriteString(decoded)
 		i = semi + 1
 	}
 
-	return result.String()
+	return sb.String()
 }
 
 // replaceNumericEntity handles numeric character references like &#65; or &#x41;
@@ -569,16 +597,38 @@ func IsValidURL(url string) bool {
 		}
 	}
 
-	// Accept absolute and protocol-relative URLs
-	if strings.HasPrefix(url, "https://") || strings.HasPrefix(url, "http://") {
+	// Check for dangerous protocol-relative URL patterns
+	// Block //javascript:, //vbscript:, etc.
+	if strings.HasPrefix(url, "//") {
+		lowerRest := strings.ToLower(url[2:])
+		if strings.HasPrefix(lowerRest, "javascript:") ||
+			strings.HasPrefix(lowerRest, "vbscript:") ||
+			strings.HasPrefix(lowerRest, "data:") ||
+			strings.HasPrefix(lowerRest, "file:") {
+			return false
+		}
 		return true
 	}
-	if strings.HasPrefix(url, "//") {
+
+	// Accept absolute URLs
+	if strings.HasPrefix(url, "https://") || strings.HasPrefix(url, "http://") {
 		return true
 	}
 
 	// Accept relative URLs and paths (starting with / or .)
-	if url[0] == '/' || url[0] == '.' {
+	// But reject path traversal patterns
+	if url[0] == '/' {
+		// Block path traversal attempts like /\/, /../
+		if urlLen > 1 && (url[1] == '\\' || (url[1] == '.' && (urlLen == 2 || url[2] == '.' || url[2] == '/'))) {
+			return false
+		}
+		return true
+	}
+	if url[0] == '.' {
+		// Block directory traversal
+		if strings.HasPrefix(url, "./.") || strings.HasPrefix(url, "../") {
+			return false
+		}
 		return true
 	}
 

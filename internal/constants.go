@@ -2,9 +2,6 @@
 package internal
 
 const (
-	// Cache configuration
-	initialColWidthsCap = 12 // Initial capacity for table column widths
-
 	// Content analysis thresholds
 	cleanTextGrowthFactor = 2   // Factor for estimating cleaned text size
 	builderInitialSize    = 256 // Initial capacity for strings.Builder

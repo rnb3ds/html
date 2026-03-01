@@ -20,6 +20,17 @@ func (e *cacheEntry) isExpired(now int64) bool {
 	return e.expiresAt > 0 && now > e.expiresAt
 }
 
+// Cache is a thread-safe LRU cache with optional TTL support.
+// It uses a doubly-linked list for LRU ordering with sentinel nodes
+// to simplify edge case handling.
+//
+// TTL Behavior:
+//   - ttl > 0: Entries expire after the specified duration
+//   - ttl = 0: Entries never expire based on time (only LRU eviction)
+//   - ttl < 0: Treated as 0 (no time-based expiration)
+//
+// Thread Safety: All public methods are safe for concurrent use.
+// Get() uses a write lock to prevent TOCTOU race conditions.
 type Cache struct {
 	mu         sync.RWMutex
 	entries    map[string]*cacheEntry
@@ -28,9 +39,15 @@ type Cache struct {
 	head, tail *cacheEntry // Sentinel nodes for doubly-linked list
 }
 
+// NewCache creates a new LRU cache with the specified maximum entries and TTL.
+// If maxEntries is 0 or negative, the cache is disabled (Set becomes a no-op).
+// If ttl is 0 or negative, entries never expire based on time.
 func NewCache(maxEntries int, ttl time.Duration) *Cache {
 	if maxEntries < 0 {
 		maxEntries = 0
+	}
+	if ttl < 0 {
+		ttl = 0
 	}
 	c := &Cache{
 		entries:    make(map[string]*cacheEntry, maxEntries),
@@ -51,39 +68,27 @@ func (c *Cache) Get(key string) any {
 	}
 	now := time.Now().UnixNano()
 
-	c.mu.RLock()
+	// Use write lock for the entire operation to avoid TOCTOU race conditions
+	// The performance impact is minimal since cache hits are fast operations
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	entry := c.entries[key]
 	if entry == nil {
-		c.mu.RUnlock()
 		return nil
 	}
 
 	if entry.isExpired(now) {
-		c.mu.RUnlock()
-		c.mu.Lock()
-		// Double-check after acquiring write lock
-		if entry, exists := c.entries[key]; exists && entry.isExpired(now) {
-			c.removeNode(entry)
-			delete(c.entries, key)
-		}
-		c.mu.Unlock()
+		c.removeNode(entry)
+		delete(c.entries, key)
 		return nil
 	}
 
-	// Cache the value before releasing the lock
-	value := entry.value
-	c.mu.RUnlock()
+	// Update last used time and move to front
+	entry.lastUsed = now
+	c.moveToFront(entry)
 
-	// Update last used time and move to front (requires write lock)
-	c.mu.Lock()
-	// Re-verify entry still exists after reacquiring lock
-	if entry, exists := c.entries[key]; exists && !entry.isExpired(now) {
-		entry.lastUsed = now
-		c.moveToFront(entry)
-	}
-	c.mu.Unlock()
-
-	return value
+	return entry.value
 }
 
 func (c *Cache) Set(key string, value any) {
@@ -183,8 +188,12 @@ func (c *Cache) evictOne(nowNano int64) {
 func (c *Cache) Clear() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	// Clear all entries
-	for key := range c.entries {
+	// Clear all entries and break references to help GC
+	for key, entry := range c.entries {
+		if entry != nil {
+			entry.prev = nil
+			entry.next = nil
+		}
 		delete(c.entries, key)
 	}
 	// Reset linked list

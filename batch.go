@@ -2,6 +2,7 @@ package html
 
 import (
 	"context"
+	"fmt"
 	"sync"
 )
 
@@ -25,7 +26,10 @@ type BatchResult struct {
 // This is a convenience function that creates a temporary processor for one-time batch extraction.
 // For repeated batch operations, use a persistent Processor instance.
 func ExtractBatch(htmlContents [][]byte, configs ...ExtractConfig) ([]*Result, error) {
-	processor, _ := New()
+	processor, err := New()
+	if err != nil {
+		return nil, fmt.Errorf("create processor: %w", err)
+	}
 	defer processor.Close()
 	return processor.ExtractBatch(htmlContents, configs...)
 }
@@ -34,7 +38,18 @@ func ExtractBatch(htmlContents [][]byte, configs ...ExtractConfig) ([]*Result, e
 // This is a convenience function that creates a temporary processor for one-time batch extraction.
 // For repeated batch operations, use a persistent Processor instance.
 func ExtractBatchWithContext(ctx context.Context, htmlContents [][]byte, configs ...ExtractConfig) *BatchResult {
-	processor, _ := New()
+	processor, err := New()
+	if err != nil {
+		br := &BatchResult{
+			Results: make([]*Result, len(htmlContents)),
+			Errors:  make([]error, len(htmlContents)),
+			Failed:  len(htmlContents),
+		}
+		for i := range htmlContents {
+			br.Errors[i] = fmt.Errorf("create processor: %w", err)
+		}
+		return br
+	}
 	defer processor.Close()
 	return processor.ExtractBatchWithContext(ctx, htmlContents, configs...)
 }
@@ -43,7 +58,10 @@ func ExtractBatchWithContext(ctx context.Context, htmlContents [][]byte, configs
 // This is a convenience function that creates a temporary processor for one-time batch extraction.
 // For repeated batch operations, use a persistent Processor instance.
 func ExtractBatchFiles(filePaths []string, configs ...ExtractConfig) ([]*Result, error) {
-	processor, _ := New()
+	processor, err := New()
+	if err != nil {
+		return nil, fmt.Errorf("create processor: %w", err)
+	}
 	defer processor.Close()
 	return processor.ExtractBatchFiles(filePaths, configs...)
 }
@@ -52,7 +70,18 @@ func ExtractBatchFiles(filePaths []string, configs ...ExtractConfig) ([]*Result,
 // This is a convenience function that creates a temporary processor for one-time batch extraction.
 // For repeated batch operations, use a persistent Processor instance.
 func ExtractBatchFilesWithContext(ctx context.Context, filePaths []string, configs ...ExtractConfig) *BatchResult {
-	processor, _ := New()
+	processor, err := New()
+	if err != nil {
+		br := &BatchResult{
+			Results: make([]*Result, len(filePaths)),
+			Errors:  make([]error, len(filePaths)),
+			Failed:  len(filePaths),
+		}
+		for i := range filePaths {
+			br.Errors[i] = fmt.Errorf("create processor: %w", err)
+		}
+		return br
+	}
 	defer processor.Close()
 	return processor.ExtractBatchFilesWithContext(ctx, filePaths, configs...)
 }
@@ -78,11 +107,18 @@ func (p *Processor) ExtractBatch(htmlContents [][]byte, configs ...ExtractConfig
 	var wg sync.WaitGroup
 
 	for i, content := range htmlContents {
-		wg.Add(1)
+		// Acquire semaphore BEFORE creating goroutine to limit concurrent goroutines
 		sem <- struct{}{}
+
+		wg.Add(1)
 		go func(idx int, htmlBytes []byte) {
-			defer wg.Done()
-			defer func() { <-sem }()
+			defer func() {
+				<-sem
+				if r := recover(); r != nil {
+					errs[idx] = fmt.Errorf("panic during extraction: %v", r)
+				}
+				wg.Done()
+			}()
 
 			results[idx], errs[idx] = p.Extract(htmlBytes, config)
 		}(i, content)
@@ -132,7 +168,15 @@ func (p *Processor) ExtractBatchWithContext(ctx context.Context, htmlContents []
 
 		wg.Add(1)
 		go func(idx int, htmlBytes []byte) {
-			defer wg.Done()
+			defer func() {
+				if r := recover(); r != nil {
+					mu.Lock()
+					br.Errors[idx] = fmt.Errorf("panic during extraction: %v", r)
+					br.Failed++
+					mu.Unlock()
+				}
+				wg.Done()
+			}()
 
 			// Check context before acquiring semaphore
 			select {
@@ -196,11 +240,18 @@ func (p *Processor) ExtractBatchFiles(filePaths []string, configs ...ExtractConf
 	var wg sync.WaitGroup
 
 	for i, path := range filePaths {
-		wg.Add(1)
+		// Acquire semaphore BEFORE creating goroutine to limit concurrent goroutines
 		sem <- struct{}{}
+
+		wg.Add(1)
 		go func(idx int, filePath string) {
-			defer wg.Done()
-			defer func() { <-sem }()
+			defer func() {
+				<-sem
+				if r := recover(); r != nil {
+					errs[idx] = fmt.Errorf("panic during file extraction: %v", r)
+				}
+				wg.Done()
+			}()
 
 			results[idx], errs[idx] = p.ExtractFromFile(filePath, config)
 		}(i, path)
@@ -250,7 +301,15 @@ func (p *Processor) ExtractBatchFilesWithContext(ctx context.Context, filePaths 
 
 		wg.Add(1)
 		go func(idx int, filePath string) {
-			defer wg.Done()
+			defer func() {
+				if r := recover(); r != nil {
+					mu.Lock()
+					br.Errors[idx] = fmt.Errorf("panic during file extraction: %v", r)
+					br.Failed++
+					mu.Unlock()
+				}
+				wg.Done()
+			}()
 
 			// Check context before acquiring semaphore
 			select {

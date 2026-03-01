@@ -2,13 +2,17 @@ package html
 
 import (
 	"encoding/json"
+	"fmt"
 )
 
 // ExtractToMarkdown extracts content from HTML and returns it in Markdown format.
 // This is a convenience function that creates a temporary Processor with default settings.
 // For repeated extractions or custom configuration, use Processor.ExtractToMarkdown instead.
 func ExtractToMarkdown(htmlBytes []byte, configs ...ExtractConfig) (string, error) {
-	processor, _ := New()
+	processor, err := New()
+	if err != nil {
+		return "", fmt.Errorf("create processor: %w", err)
+	}
 	defer processor.Close()
 	return processor.ExtractToMarkdown(htmlBytes, configs...)
 }
@@ -26,11 +30,39 @@ func (p *Processor) ExtractToMarkdown(htmlBytes []byte, configs ...ExtractConfig
 	return result.Text, nil
 }
 
+// ExtractToMarkdownFromFile extracts content from an HTML file and returns it in Markdown format.
+// This is a convenience function that creates a temporary Processor with default settings.
+// For repeated extractions or custom configuration, use Processor.ExtractToMarkdownFromFile instead.
+func ExtractToMarkdownFromFile(filePath string, configs ...ExtractConfig) (string, error) {
+	processor, err := New()
+	if err != nil {
+		return "", fmt.Errorf("create processor: %w", err)
+	}
+	defer processor.Close()
+	return processor.ExtractToMarkdownFromFile(filePath, configs...)
+}
+
+// ExtractToMarkdownFromFile extracts content from an HTML file and returns it in Markdown format.
+// This method configures the extractor to use markdown format for inline images.
+// It uses the processor's configuration (cache, timeout, etc.) for extraction.
+func (p *Processor) ExtractToMarkdownFromFile(filePath string, configs ...ExtractConfig) (string, error) {
+	config := resolveExtractConfig(configs...)
+	config.InlineImageFormat = "markdown"
+	result, err := p.ExtractFromFile(filePath, config)
+	if err != nil {
+		return "", err
+	}
+	return result.Text, nil
+}
+
 // ExtractToJSON extracts content from HTML and returns it as JSON.
 // This is a convenience function that creates a temporary Processor with default settings.
 // For repeated extractions or custom configuration, use Processor.ExtractToJSON instead.
 func ExtractToJSON(htmlBytes []byte, configs ...ExtractConfig) ([]byte, error) {
-	processor, _ := New()
+	processor, err := New()
+	if err != nil {
+		return nil, fmt.Errorf("create processor: %w", err)
+	}
 	defer processor.Close()
 	return processor.ExtractToJSON(htmlBytes, configs...)
 }
@@ -39,6 +71,28 @@ func ExtractToJSON(htmlBytes []byte, configs ...ExtractConfig) ([]byte, error) {
 // This method uses the processor's configuration (cache, timeout, etc.) for extraction.
 func (p *Processor) ExtractToJSON(htmlBytes []byte, configs ...ExtractConfig) ([]byte, error) {
 	result, err := p.Extract(htmlBytes, configs...)
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(result)
+}
+
+// ExtractToJSONFromFile extracts content from an HTML file and returns it as JSON.
+// This is a convenience function that creates a temporary Processor with default settings.
+// For repeated extractions or custom configuration, use Processor.ExtractToJSONFromFile instead.
+func ExtractToJSONFromFile(filePath string, configs ...ExtractConfig) ([]byte, error) {
+	processor, err := New()
+	if err != nil {
+		return nil, fmt.Errorf("create processor: %w", err)
+	}
+	defer processor.Close()
+	return processor.ExtractToJSONFromFile(filePath, configs...)
+}
+
+// ExtractToJSONFromFile extracts content from an HTML file and returns it as JSON.
+// This method uses the processor's configuration (cache, timeout, etc.) for extraction.
+func (p *Processor) ExtractToJSONFromFile(filePath string, configs ...ExtractConfig) ([]byte, error) {
+	result, err := p.ExtractFromFile(filePath, configs...)
 	if err != nil {
 		return nil, err
 	}

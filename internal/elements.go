@@ -237,11 +237,7 @@ func ShouldTreatNamespaceTagAsInline(node *html.Node) bool {
 	// Only apply this if content characteristics don't suggest otherwise
 	tag := node.Data
 	prefix := GetNamespacePrefix(tag)
-	if knownInlineNamespacePrefixes[prefix] {
-		return true
-	}
-
-	return false
+	return knownInlineNamespacePrefixes[prefix]
 }
 
 // ShouldTreatAsBlockElement dynamically determines if an unknown/custom tag

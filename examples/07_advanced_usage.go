@@ -3,51 +3,33 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"log"
 	"strings"
 	"time"
 
 	"github.com/cybergodev/html"
+	xhtml "golang.org/x/net/html"
 )
 
-// This example covers advanced features for power users.
-// Learn about statistics, batch processing, and custom configuration.
+// This example demonstrates advanced features: custom scorers, audit logging, and security configuration.
 func main() {
-	fmt.Println("=== Advanced Features ===\n ")
+	fmt.Println("=== Advanced Features ===\n")
 
 	// ============================================================
-	// Example 1: Custom scorer for content extraction
+	// 1. Custom Scorer Implementation
 	// ============================================================
-	fmt.Println("Example 1: Custom Scorer")
-	fmt.Println("------------------------")
+	fmt.Println("1. Custom Scorer")
+	fmt.Println("-----------------")
 
-	// Create a processor with a custom scorer
-	scorer := &ArticleScorer{
-		minParagraphLength: 50,
-		preferredTags:      []string{"article", "main", "div"},
-	}
-
+	scorer := &ArticleScorer{minParagraphLength: 50}
 	scorerProcessor, err := html.New(scorer)
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer scorerProcessor.Close()
 
-	// Test with sample HTML
-	sampleHTML := `
-		<html>
-			<body>
-				<nav>Navigation links here</nav>
-				<article>
-					<h1>Article Title</h1>
-					<p>This is a substantial paragraph with enough content to be considered valuable.</p>
-				</article>
-				<aside>Sidebar content</aside>
-			</body>
-		</html>
-	`
+	sampleHTML := "<html><body><nav>Navigation links</nav><article><h1>Article Title</h1><p>This is a substantial paragraph with meaningful content.</p></article><aside>Sidebar content</aside></body></html>"
 
 	result, err := scorerProcessor.Extract([]byte(sampleHTML))
 	if err != nil {
@@ -58,143 +40,133 @@ func main() {
 	fmt.Printf("Content length: %d chars\n\n", len(result.Text))
 
 	// ============================================================
-	// Example 2: Functional options configuration
+	// 2. Statistics and Monitoring
 	// ============================================================
-	fmt.Println("\n\nExample 2: Functional Options Configuration")
-	fmt.Println("--------------------------------------------")
+	fmt.Println("2. Statistics & Monitoring")
+	fmt.Println("-----------------------------")
 
-	processor, err := html.New(
-		html.WithMaxInputSize(10*1024*1024), // 10 MB
-		html.WithMaxCacheEntries(5000),
-		html.WithCacheTTL(2*time.Hour),
-		html.WithWorkerPoolSize(8),
-		html.WithProcessingTimeout(10*time.Second),
-	)
-	if err != nil {
-		log.Fatal(err)
-	}
+	processor, _ := html.New()
 	defer processor.Close()
 
-	fmt.Println("Custom settings applied:")
-	fmt.Println("  MaxInputSize: 10 MB")
-	fmt.Println("  MaxCacheEntries: 5000")
-	fmt.Println("  CacheTTL: 2 hours")
-	fmt.Println("  WorkerPoolSize: 8")
-	fmt.Println("  ProcessingTimeout: 10 seconds")
-
-	// ============================================================
-	// Example 3: Processor statistics
-	// ============================================================
-	fmt.Println("\n\nExample 3: Processor Statistics")
-	fmt.Println("--------------------------------")
-
-	// Process some content to generate stats
-	statsHTML := `<html><body><article><h1>Test</h1><p>Content for statistics.</p></article></body></html>`
-	processor.Extract([]byte(statsHTML))
-	processor.Extract([]byte(statsHTML)) // Second call will hit cache
+	// Process documents to generate statistics
+	for i := 0; i < 5; i++ {
+		doc := []byte(fmt.Sprintf("<article><h1>Doc %d</h1><p>Content</p></article>", i))
+		processor.Extract(doc)
+		// Same document again (cache hit)
+		processor.Extract(doc)
+	}
 
 	stats := processor.GetStatistics()
-
 	fmt.Printf("Total Processed: %d\n", stats.TotalProcessed)
-	fmt.Printf("Cache Hits:      %d\n", stats.CacheHits)
-	fmt.Printf("Cache Misses:    %d\n", stats.CacheMisses)
-	fmt.Printf("Error Count:     %d\n", stats.ErrorCount)
-	fmt.Printf("Average Time:    %v\n", stats.AverageProcessTime)
+	fmt.Printf("Cache Hits: %d\n", stats.CacheHits)
+	fmt.Printf("Cache Misses: %d\n", stats.CacheMisses)
+	fmt.Printf("Avg Process Time: %v\n", stats.AverageProcessTime)
 
 	if stats.TotalProcessed > 0 {
 		hitRate := float64(stats.CacheHits) / float64(stats.TotalProcessed) * 100
-		fmt.Printf("Hit Rate:        %.1f%%\n", hitRate)
+		fmt.Printf("Cache Hit Rate: %.1f%%\n", hitRate)
 	}
 
-	// ============================================================
-	// Example 4: Batch processing with context
-	// ============================================================
-	fmt.Println("\n\nExample 4: Batch Processing with Context")
-	fmt.Println("-----------------------------------------")
-
-	docs := make([][]byte, 5)
-	for i := 0; i < 5; i++ {
-		docs[i] = []byte(fmt.Sprintf(`<article><h1>Doc %d</h1><p>Content %d</p></article>`, i+1, i+1))
-	}
-
-	// Create a context with timeout
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	batchResult := processor.ExtractBatchWithContext(ctx, docs)
-
-	fmt.Printf("Batch Results:\n")
-	fmt.Printf("  Success:   %d\n", batchResult.Success)
-	fmt.Printf("  Failed:    %d\n", batchResult.Failed)
-	fmt.Printf("  Cancelled: %d\n", batchResult.Cancelled)
-
-	for i, r := range batchResult.Results {
-		if r != nil {
-			fmt.Printf("  [%d] %s\n", i+1, r.Title)
-		}
-	}
-
-	// ============================================================
-	// Example 5: Clear cache and reset statistics
-	// ============================================================
-	fmt.Println("\n\nExample 5: Cache and Statistics Management")
-	fmt.Println("-------------------------------------------")
-
-	fmt.Println("Before reset:")
-	fmt.Printf("  Total Processed: %d\n", stats.TotalProcessed)
-
+	// Clear and reset
 	processor.ClearCache()
 	processor.ResetStatistics()
-
 	stats = processor.GetStatistics()
-	fmt.Println("After reset:")
-	fmt.Printf("  Total Processed: %d\n", stats.TotalProcessed)
+	fmt.Printf("\nAfter ClearCache/ResetStatistics: %d processed\n", stats.TotalProcessed)
 
 	// ============================================================
-	// Example 6: File extraction (demonstration)
+	// 3. Audit System (Security Logging)
 	// ============================================================
-	fmt.Println("\n\nExample 6: File Extraction")
+	fmt.Println("\n3. Audit System (Security Logging)")
+	fmt.Println("---------------------------------")
+
+	// Create channel sink for audit entries
+	channelSink := html.NewChannelAuditSink(100)
+
+	// Configure processor with audit
+	auditConfig := html.DefaultConfig()
+	auditConfig.Audit = html.HighSecurityAuditConfig()
+	auditConfig.Audit.Sink = channelSink
+	auditConfig.Audit.Enabled = true
+
+	auditProcessor, _ := html.New(auditConfig)
+	defer auditProcessor.Close()
+
+	// Process potentially dangerous HTML
+	dangerousHTML := "<html><body><script>alert('xss')</script><a href=\"javascript:void(0)\">Click</a><img src=\"x.png\" onerror=\"alert(1)\"></body></html>"
+
+	auditProcessor.Extract([]byte(dangerousHTML))
+
+	// Wait for async writes
+	time.Sleep(100 * time.Millisecond)
+
+	// Read audit entries
+	auditLog := auditProcessor.GetAuditLog()
+	fmt.Printf("Audit entries recorded: %d\n", len(auditLog))
+
+	for _, entry := range auditLog {
+		fmt.Printf("  [%s] %s: %s\n", entry.Level, entry.EventType, entry.Message)
+	}
+
+	// ============================================================
+	// 4. Security Configuration
+	// ============================================================
+	fmt.Println("\n4. Security Configuration")
+	fmt.Println("---------------------------")
+
+	// High security config
+	secureConfig := html.HighSecurityConfig()
+	fmt.Println("High Security Config:")
+	fmt.Printf("  MaxInputSize: %d MB\n", secureConfig.MaxInputSize/(1024*1024))
+	fmt.Printf("  EnableSanitization: %v\n", secureConfig.EnableSanitization)
+	fmt.Printf("  MaxDepth: %d\n", secureConfig.MaxDepth)
+
+	secureProcessor, _ := html.New(secureConfig)
+	defer secureProcessor.Close()
+
+	// This will have stricter limits
+	secureProcessor.Extract([]byte(dangerousHTML))
+
+	// ============================================================
+	// 5. File Processing Patterns
+	// ============================================================
+	fmt.Println("\n5. File Processing Patterns")
 	fmt.Println("--------------------------")
 
-	fmt.Println("Usage:")
+	fmt.Println("Single file:")
 	fmt.Println("  result, err := processor.ExtractFromFile(\"article.html\")")
-	fmt.Println()
-	fmt.Println("Features:")
-	fmt.Println("  • Auto-detects encoding (UTF-8, Windows-1252, GBK, Shift_JIS, etc.)")
-	fmt.Println("  • Returns full Result struct with metadata")
-	fmt.Println("  • Handles malformed HTML gracefully")
-	fmt.Println()
-	fmt.Println("Batch file processing:")
+
+	fmt.Println("\nBatch files:")
 	fmt.Println("  results, err := processor.ExtractBatchFiles([]string{\"a.html\", \"b.html\"})")
+
+	fmt.Println("\nWith context and timeout:")
+	fmt.Println("  ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)")
+	fmt.Println("  defer cancel()")
+	fmt.Println("  result := processor.ExtractBatchFilesWithContext(ctx, paths)")
 
 	// ============================================================
 	// Summary
 	// ============================================================
-	fmt.Println("\n\n=== Key Takeaways ===")
-	fmt.Println("1. Use functional options for clean configuration")
-	fmt.Println("2. Monitor statistics for performance tuning")
-	fmt.Println("3. Use batch processing with context for control")
-	fmt.Println("4. Implement custom scorer for specialized extraction")
-	fmt.Println("5. Manage cache and statistics as needed")
+	fmt.Println("\n=== Advanced Features Summary ===")
+	fmt.Println("1. Custom Scorers: Implement html.Scorer interface for domain-specific extraction")
+	fmt.Println("2. Statistics: Track processing metrics and cache hit rates")
+	fmt.Println("3. Audit System: Monitor security events and blocked content")
+	fmt.Println("4. Security Configs: Use HighSecurityConfig() for sensitive data processing")
+	fmt.Println("5. File Operations: Single file, batch, and context-aware processing")
 }
 
 // ArticleScorer is a custom scorer that prioritizes article content.
-// This demonstrates how to implement the html.Scorer interface.
 type ArticleScorer struct {
 	minParagraphLength int
-	preferredTags      []string
 }
 
 // Score calculates a relevance score for a content node.
-// Higher scores indicate more likely main content.
-func (s *ArticleScorer) Score(node *html.Node) int {
-	if node.Type != html.ElementNode {
+func (s *ArticleScorer) Score(node *xhtml.Node) int {
+	if node.Type != xhtml.ElementNode {
 		return 0
 	}
 
 	score := 0
 
-	// Check tag name
 	switch node.Data {
 	case "article":
 		score += 100
@@ -205,20 +177,25 @@ func (s *ArticleScorer) Score(node *html.Node) int {
 	case "div":
 		score += 10
 	case "p":
-		// Score paragraphs based on length
-		textLen := len(GetTextContent(node))
+		textLen := len(getTextContent(node))
 		if textLen >= s.minParagraphLength {
 			score += 30
 		}
 	}
 
-	// Check class attributes for content indicators
+	// Check class attributes
 	for _, attr := range node.Attr {
 		if attr.Key == "class" {
-			if containsContent(attr.Val, "content", "article", "post", "entry") {
+			classVal := strings.ToLower(attr.Val)
+			if strings.Contains(classVal, "content") ||
+				strings.Contains(classVal, "article") ||
+				strings.Contains(classVal, "post") {
 				score += 20
 			}
-			if containsContent(attr.Val, "sidebar", "nav", "footer", "ad", "promo") {
+			if strings.Contains(classVal, "sidebar") ||
+				strings.Contains(classVal, "nav") ||
+				strings.Contains(classVal, "footer") ||
+				strings.Contains(classVal, "ad") {
 				score -= 50
 			}
 		}
@@ -227,22 +204,24 @@ func (s *ArticleScorer) Score(node *html.Node) int {
 	return score
 }
 
-// ShouldRemove determines if a node should be removed from the content tree.
-func (s *ArticleScorer) ShouldRemove(node *html.Node) bool {
-	if node.Type != html.ElementNode {
+// ShouldRemove determines if a node should be removed.
+func (s *ArticleScorer) ShouldRemove(node *xhtml.Node) bool {
+	if node.Type != xhtml.ElementNode {
 		return false
 	}
 
-	// Remove navigation and sidebar elements
 	switch node.Data {
 	case "nav", "aside", "footer", "header":
 		return true
 	}
 
-	// Check for ad-related classes
 	for _, attr := range node.Attr {
 		if attr.Key == "class" {
-			if containsContent(attr.Val, "ad-", "sponsor", "promo", "sidebar") {
+			classVal := strings.ToLower(attr.Val)
+			if strings.Contains(classVal, "ad-") ||
+				strings.Contains(classVal, "sponsor") ||
+				strings.Contains(classVal, "promo") ||
+				strings.Contains(classVal, "sidebar") {
 				return true
 			}
 		}
@@ -251,25 +230,14 @@ func (s *ArticleScorer) ShouldRemove(node *html.Node) bool {
 	return false
 }
 
-// containsContent checks if s contains any of the substrings.
-func containsContent(s string, substrs ...string) bool {
-	sLower := strings.ToLower(s)
-	for _, substr := range substrs {
-		if strings.Contains(sLower, substr) {
-			return true
-		}
-	}
-	return false
-}
-
-// GetTextContent extracts text content from a node (helper for scorer).
-func GetTextContent(n *html.Node) string {
-	if n.Type == html.TextNode {
+// getTextContent extracts text content from a node.
+func getTextContent(n *xhtml.Node) string {
+	if n.Type == xhtml.TextNode {
 		return n.Data
 	}
 	var result string
 	for c := n.FirstChild; c != nil; c = c.NextSibling {
-		result += GetTextContent(c)
+		result += getTextContent(c)
 	}
 	return result
 }

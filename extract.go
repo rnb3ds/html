@@ -2,17 +2,41 @@ package html
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
+	"encoding/binary"
+	"errors"
 	"fmt"
 	htmlstd "html"
+	"io"
 	"strconv"
 	"strings"
 	"time"
+	"unsafe"
 
 	"github.com/cybergodev/html/internal"
 	stdxhtml "golang.org/x/net/html"
 )
+
+// stringToBytes converts a string to a byte slice without memory allocation.
+// The returned slice shares memory with the original string.
+//
+// SAFETY: The returned slice MUST NOT be modified. Go strings are immutable,
+// and modifying the returned slice would violate this immutability, potentially
+// causing undefined behavior in other code holding references to the string.
+//
+// LIFETIME: The returned slice is valid as long as the original string is not
+// garbage collected. In practice, this means the slice should only be used
+// within the same scope as the string, and should not be stored beyond the
+// string's lifetime.
+//
+// PERFORMANCE: This function is used to avoid allocations when passing strings
+// to functions that accept []byte (e.g., hash.Write). For short-lived operations
+// where the string is guaranteed to remain in scope, this is safe and efficient.
+func stringToBytes(s string) []byte {
+	if s == "" {
+		return nil
+	}
+	return unsafe.Slice(unsafe.StringData(s), len(s))
+}
 
 // Extract extracts content from HTML bytes with automatic encoding detection.
 // This is a convenience function that creates a temporary Processor with default settings.
@@ -22,7 +46,10 @@ import (
 // The method automatically detects the character encoding (Windows-1252, UTF-8, GBK, Shift_JIS, etc.)
 // from the HTML bytes and converts it to UTF-8 before processing.
 func Extract(htmlBytes []byte, configs ...ExtractConfig) (*Result, error) {
-	processor, _ := New()
+	processor, err := New()
+	if err != nil {
+		return nil, fmt.Errorf("create processor: %w", err)
+	}
 	defer processor.Close()
 	return processor.Extract(htmlBytes, configs...)
 }
@@ -32,7 +59,10 @@ func Extract(htmlBytes []byte, configs ...ExtractConfig) (*Result, error) {
 // For repeated extractions or custom configuration (cache, timeout, etc.), use
 // Processor.ExtractFromFile instead.
 func ExtractFromFile(filePath string, configs ...ExtractConfig) (*Result, error) {
-	processor, _ := New()
+	processor, err := New()
+	if err != nil {
+		return nil, fmt.Errorf("create processor: %w", err)
+	}
 	defer processor.Close()
 	return processor.ExtractFromFile(filePath, configs...)
 }
@@ -41,11 +71,24 @@ func ExtractFromFile(filePath string, configs ...ExtractConfig) (*Result, error)
 // This is a convenience function that creates a temporary Processor with default settings.
 // For repeated extractions or custom configuration, use Processor.ExtractText instead.
 func ExtractText(htmlBytes []byte, configs ...ExtractConfig) (string, error) {
-	result, err := Extract(htmlBytes, configs...)
+	processor, err := New()
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("create processor: %w", err)
 	}
-	return result.Text, nil
+	defer processor.Close()
+	return processor.ExtractText(htmlBytes, configs...)
+}
+
+// ExtractTextFromFile extracts plain text from an HTML file with automatic encoding detection.
+// This is a convenience function that creates a temporary Processor with default settings.
+// For repeated extractions or custom configuration, use Processor.ExtractTextFromFile instead.
+func ExtractTextFromFile(filePath string, configs ...ExtractConfig) (string, error) {
+	processor, err := New()
+	if err != nil {
+		return "", fmt.Errorf("create processor: %w", err)
+	}
+	defer processor.Close()
+	return processor.ExtractTextFromFile(filePath, configs...)
 }
 
 // Extract extracts content from HTML bytes with automatic encoding detection.
@@ -54,7 +97,14 @@ func ExtractText(htmlBytes []byte, configs ...ExtractConfig) (string, error) {
 //
 // This is the primary method for HTML content extraction when the source encoding
 // may not be UTF-8, such as content from HTTP responses, databases, or files.
-func (p *Processor) Extract(htmlBytes []byte, configs ...ExtractConfig) (*Result, error) {
+func (p *Processor) Extract(htmlBytes []byte, configs ...ExtractConfig) (result *Result, err error) {
+	// Defense-in-depth: recover from unexpected panics
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("%w: %v", ErrInternalPanic, r)
+		}
+	}()
+
 	if p == nil {
 		return nil, ErrProcessorClosed
 	}
@@ -65,6 +115,7 @@ func (p *Processor) Extract(htmlBytes []byte, configs ...ExtractConfig) (*Result
 	config := resolveExtractConfig(configs...)
 
 	if len(htmlBytes) > p.config.MaxInputSize {
+		p.audit.RecordInputViolation(len(htmlBytes), p.config.MaxInputSize, "input_too_large")
 		p.stats.errorCount.Add(1)
 		return nil, fmt.Errorf("%w: size=%d, max=%d", ErrInputTooLarge, len(htmlBytes), p.config.MaxInputSize)
 	}
@@ -72,25 +123,26 @@ func (p *Processor) Extract(htmlBytes []byte, configs ...ExtractConfig) (*Result
 	startTime := time.Now()
 
 	// Detect encoding and convert to UTF-8
-	utf8String, _, err := internal.DetectAndConvertToUTF8String(htmlBytes, config.Encoding)
-	if err != nil {
+	utf8String, detectedEncoding, convErr := internal.DetectAndConvertToUTF8String(htmlBytes, config.Encoding)
+	if convErr != nil {
+		p.audit.RecordEncodingIssue(config.Encoding, convErr.Error())
 		p.stats.errorCount.Add(1)
-		return nil, fmt.Errorf("encoding detection failed: %w", err)
+		return nil, fmt.Errorf("encoding detection failed: %w", convErr)
 	}
+	_ = detectedEncoding // Used for audit logging if needed
 
 	// Use the converted UTF-8 string for cache key
 	cacheKey := p.generateCacheKey(utf8String, config)
 	if cached := p.cache.Get(cacheKey); cached != nil {
 		p.stats.cacheHits.Add(1)
 		p.stats.totalProcessed.Add(1)
-		if result, ok := cached.(*Result); ok {
-			return result, nil
+		if cachedResult, ok := cached.(*Result); ok {
+			return cachedResult, nil
 		}
 	}
 	p.stats.cacheMisses.Add(1)
 
 	// Process the content
-	var result *Result
 	if p.config.ProcessingTimeout > 0 {
 		result, err = p.processWithTimeout(utf8String, config)
 	} else {
@@ -99,6 +151,12 @@ func (p *Processor) Extract(htmlBytes []byte, configs ...ExtractConfig) (*Result
 
 	if err != nil {
 		p.stats.errorCount.Add(1)
+		// Log specific error types
+		if errors.Is(err, ErrProcessingTimeout) {
+			p.audit.RecordTimeout(p.config.ProcessingTimeout)
+		} else if errors.Is(err, ErrMaxDepthExceeded) {
+			p.audit.RecordDepthViolation(p.config.MaxDepth+1, p.config.MaxDepth)
+		}
 		return nil, err
 	}
 
@@ -116,7 +174,14 @@ func (p *Processor) Extract(htmlBytes []byte, configs ...ExtractConfig) (*Result
 
 // ExtractFromFile extracts content from an HTML file with automatic encoding detection.
 // Use this when you have a file path instead of raw bytes.
-func (p *Processor) ExtractFromFile(filePath string, configs ...ExtractConfig) (*Result, error) {
+func (p *Processor) ExtractFromFile(filePath string, configs ...ExtractConfig) (result *Result, err error) {
+	// Defense-in-depth: recover from unexpected panics
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("%w: %v", ErrInternalPanic, r)
+		}
+	}()
+
 	if p == nil {
 		return nil, ErrProcessorClosed
 	}
@@ -135,17 +200,18 @@ func (p *Processor) ExtractFromFile(filePath string, configs ...ExtractConfig) (
 	// After cleaning, check if the path contains parent directory references
 	// This catches path traversal attempts like "../file", "subdir/../../file", etc.
 	if stringsContains(cleanPath, "..") {
+		p.audit.RecordPathTraversal(filePath)
 		return nil, fmt.Errorf("%w: path traversal detected: %s", ErrInvalidFilePath, cleanPath)
 	}
 
 	config := resolveExtractConfig(configs...)
 
-	data, err := readFile(cleanPath)
-	if err != nil {
-		if osIsNotExist(err) {
+	data, readErr := readFile(cleanPath)
+	if readErr != nil {
+		if osIsNotExist(readErr) {
 			return nil, fmt.Errorf("%w: %s", ErrFileNotFound, cleanPath)
 		}
-		return nil, fmt.Errorf("read file %q: %w", cleanPath, err)
+		return nil, fmt.Errorf("read file %q: %w", cleanPath, readErr)
 	}
 
 	return p.Extract(data, config)
@@ -162,8 +228,25 @@ func (p *Processor) ExtractText(htmlBytes []byte, configs ...ExtractConfig) (str
 	return result.Text, nil
 }
 
+// ExtractTextFromFile extracts plain text from an HTML file with automatic encoding detection.
+// Use this when you have a file path instead of raw bytes.
+// This is a convenience method that returns only the text content without other metadata.
+func (p *Processor) ExtractTextFromFile(filePath string, configs ...ExtractConfig) (string, error) {
+	result, err := p.ExtractFromFile(filePath, configs...)
+	if err != nil {
+		return "", err
+	}
+	return result.Text, nil
+}
+
 // withTimeout executes a function with a timeout, returning its result or an error if timeout expires.
 // This is a generic helper that eliminates code duplication in timeout handling.
+//
+// IMPORTANT: If the timeout is reached, the timeout error is returned immediately, but the
+// function fn() continues executing in the background until it completes. This is because
+// Go does not support cooperative cancellation for arbitrary functions. The function fn()
+// should be designed to complete relatively quickly to avoid resource accumulation.
+// For long-running operations, consider using context-aware processing instead.
 func withTimeout[T any](timeout time.Duration, fn func() (T, error)) (T, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
@@ -174,11 +257,17 @@ func withTimeout[T any](timeout time.Duration, fn func() (T, error)) (T, error) 
 	}
 
 	resultChan := make(chan result, 1)
+
+	// Launch the operation in a goroutine
 	go func() {
 		res, err := fn()
+		// Try to send the result. If context is done, the result is discarded.
+		// This is intentional - we don't want to block if nobody is listening.
 		select {
 		case resultChan <- result{res: res, err: err}:
+			// Result sent successfully
 		case <-ctx.Done():
+			// Context cancelled/timed out, discard result
 		}
 	}()
 
@@ -187,6 +276,9 @@ func withTimeout[T any](timeout time.Duration, fn func() (T, error)) (T, error) 
 		return res.res, res.err
 	case <-ctx.Done():
 		var zero T
+		// Note: The goroutine above continues running until fn() completes.
+		// This is a known limitation of non-cooperative cancellation in Go.
+		// The resultChan has buffer size 1, so the goroutine won't block forever.
 		return zero, ErrProcessingTimeout
 	}
 }
@@ -209,7 +301,13 @@ func (p *Processor) processContent(htmlContent string, opts ExtractConfig) (*Res
 	originalHTML := htmlContent
 
 	if p.config.EnableSanitization {
-		htmlContent = internal.SanitizeHTML(htmlContent)
+		// Use audit-enabled sanitization if audit is configured
+		if p.audit != nil && p.config.Audit.Enabled {
+			adapter := &auditRecorderAdapter{collector: p.audit}
+			htmlContent = internal.SanitizeHTMLWithAudit(htmlContent, adapter)
+		} else {
+			htmlContent = internal.SanitizeHTML(htmlContent)
+		}
 	}
 
 	doc, err := stdxhtml.Parse(strings.NewReader(htmlContent))
@@ -225,15 +323,32 @@ func (p *Processor) processContent(htmlContent string, opts ExtractConfig) (*Res
 	return p.extractFromDocument(doc, originalHTML, opts)
 }
 
-// validateDepthTraversal validates DOM tree depth during a single traversal.
+// validateDepthTraversal validates DOM tree depth using an iterative approach
+// to avoid potential stack overflow on deeply nested documents.
 // This is more efficient than separately calling validateDepth and extractFromDocument.
-func (p *Processor) validateDepthTraversal(n *Node, depth int) error {
-	if depth > p.config.MaxDepth {
-		return ErrMaxDepthExceeded
+func (p *Processor) validateDepthTraversal(root *Node, initialDepth int) error {
+	// Use iterative approach with explicit stack to avoid stack overflow
+	// on deeply nested documents (MaxDepth can be up to 500)
+	type stackEntry struct {
+		node  *Node
+		depth int
 	}
-	for c := n.FirstChild; c != nil; c = c.NextSibling {
-		if err := p.validateDepthTraversal(c, depth+1); err != nil {
-			return err
+
+	// Pre-allocate stack with reasonable initial capacity
+	stack := make([]stackEntry, 0, 64)
+	stack = append(stack, stackEntry{root, initialDepth})
+
+	for len(stack) > 0 {
+		entry := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+
+		if entry.depth > p.config.MaxDepth {
+			return ErrMaxDepthExceeded
+		}
+
+		// Add children to stack in reverse order for correct traversal order
+		for c := entry.node.FirstChild; c != nil; c = c.NextSibling {
+			stack = append(stack, stackEntry{c, entry.depth + 1})
 		}
 	}
 	return nil
@@ -263,11 +378,12 @@ func (p *Processor) extractFromDocument(doc *Node, htmlContent string, opts Extr
 			result.Images = images
 		}
 
-		var sb strings.Builder
+		sb := internal.GetBuilder()
 		sb.Grow(initialTextSize)
 		imageCounter := 0
-		internal.ExtractTextWithStructureAndImages(contentNode, &sb, 0, &imageCounter, opts.TableFormat)
+		internal.ExtractTextWithStructureAndImages(contentNode, sb, 0, &imageCounter, opts.TableFormat)
 		textWithPlaceholders := internal.CleanText(sb.String(), nil)
+		internal.PutBuilder(sb)
 		result.Text = p.formatInlineImages(textWithPlaceholders, images, format)
 	} else {
 		result.Text = p.extractTextContent(contentNode, opts.TableFormat)
@@ -338,10 +454,12 @@ func (p *Processor) extractArticleNode(doc *Node) *Node {
 }
 
 func (p *Processor) extractTextContent(node *Node, tableFormat string) string {
-	var sb strings.Builder
+	sb := internal.GetBuilder()
 	sb.Grow(initialTextSize)
-	internal.ExtractTextWithStructureAndImages(node, &sb, 0, nil, tableFormat)
-	return internal.CleanText(sb.String(), nil)
+	internal.ExtractTextWithStructureAndImages(node, sb, 0, nil, tableFormat)
+	result := internal.CleanText(sb.String(), nil)
+	internal.PutBuilder(sb)
+	return result
 }
 
 func (p *Processor) formatInlineImages(textWithPlaceholders string, images []ImageInfo, format string) string {
@@ -357,21 +475,23 @@ func (p *Processor) formatInlineImages(textWithPlaceholders string, images []Ima
 			if images[i].Position == 0 {
 				continue
 			}
-			placeholder := fmt.Sprintf("[IMAGE:%d]", images[i].Position)
+			placeholder := "[IMAGE:" + strconv.Itoa(images[i].Position) + "]"
 			altText := images[i].Alt
 			if altText == "" {
-				altText = fmt.Sprintf("Image %d", images[i].Position)
+				altText = "Image " + strconv.Itoa(images[i].Position)
 			}
-			markdown := fmt.Sprintf("![%s](%s)", altText, images[i].URL)
+			markdown := "![" + altText + "](" + images[i].URL + ")"
 			replacements = append(replacements, placeholder, markdown)
 		}
 	case "html":
+		// Use pooled builder for HTML image tags
+		htmlImg := internal.GetBuilder()
 		for i := range images {
 			if images[i].Position == 0 {
 				continue
 			}
-			placeholder := fmt.Sprintf("[IMAGE:%d]", images[i].Position)
-			var htmlImg strings.Builder
+			placeholder := "[IMAGE:" + strconv.Itoa(images[i].Position) + "]"
+			htmlImg.Reset()
 			htmlImg.Grow(len(images[i].URL) + len(images[i].Alt) + len(images[i].Width) + len(images[i].Height) + imageHTMLBufExtra)
 			htmlImg.WriteString(`<img src="`)
 			htmlImg.WriteString(htmlstd.EscapeString(images[i].URL))
@@ -391,6 +511,7 @@ func (p *Processor) formatInlineImages(textWithPlaceholders string, images []Ima
 			htmlImg.WriteString(">")
 			replacements = append(replacements, placeholder, htmlImg.String())
 		}
+		internal.PutBuilder(htmlImg)
 	}
 
 	if len(replacements) > 0 {
@@ -525,42 +646,34 @@ func (p *Processor) calculateReadingTime(wordCount int) time.Duration {
 	return time.Duration(minutes * float64(time.Minute))
 }
 
-// generateCacheKey creates a SHA-256 hash for cache key generation.
+// generateCacheKey creates a hash for cache key generation.
+// Uses FNV-1a which is faster than SHA256 for non-cryptographic use cases.
 // Uses multi-point sampling for large documents to better distinguish similar content.
+// Enhanced with content checksum to reduce collision risk.
+// Optimized to avoid heap allocations using pooled hasher.
 func (p *Processor) generateCacheKey(content string, opts ExtractConfig) string {
-	h := sha256.New()
+	h := internal.GetHash128()
+	defer internal.PutHash128(h)
 
-	// Build config key more efficiently
-	boolToByte := func(b bool) byte {
-		if b {
-			return '1'
-		}
-		return '0'
-	}
-
-	configBytes := []byte{
-		boolToByte(opts.ExtractArticle), ',',
-		boolToByte(opts.PreserveImages), ',',
-		boolToByte(opts.PreserveLinks), ',',
-		boolToByte(opts.PreserveVideos), ',',
-		boolToByte(opts.PreserveAudios), ',',
-	}
-	h.Write(configBytes)
-	h.Write([]byte(opts.InlineImageFormat))
-	h.Write([]byte{','})
-	h.Write([]byte(opts.TableFormat))
-	h.Write([]byte{0})
+	// Write config flags directly using io.WriteString to avoid allocations
+	io.WriteString(h, boolToString(opts.ExtractArticle))
+	io.WriteString(h, boolToString(opts.PreserveImages))
+	io.WriteString(h, boolToString(opts.PreserveLinks))
+	io.WriteString(h, boolToString(opts.PreserveVideos))
+	io.WriteString(h, boolToString(opts.PreserveAudios))
+	io.WriteString(h, opts.InlineImageFormat)
+	io.WriteString(h, opts.TableFormat)
 
 	contentLen := len(content)
 	if contentLen <= maxCacheKeySize {
-		h.Write([]byte(content))
+		// Use stringToBytes to avoid allocation when converting string to []byte
+		h.Write(stringToBytes(content))
 	} else {
-		// Multi-point sampling for large documents
-		// Sample from 5 positions: beginning, 25%, 50%, 75%, and end
-		// This better captures differences throughout the document
-		sampleCount := 5
-		samples := sampleCount
-		sampleSize := cacheKeySample / samples
+		// Enhanced multi-point sampling for large documents
+		// Sample from 7 positions: beginning, 16%, 33%, 50%, 66%, 83%, and end
+		// This provides better distribution and collision resistance
+		const sampleCount = 7
+		sampleSize := cacheKeySample / sampleCount
 		if sampleSize < 512 {
 			sampleSize = 512 // Minimum sample size per position
 		}
@@ -571,7 +684,7 @@ func (p *Processor) generateCacheKey(content string, opts ExtractConfig) string 
 			if i == sampleCount-1 {
 				// Last sample: take from end
 				end = contentLen
-				start = contentLen - cacheKeySample
+				start = contentLen - sampleSize
 				if start < 0 {
 					start = 0
 				}
@@ -586,15 +699,43 @@ func (p *Processor) generateCacheKey(content string, opts ExtractConfig) string 
 			}
 
 			if start < end {
-				h.Write([]byte(content[start:end]))
+				// Use stringToBytes on the substring to avoid allocation
+				h.Write(stringToBytes(content[start:end]))
 			}
 		}
 
 		// Include content length to distinguish documents of different sizes
-		h.Write([]byte(strconv.Itoa(contentLen)))
+		// Use a fixed-size buffer to avoid allocation
+		var lenBuf [16]byte
+		lenStr := strconv.AppendInt(lenBuf[:0], int64(contentLen), 10)
+		h.Write(lenStr)
+
+		// Add a rolling checksum of the entire content for additional collision resistance
+		// This uses a djb2-style hash which is more collision-resistant than simple XOR
+		// while still being very fast
+		var hash1, hash2 uint64 = 5381, 0
+		for i := 0; i < contentLen; i++ {
+			// djb2 hash: hash * 33 + c
+			hash1 = ((hash1 << 5) + hash1) + uint64(content[i])
+			// Secondary hash for additional collision resistance
+			hash2 = hash2*31 + uint64(content[i])
+		}
+		var checksum [16]byte
+		binary.LittleEndian.PutUint64(checksum[0:8], hash1)
+		binary.LittleEndian.PutUint64(checksum[8:16], hash2)
+		h.Write(checksum[:])
 	}
 
-	var buf [32]byte
+	// FNV-128a produces 16 bytes, encode to hex string
+	var buf [16]byte
 	sum := h.Sum(buf[:0])
-	return hex.EncodeToString(sum)
+	return string(sum[:]) // Return raw bytes as string for cache key (no hex encoding needed)
+}
+
+// boolToString returns "1" for true and "0" for false
+func boolToString(b bool) string {
+	if b {
+		return "1"
+	}
+	return "0"
 }

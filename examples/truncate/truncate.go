@@ -1,9 +1,17 @@
 package truncate
 
-// Truncate shortens text for display
+import "unicode/utf8"
+
+// Truncate shortens text for display, respecting multi-byte characters.
+// If the text exceeds maxLen runes, it returns the first maxLen runes with "..." appended.
 func Truncate(s string, maxLen int) string {
-	if len(s) <= maxLen {
+	if utf8.RuneCountInString(s) <= maxLen {
 		return s
 	}
-	return s[:maxLen] + "..."
+
+	runes := []rune(s)
+	if len(runes) > maxLen {
+		return string(runes[:maxLen]) + "..."
+	}
+	return s
 }
