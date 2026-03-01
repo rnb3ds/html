@@ -542,19 +542,14 @@ func decodeEntityFallback(entity string) string {
 // IsValidURL checks if a URL is valid and safe for processing.
 // This is a centralized URL validation function with size limits for security.
 func IsValidURL(url string) bool {
-	const (
-		maxURLLength     = 2000   // Maximum URL length
-		maxDataURILength = 100000 // Maximum data URL length (100KB)
-	)
-
 	urlLen := len(url)
-	if urlLen == 0 || urlLen > maxURLLength {
+	if urlLen == 0 || urlLen > MaxURLLength {
 		return false
 	}
 
 	// Special handling for data URLs - stricter validation with size limit
 	if strings.HasPrefix(url, "data:") {
-		if urlLen > maxDataURILength {
+		if urlLen > MaxDataURILength {
 			return false
 		}
 		for i := 5; i < urlLen; i++ {

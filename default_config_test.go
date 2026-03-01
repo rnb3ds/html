@@ -212,9 +212,9 @@ func TestMaxDepthEnforcement(t *testing.T) {
 
 	t.Run("MaxDepth validation works", func(t *testing.T) {
 		testCases := []struct {
-			name    string
+			name     string
 			maxDepth int
-			wantErr bool
+			wantErr  bool
 		}{
 			{"valid: 500", 500, false},
 			{"valid: 100", 100, false},

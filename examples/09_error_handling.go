@@ -58,8 +58,8 @@ func main() {
 		fmt.Println("⚠ Empty HTML input - skipping extraction")
 	}
 
-	hugeHTML := strings.NewReader(strings.Repeat("<div>", 100_000_000))
-	if hugeHTML.Size() > 50*1024*1024 { // 50MB
+	largeHTML := strings.NewReader(strings.Repeat("<div>", 10_000))
+	if largeHTML.Size() > 50*1024*1024 { // 50MB threshold check example
 		fmt.Println("⚠ HTML too large - consider size limits")
 	}
 

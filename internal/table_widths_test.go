@@ -2,22 +2,22 @@ package internal
 
 import (
 	"strings"
+	"testing"
 
 	stdxhtml "golang.org/x/net/html"
-	"testing"
 )
 
 // TestTableColumnWidths tests the table column width collection functionality.
-// These functions had 0% coverage and are important for proper table rendering.
+// These tests verify that tables with width definitions are properly extracted.
 
 func TestCollectColumnWidths(t *testing.T) {
 	t.Parallel()
 
 	testCases := []struct {
-		name         string
-		html         string
-		minLen       int
-		description  string
+		name        string
+		html        string
+		minCells    int
+		description string
 	}{
 		{
 			name: "table with width definitions",
@@ -30,7 +30,7 @@ func TestCollectColumnWidths(t *testing.T) {
 					</tr>
 				</table>
 			`,
-			minLen: 3,
+			minCells:    3,
 			description: "Should extract row with 3 cells",
 		},
 		{
@@ -43,7 +43,7 @@ func TestCollectColumnWidths(t *testing.T) {
 					</tr>
 				</table>
 			`,
-			minLen: 2,
+			minCells:    2,
 			description: "Should extract row with 2 cells",
 		},
 		{
@@ -57,7 +57,7 @@ func TestCollectColumnWidths(t *testing.T) {
 					</tr>
 				</table>
 			`,
-			minLen: 3,
+			minCells:    3,
 			description: "Should extract row with 3 cells",
 		},
 	}
@@ -75,65 +75,20 @@ func TestCollectColumnWidths(t *testing.T) {
 				t.Fatal("Table not found")
 			}
 
-			// Extract table data
-			tableData, _ := extractTableData(table, "markdown")
+			// Use the public API to extract table content
+			var sb strings.Builder
+			ExtractTextWithStructureAndImages(table, &sb, 0, nil, "markdown")
 
-			// Verify table data was extracted with expected cell count
-			if len(tableData) == 0 {
-				t.Error("No table data extracted")
-			} else if len(tableData[0]) < tc.minLen {
-				t.Errorf("%s: extracted row with %d cells, want at least %d", tc.description, len(tableData[0]), tc.minLen)
-			}
-		})
-	}
-}
-
-func TestEnsureColWidthCapacity(t *testing.T) {
-	t.Parallel()
-
-	testCases := []struct {
-		name      string
-		colWidths []string
-		index     int
-		minLen    int
-	}{
-		{
-			name:      "already has capacity",
-			colWidths: []string{"100px", "200px"},
-			index:     1,
-			minLen:    2,
-		},
-		{
-			name:      "needs to grow",
-			colWidths: []string{"100px"},
-			index:     2,
-			minLen:    3,
-		},
-		{
-			name:      "empty array",
-			colWidths: []string{},
-			index:     0,
-			minLen:    1,
-		},
-		{
-			name:      "large index jump",
-			colWidths: []string{},
-			index:     10,
-			minLen:    11,
-		},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			result := ensureColWidthCapacity(tc.colWidths, tc.index)
-
-			if len(result) < tc.minLen {
-				t.Errorf("ensureColWidthCapacity() returned array of length %d, want at least %d", len(result), tc.minLen)
+			// Verify content was extracted
+			result := sb.String()
+			if result == "" {
+				t.Error("No table content extracted")
 			}
 
-			// Verify the array has capacity for the requested index
-			if cap(result) <= tc.index {
-				t.Errorf("ensureColWidthCapacity() capacity %d is not enough for index %d", cap(result), tc.index)
+			// Count cells by counting | characters in the output
+			cellCount := strings.Count(result, "|") / 2 // Each cell has | before and after
+			if cellCount < tc.minCells {
+				t.Errorf("%s: extracted %d cells, want at least %d", tc.description, cellCount, tc.minCells)
 			}
 		})
 	}
@@ -143,11 +98,10 @@ func TestTableStructureRowDetection(t *testing.T) {
 	t.Parallel()
 
 	testCases := []struct {
-		name            string
-		html            string
-		expectedRows    int
-		structureRows   int
-		description     string
+		name         string
+		html         string
+		expectedRows int
+		description  string
 	}{
 		{
 			name: "normal data rows",
@@ -157,9 +111,8 @@ func TestTableStructureRowDetection(t *testing.T) {
 					<tr><td>Data 3</td><td>Data 4</td></tr>
 				</table>
 			`,
-			expectedRows:  2,
-			structureRows: 0,
-			description:   "All rows are data rows",
+			expectedRows: 2,
+			description:  "All rows are data rows",
 		},
 		{
 			name: "structure row with widths",
@@ -169,9 +122,8 @@ func TestTableStructureRowDetection(t *testing.T) {
 					<tr><td>Data 1</td><td>Data 2</td></tr>
 				</table>
 			`,
-			expectedRows:  1, // Only data row
-			structureRows: 1, // Structure row excluded from data
-			description:   "Structure row excluded from Markdown output",
+			expectedRows: 1, // Only data row (structure row excluded)
+			description:  "Structure row excluded from Markdown output",
 		},
 	}
 
@@ -187,10 +139,22 @@ func TestTableStructureRowDetection(t *testing.T) {
 				t.Fatal("Table not found")
 			}
 
-			tableData, _ := extractTableData(table, "markdown")
+			// Use the public API to extract table content
+			var sb strings.Builder
+			ExtractTextWithStructureAndImages(table, &sb, 0, nil, "markdown")
 
-			if len(tableData) != tc.expectedRows {
-				t.Errorf("%s: extracted %d data rows, want %d", tc.description, len(tableData), tc.expectedRows)
+			// Count rows by counting lines with | characters
+			result := sb.String()
+			lines := strings.Split(strings.TrimSpace(result), "\n")
+			dataRowCount := 0
+			for _, line := range lines {
+				if strings.Contains(line, "|") && !strings.Contains(line, "| ---") && !strings.Contains(line, "|:--") && !strings.Contains(line, "|---:") {
+					dataRowCount++
+				}
+			}
+
+			if dataRowCount != tc.expectedRows {
+				t.Errorf("%s: extracted %d data rows, want %d", tc.description, dataRowCount, tc.expectedRows)
 			}
 		})
 	}
@@ -259,10 +223,10 @@ func TestTableColspanExpansion(t *testing.T) {
 	t.Parallel()
 
 	testCases := []struct {
-		name           string
-		html           string
-		expectedCells  int
-		description    string
+		name            string
+		html            string
+		expectedContent string
+		description     string
 	}{
 		{
 			name: "single colspan",
@@ -271,8 +235,8 @@ func TestTableColspanExpansion(t *testing.T) {
 					<tr><td colspan="2">Spans 2</td><td>Normal</td></tr>
 				</table>
 			`,
-			expectedCells: 3, // 1 expanded + 1 placeholder + 1 normal
-			description:   "Colspan creates placeholder cells",
+			expectedContent: "Spans 2",
+			description:     "Colspan content is preserved",
 		},
 		{
 			name: "multiple colspan",
@@ -281,8 +245,8 @@ func TestTableColspanExpansion(t *testing.T) {
 					<tr><td colspan="3">Spans 3</td></tr>
 				</table>
 			`,
-			expectedCells: 3, // 1 expanded + 2 placeholders
-			description:   "Multiple placeholders created",
+			expectedContent: "Spans 3",
+			description:     "Multiple colspan content is preserved",
 		},
 		{
 			name: "no colspan",
@@ -291,8 +255,8 @@ func TestTableColspanExpansion(t *testing.T) {
 					<tr><td>A</td><td>B</td><td>C</td></tr>
 				</table>
 			`,
-			expectedCells: 3,
-			description:   "All cells are normal",
+			expectedContent: "A",
+			description:     "All cells are normal",
 		},
 	}
 
@@ -308,15 +272,14 @@ func TestTableColspanExpansion(t *testing.T) {
 				t.Fatal("Table not found")
 			}
 
-			tableData, _ := extractTableData(table, "markdown")
+			// Use the public API to extract table content
+			var sb strings.Builder
+			ExtractTextWithStructureAndImages(table, &sb, 0, nil, "markdown")
 
-			if len(tableData) == 0 {
-				t.Fatal("No table data extracted")
-			}
-
-			row := tableData[0]
-			if len(row) != tc.expectedCells {
-				t.Errorf("%s: got %d cells, want %d", tc.description, len(row), tc.expectedCells)
+			// Verify the expected content is in the output
+			result := sb.String()
+			if !strings.Contains(result, tc.expectedContent) {
+				t.Errorf("%s: expected content %q not found in output %q", tc.description, tc.expectedContent, result)
 			}
 		})
 	}

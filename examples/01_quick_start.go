@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/cybergodev/html"
+	"github.com/cybergodev/html/examples/truncate"
 )
 
 // This example demonstrates the fastest way to get started with the library.
@@ -38,7 +39,7 @@ func main() {
 	fmt.Printf("Extracted Text:\n%s\n\n", text)
 
 	// ===== STEP 2: Extract with metadata =====
-	fmt.Println("\nStep 2: Extract title and metadata")
+	fmt.Println("Step 2: Extract title and metadata")
 	fmt.Println("-----------------------------------")
 
 	result, err := html.Extract([]byte(htmlContent))
@@ -48,7 +49,7 @@ func main() {
 
 	fmt.Printf("Title: %s\n", result.Title)
 	fmt.Printf("Word Count: %d\n", result.WordCount)
-	fmt.Printf("Reading Time: %d minute(s)\n\n", result.ReadingTime)
+	fmt.Printf("Reading Time: %v\n\n", result.ReadingTime)
 
 	// ===== STEP 3: Extract from real-world HTML =====
 	fmt.Println("Step 3: Extract from real-world page (with noise removal)")
@@ -81,7 +82,7 @@ func main() {
 	}
 
 	fmt.Printf("Title: %s\n", result.Title)
-	fmt.Printf("Content: %s\n", truncate01(result.Text, 100))
+	fmt.Printf("Content: %s\n", truncate.Truncate(result.Text, 100))
 	fmt.Printf("Images Found: %d (noise removed: nav, sidebar, footer)\n", len(result.Images))
 
 	// ===== BONUS: Reuse processor for multiple documents =====
@@ -104,12 +105,4 @@ func main() {
 		}
 		fmt.Printf("Document %d: %s (%d words)\n", i+1, result.Title, result.WordCount)
 	}
-}
-
-// truncate01 shortens text for display
-func truncate01(s string, maxLen int) string {
-	if len(s) <= maxLen {
-		return s
-	}
-	return s[:maxLen] + "..."
 }

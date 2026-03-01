@@ -3,10 +3,12 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
+	"net/http/httptest"
 	"sync"
 	"time"
 
@@ -18,20 +20,21 @@ import (
 func main() {
 	fmt.Println("=== HTTP Integration Examples ===\n ")
 
+	// Create a mock server for demonstration
+	server := createMockServer()
+	defer server.Close()
+
 	// ============================================================
 	// Example 1: Fetch and extract from a single URL
 	// ============================================================
 	fmt.Println("Example 1: Fetch a single webpage")
 	fmt.Println("--------------------------------")
 
-	url := "https://example.com"
+	url := server.URL + "/article"
 
 	content, err := fetchURL(url)
 	if err != nil {
-		log.Printf("Error: %v\n", err)
-		fmt.Println("\nNote: This example requires internet access")
-		fmt.Println("For testing, you can use a local file or mock HTML")
-		return
+		log.Fatalf("Error: %v\n", err)
 	}
 
 	result, err := html.Extract(content)
@@ -52,9 +55,9 @@ func main() {
 	fmt.Println("--------------------------------------------")
 
 	urls := []string{
-		"https://example.com/page1",
-		"https://example.com/page2",
-		"https://example.com/page3",
+		server.URL + "/article",
+		server.URL + "/blog",
+		server.URL + "/docs",
 	}
 
 	processor, _ := html.New()
@@ -65,7 +68,6 @@ func main() {
 	duration := time.Since(start)
 
 	fmt.Printf("Processed %d URLs in %v\n", len(results), duration)
-	fmt.Printf("Average: %v per URL\n", duration/time.Duration(len(results)))
 
 	for _, r := range results {
 		if r.Error != nil {
@@ -81,23 +83,20 @@ func main() {
 	fmt.Println("\n\nExample 3: Configure HTTP client")
 	fmt.Println("--------------------------------")
 
-	httpClient := createHTTPClient(10*time.Second, 5)
+	httpClient := createHTTPClient(10 * time.Second)
 
 	fmt.Println("HTTP Client Configuration:")
 	fmt.Println("  Timeout: 10 seconds")
-	fmt.Println("  Max Idle Conns: 5")
-	fmt.Println("  Max Idle Conns Per Host: 5")
+	fmt.Println("  Max Idle Conns: 10")
 	fmt.Println("  Idle Conn Timeout: 90 seconds")
 
-	// Use the custom client
-	resp, err := httpClient.Get("https://example.com")
+	resp, err := httpClient.Get(server.URL + "/article")
 	if err != nil {
 		log.Printf("Request failed: %v\n", err)
 	} else {
 		defer resp.Body.Close()
 		fmt.Printf("\nResponse Status: %s\n", resp.Status)
 		fmt.Printf("Content-Type: %s\n", resp.Header.Get("Content-Type"))
-		fmt.Printf("Content-Length: %s\n", resp.Header.Get("Content-Length"))
 
 		if resp.StatusCode == 200 {
 			body, _ := io.ReadAll(resp.Body)
@@ -105,51 +104,42 @@ func main() {
 			if err != nil {
 				log.Fatal(err)
 			}
-			fmt.Printf("\nExtracted: %s (%d words)\n", result.Title, result.WordCount)
+			fmt.Printf("Extracted: %s (%d words)\n", result.Title, result.WordCount)
 		}
 	}
 
 	// ============================================================
-	// Example 4: Error handling patterns for HTTP
+	// Example 4: Batch processing with context
 	// ============================================================
-	fmt.Println("\n\nExample 4: Robust error handling")
-	fmt.Println("--------------------------------")
+	fmt.Println("\n\nExample 4: Batch processing with context")
+	fmt.Println("----------------------------------------")
 
-	urls2 := []string{
-		"https://example.com/good",
-		"https://example.com/timeout",
-		"https://example.com/notfound",
-		"https://invalid-url-that-will-fail",
-	}
-
-	processor2, _ := html.New()
-	defer processor2.Close()
-
-	for _, url := range urls2 {
-		content, err := fetchURLWithTimeout(url, 5*time.Second)
-
+	// Fetch multiple pages
+	pages := make([][]byte, 3)
+	for i, path := range []string{"/article", "/blog", "/docs"} {
+		content, err := fetchURL(server.URL + path)
 		if err != nil {
-			fmt.Printf("  ✗ %s\n", url)
-			fmt.Printf("    Error: %v\n\n", err)
+			log.Printf("Failed to fetch %s: %v\n", path, err)
 			continue
 		}
-
-		result, err := processor2.Extract(content)
-		if err != nil {
-			fmt.Printf("  ✗ %s\n", url)
-			fmt.Printf("    Extraction error: %v\n\n", err)
-			continue
-		}
-
-		fmt.Printf("  ✓ %s\n", url)
-		fmt.Printf("    Title: %s\n", result.Title)
-		fmt.Printf("    Words: %d\n\n", result.WordCount)
+		pages[i] = content
 	}
+
+	// Process with timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	batchResult := processor.ExtractBatchWithContext(ctx, pages)
+
+	fmt.Printf("Batch Results:\n")
+	fmt.Printf("  Success:   %d\n", batchResult.Success)
+	fmt.Printf("  Failed:    %d\n", batchResult.Failed)
+	fmt.Printf("  Cancelled: %d\n", batchResult.Cancelled)
 
 	// ============================================================
 	// Example 5: Best practices for production use
 	// ============================================================
-	fmt.Println("Example 5: Production best practices")
+	fmt.Println("\n\nExample 5: Production best practices")
 	fmt.Println("------------------------------------")
 
 	tips := []struct {
@@ -219,25 +209,6 @@ func fetchURL(url string) ([]byte, error) {
 	return io.ReadAll(resp.Body)
 }
 
-// fetchURLWithTimeout fetches with a custom timeout
-func fetchURLWithTimeout(url string, timeout time.Duration) ([]byte, error) {
-	client := &http.Client{
-		Timeout: timeout,
-	}
-
-	resp, err := client.Get(url)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("HTTP %d: %s", resp.StatusCode, resp.Status)
-	}
-
-	return io.ReadAll(resp.Body)
-}
-
 // processURLsConcurrently processes multiple URLs concurrently
 func processURLsConcurrently(processor *html.Processor, urls []string) []URLResult {
 	var wg sync.WaitGroup
@@ -276,12 +247,12 @@ func processURLsConcurrently(processor *html.Processor, urls []string) []URLResu
 }
 
 // createHTTPClient creates an optimized HTTP client
-func createHTTPClient(timeout time.Duration, maxIdle int) *http.Client {
+func createHTTPClient(timeout time.Duration) *http.Client {
 	return &http.Client{
 		Timeout: timeout,
 		Transport: &http.Transport{
-			MaxIdleConns:        maxIdle,
-			MaxIdleConnsPerHost: maxIdle,
+			MaxIdleConns:        10,
+			MaxIdleConnsPerHost: 10,
 			IdleConnTimeout:     90 * time.Second,
 			DisableCompression:  false,
 		},
@@ -293,4 +264,58 @@ type URLResult struct {
 	URL    string
 	Result *html.Result
 	Error  error
+}
+
+// createMockServer creates a test server with sample HTML content
+func createMockServer() *httptest.Server {
+	mux := http.NewServeMux()
+
+	mux.HandleFunc("/article", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		w.Write([]byte(`
+			<html>
+				<head><title>Go Article</title></head>
+				<body>
+					<article>
+						<h1>Understanding Go Concurrency</h1>
+						<p>Go makes concurrent programming easy with goroutines and channels.</p>
+						<p>This article explores the fundamentals of concurrent programming.</p>
+					</article>
+				</body>
+			</html>
+		`))
+	})
+
+	mux.HandleFunc("/blog", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		w.Write([]byte(`
+			<html>
+				<head><title>Blog Post</title></head>
+				<body>
+					<article>
+						<h1>Web Scraping Best Practices</h1>
+						<p>Learn how to scrape web content responsibly and efficiently.</p>
+					</article>
+				</body>
+			</html>
+		`))
+	})
+
+	mux.HandleFunc("/docs", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		w.Write([]byte(`
+			<html>
+				<head><title>Documentation</title></head>
+				<body>
+					<article>
+						<h1>API Reference</h1>
+						<p>This document describes the API endpoints and their usage.</p>
+						<p>Refer to the examples for practical implementations.</p>
+					</article>
+				</body>
+			</html>
+		`))
+	})
+
+	return httptest.NewServer(mux)
 }

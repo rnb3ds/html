@@ -7,68 +7,12 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/cybergodev/html/internal/table"
 	"golang.org/x/net/html"
 )
 
-type trackedBuilder struct {
-	*strings.Builder
-	lastChar byte
-}
-
-// alignCount tracks the number of cells with each alignment type for a column.
-type alignCount struct {
-	left, center, right, justify, defaultCount int
-}
-
-func newTrackedBuilder(sb *strings.Builder) *trackedBuilder {
-	return &trackedBuilder{
-		Builder:  sb,
-		lastChar: 0,
-	}
-}
-
-// ensureColWidthCapacity ensures the colWidths slice can hold the given index
-func ensureColWidthCapacity(colWidths []string, index int) []string {
-	if index < len(colWidths) {
-		return colWidths
-	}
-	// Grow the slice to accommodate the index
-	newCap := index + 1
-	if cap(colWidths) >= newCap {
-		// Extend to available capacity
-		return colWidths[:newCap]
-	}
-	// Allocate new slice with larger capacity
-	newSlice := make([]string, newCap, newCap+initialColWidthsCap)
-	copy(newSlice, colWidths)
-	return newSlice
-}
-
-func (tb *trackedBuilder) WriteByte(c byte) error {
-	tb.lastChar = c
-	return tb.Builder.WriteByte(c)
-}
-
-func (tb *trackedBuilder) WriteString(s string) (int, error) {
-	n, err := tb.Builder.WriteString(s)
-	if n > 0 && err == nil {
-		tb.lastChar = s[len(s)-1]
-	}
-	return n, err
-}
-
-func ensureNewlineTracked(tb *trackedBuilder) {
-	if tb.Builder.Len() > 0 && tb.lastChar != '\n' {
-		tb.WriteByte('\n')
-	}
-}
-
-func ensureSpacingTracked(tb *trackedBuilder, char byte) {
-	if tb.Builder.Len() > 0 && tb.lastChar != ' ' && tb.lastChar != '\n' {
-		tb.WriteByte(char)
-	}
-}
-
+// ExtractTextWithStructureAndImages extracts text content from an HTML node tree
+// while preserving document structure (headings, paragraphs, lists, tables).
 func ExtractTextWithStructureAndImages(node *html.Node, sb *strings.Builder, _ int, imageCounter *int, tableFormat string) {
 	if node == nil {
 		return
@@ -77,11 +21,11 @@ func ExtractTextWithStructureAndImages(node *html.Node, sb *strings.Builder, _ i
 		return
 	}
 
-	tb := newTrackedBuilder(sb)
+	tb := table.NewTrackedBuilder(sb)
 	extractTextWithStructure(node, tb, imageCounter, tableFormat, nil, 0)
 }
 
-func extractTextWithStructure(node *html.Node, tb *trackedBuilder, imageCounter *int, tableFormat string, parentBlock *html.Node, depth int) {
+func extractTextWithStructure(node *html.Node, tb *table.TrackedBuilder, imageCounter *int, tableFormat string, parentBlock *html.Node, depth int) {
 	if node == nil {
 		return
 	}
@@ -101,7 +45,7 @@ func extractTextWithStructure(node *html.Node, tb *trackedBuilder, imageCounter 
 		// Check if we're inside an inline/namespace element
 		isInsideInline := false
 		if parentBlock != nil && parentBlock.Type == html.ElementNode {
-			isInsideInline = IsInlineElement(parentBlock.Data) || isNamespaceTag(parentBlock.Data)
+			isInsideInline = IsInlineElement(parentBlock.Data) || IsNamespaceTag(parentBlock.Data)
 		}
 
 		if isInsideInline {
@@ -117,7 +61,7 @@ func extractTextWithStructure(node *html.Node, tb *trackedBuilder, imageCounter 
 					if node.NextSibling != nil && node.NextSibling.Type == html.ElementNode {
 						// Check if next sibling is a namespace tag
 						nextTag := node.NextSibling.Data
-						if isNamespaceTag(nextTag) || knownInlineNamespacePrefixes[getNamespacePrefix(nextTag)] {
+						if IsNamespaceTag(nextTag) || isKnownInlineNamespacePrefix(GetNamespacePrefix(nextTag)) {
 							shouldPreserveSpace = false
 						}
 					}
@@ -131,7 +75,7 @@ func extractTextWithStructure(node *html.Node, tb *trackedBuilder, imageCounter 
 			hasTrailingSpace := strings.HasSuffix(textData, " ") || strings.HasSuffix(textData, "\t")
 			content := strings.TrimSpace(textData)
 			if content != "" {
-				ensureSpacingTracked(tb, ' ')
+				table.EnsureSpacing(tb, ' ')
 				tb.WriteString(content)
 				// Preserve trailing space from original HTML
 				if hasTrailingSpace {
@@ -144,7 +88,7 @@ func extractTextWithStructure(node *html.Node, tb *trackedBuilder, imageCounter 
 	if node.Type == html.ElementNode {
 		if node.Data == "img" && imageCounter != nil {
 			*imageCounter++
-			ensureNewlineTracked(tb)
+			table.EnsureNewline(tb)
 			tb.WriteString("[IMAGE:")
 			tb.WriteString(strconv.Itoa(*imageCounter))
 			tb.WriteString("]\n")
@@ -153,32 +97,33 @@ func extractTextWithStructure(node *html.Node, tb *trackedBuilder, imageCounter 
 		if node.Data == "br" {
 			// BR creates a single line break, not paragraph spacing
 			// Only add newline if we have content and don't already have one
-			if tb.Builder.Len() > 0 && tb.lastChar != '\n' {
+			if tb.Builder.Len() > 0 && tb.LastChar != '\n' {
 				tb.WriteByte('\n')
 			}
 			return
 		}
 		if node.Data == "table" {
-			extractTableTracked(node, tb, tableFormat)
+			// Use the table package for table extraction
+			table.Extract(node, tb, tableFormat, getCellAlign, getColSpan, getRowSpan, getCellWidth, GetTextContent, WalkNodes)
 			return
 		}
 		// Check if this is a paragraph-level block element that needs double newlines
 		// Elements like li, br, hr, tr, td, th should not add extra spacing
-		isParagraphBlock := isParagraphLevelBlockElement(node.Data)
+		isParagraphBlock := IsParagraphLevelBlockElement(node.Data)
 
 		// Structure-aware: for unknown tags, dynamically determine if they should be treated as block elements
 		isBlockElement := IsBlockElement(node.Data)
 		if !isBlockElement && !isParagraphBlock {
-			isBlockElement = shouldTreatAsBlockElement(node)
+			isBlockElement = ShouldTreatAsBlockElement(node)
 			// If dynamically determined to be a block, also treat as paragraph block
 			if isBlockElement {
 				isParagraphBlock = true
 			}
 		}
 
-		startLen := tb.Len()
+		startLen := tb.Builder.Len()
 		if isBlockElement && startLen > 0 {
-			ensureNewlineTracked(tb)
+			table.EnsureNewline(tb)
 			// Add Markdown list prefix based on padding-left level
 			paddingLeft := extractPaddingLeft(node)
 			if paddingLeft > 0 {
@@ -187,7 +132,7 @@ func extractTextWithStructure(node *html.Node, tb *trackedBuilder, imageCounter 
 					tb.WriteString(listPrefix)
 				}
 			}
-			startLen = tb.Len()
+			startLen = tb.Builder.Len()
 		} else if isBlockElement && startLen == 0 {
 			// First element - add list prefix if it has padding-left
 			paddingLeft := extractPaddingLeft(node)
@@ -196,25 +141,25 @@ func extractTextWithStructure(node *html.Node, tb *trackedBuilder, imageCounter 
 				if listPrefix != "" {
 					tb.WriteString(listPrefix)
 				}
-				startLen = tb.Len()
+				startLen = tb.Builder.Len()
 			}
 		}
 
 		for child := node.FirstChild; child != nil; child = child.NextSibling {
 			extractTextWithStructure(child, tb, imageCounter, tableFormat, node, depth+1)
 		}
-		hasContent := tb.Len() > startLen
+		hasContent := tb.Builder.Len() > startLen
 		if isBlockElement && hasContent {
-			ensureNewlineTracked(tb)
+			table.EnsureNewline(tb)
 			// Add an extra newline for paragraph-level blocks to create paragraph spacing in Markdown
-			if isParagraphBlock && tb.lastChar == '\n' {
+			if isParagraphBlock && tb.LastChar == '\n' {
 				tb.WriteByte('\n')
 			}
 		}
 		// Add spacing for non-root inline elements (depth > 0)
 		// This ensures proper spacing between inline elements at the same level
 		if !isBlockElement && hasContent && node.NextSibling != nil && depth > 0 {
-			ensureSpacingTracked(tb, ' ')
+			table.EnsureSpacing(tb, ' ')
 		}
 	} else {
 		for child := node.FirstChild; child != nil; child = child.NextSibling {
@@ -223,760 +168,12 @@ func extractTextWithStructure(node *html.Node, tb *trackedBuilder, imageCounter 
 	}
 }
 
-// isParagraphLevelBlockElement returns true if the element is a block element that should
-// be separated by paragraph spacing (double newlines) in the output.
-//
-// Paragraph-level block elements create visual separation with blank lines in Markdown:
-// - Text containers: p, div, pre, blockquote
-// - Headings: h1-h6
-// - Semantic sections: article, section, main, figure, figcaption, address
-// - Lists: ul, ol, dl
-// - Tables: table
-// - Forms: fieldset
-// - Interactive: details, summary, dialog
-// - Media: canvas
-//
-// Block elements WITHOUT paragraph spacing (treated as inline blocks):
-// - List items: li, dt, dd
-// - Table structure: thead, tbody, tfoot, tr, td, th
-// - Self-closing: hr
-// - Structural: body, html, head
-// - Semantic (non-content): nav, aside, header, footer, form
-func isParagraphLevelBlockElement(tag string) bool {
-	switch tag {
-	// Paragraph-level blocks (add double newlines)
-	case "p", "div", "h1", "h2", "h3", "h4", "h5", "h6",
-		"article", "section", "main", "blockquote", "pre",
-		"ul", "ol", "dl", "table",
-		"figure", "figcaption", "address",
-		"fieldset", "details", "summary", "dialog",
-		"canvas":
-		return true
-
-	// Block elements but no paragraph spacing (compact layout)
-	case "li", "dt", "dd",
-		"thead", "tbody", "tfoot", "tr", "td", "th",
-		"hr",
-		"body", "html", "head",
-		"nav", "aside", "header", "footer", "form",
-		"center":
-		return false
-
-	default:
-		// For unknown elements, use IsBlockElement as fallback
-		return IsBlockElement(tag)
-	}
+// isKnownInlineNamespacePrefix checks if the prefix is a known inline namespace prefix.
+func isKnownInlineNamespacePrefix(prefix string) bool {
+	return knownInlineNamespacePrefixes[prefix]
 }
 
-// isNamespaceTag checks if a tag is a namespaced tag (contains ':').
-// Examples: ix:nonnumeric, xbrl:value, dei:CityAreaCode
-func isNamespaceTag(tag string) bool {
-	return strings.Contains(tag, ":")
-}
-
-// getNamespacePrefix extracts the namespace prefix from a namespaced tag.
-// For "ix:nonnumeric", it returns "ix".
-func getNamespacePrefix(tag string) string {
-	parts := strings.SplitN(tag, ":", 2)
-	if len(parts) == 2 {
-		return parts[0]
-	}
-	return ""
-}
-
-// knownInlineNamespacePrefixes contains namespace prefixes that are typically
-// used for inline data markers in structured documents like XBRL/SEC filings.
-var knownInlineNamespacePrefixes = map[string]bool{
-	"ix":      true, // Inline XBRL - used for inline facts in documents
-	"xbrl":    true, // XBRL core elements
-	"dei":     true, // Document and Entity Information
-	"us-gaap": true, // US GAAP taxonomy
-	"ifrs":    true, // IFRS taxonomy
-	"link":    true, // XLink elements (often inline)
-	"xlink":   true, // Alternative XLink namespace
-}
-
-// shouldTreatNamespaceTagAsInline determines if a namespaced tag should be
-// treated as an inline element based on context, content, and namespace.
-func shouldTreatNamespaceTagAsInline(node *html.Node) bool {
-	if node == nil || node.Type != html.ElementNode {
-		return false
-	}
-
-	// Rule 1: Analyze content structure first (highest priority)
-	// This ensures that content characteristics override namespace assumptions
-	hasElementChildren := false
-	textLength := 0
-	textNodeCount := 0
-	newlineCount := 0
-
-	for child := node.FirstChild; child != nil; child = child.NextSibling {
-		switch child.Type {
-		case html.ElementNode:
-			hasElementChildren = true
-		case html.TextNode:
-			text := strings.TrimSpace(child.Data)
-			if text != "" {
-				textNodeCount++
-				textLength += len(text)
-			}
-			// Count newlines in original text (before trimming)
-			newlineCount += strings.Count(child.Data, "\n")
-		}
-	}
-
-	// Tags with element children are NOT inline
-	if hasElementChildren {
-		return false
-	}
-
-	// Tags with multi-line content are NOT inline
-	if newlineCount > 0 {
-		return false
-	}
-
-	// Tags with long content are NOT inline
-	if textLength > 50 {
-		return false
-	}
-
-	// Tags with multiple text nodes are NOT inline
-	if textNodeCount > 1 {
-		return false
-	}
-
-	// Rule 2: Check if the parent is an inline element
-	// Tags inside inline containers (span, a, font, etc.) should be inline
-	if node.Parent != nil && node.Parent.Type == html.ElementNode {
-		if IsInlineElement(node.Parent.Data) {
-			return true
-		}
-	}
-
-	// Rule 3: Known inline namespaces are inline by default
-	// Only apply this if content characteristics don't suggest otherwise
-	tag := node.Data
-	prefix := getNamespacePrefix(tag)
-	if knownInlineNamespacePrefixes[prefix] {
-		return true
-	}
-
-	return false
-}
-
-// shouldTreatAsBlockElement dynamically determines if an unknown/custom tag
-// should be treated as a block-level element based on its structure and content.
-// This enables proper handling of custom tag formats like SEC documents.
-func shouldTreatAsBlockElement(node *html.Node) bool {
-	if node == nil || node.Type != html.ElementNode {
-		return false
-	}
-
-	// Check if this is a namespaced tag (e.g., ix:nonnumeric, xbrl:value)
-	// These require special handling as they're often inline data markers
-	if isNamespaceTag(node.Data) {
-		// Use specialized logic for namespace tags based on context and content
-		return !shouldTreatNamespaceTagAsInline(node)
-	}
-
-	// Known inline elements should never be treated as block elements
-	// This prevents bugs where long text in inline elements (like <font>)
-	// triggers the text length heuristic
-	if IsInlineElement(node.Data) {
-		return false
-	}
-
-	// Analyze the node's structure and content
-	hasElementChildren := false
-	hasTextContent := false
-	textLength := 0
-	newlineCount := 0
-	childCount := 0
-
-	for child := node.FirstChild; child != nil; child = child.NextSibling {
-		childCount++
-
-		switch child.Type {
-		case html.ElementNode:
-			hasElementChildren = true
-		case html.TextNode:
-			text := strings.TrimSpace(child.Data)
-			if text != "" {
-				hasTextContent = true
-				textLength += len(text)
-				// Count newlines in original text (before trimming)
-				newlineCount += strings.Count(child.Data, "\n")
-			}
-		}
-	}
-
-	// Decision rules for treating as block element:
-
-	// Rule 1: Container tags with multiple children are likely block-level
-	if childCount > 1 || hasElementChildren {
-		return true
-	}
-
-	// Rule 2: Tags with substantial text content are likely block-level
-	// This catches custom tags that wrap meaningful content
-	if hasTextContent && textLength > 50 {
-		return true
-	}
-
-	// Rule 3: Tags containing multi-line text are likely block-level
-	if newlineCount > 0 {
-		return true
-	}
-
-	// Rule 4: Tags with uppercase names and hyphens (common in structured data formats like SEC)
-	// Examples: <SEC-DOCUMENT>, <ACCEPTANCE-DATETIME>, <SEC-HEADER>
-	tag := node.Data
-	if isStructuredDataTag(tag) {
-		return true
-	}
-
-	// Rule 5: Check if parent is a block element - children of blocks tend to be blocks
-	// This handles nested structures
-	if node.Parent != nil && node.Parent.Type == html.ElementNode {
-		parentTag := node.Parent.Data
-		if isStructuredDataTag(parentTag) {
-			// Children of structured data tags are typically block-level
-			return true
-		}
-	}
-
-	return false
-}
-
-// isStructuredDataTag checks if a tag name matches patterns used in structured data formats.
-// These patterns include:
-//   - Tags with hyphens or underscores (sec-document, ACCEPTANCE_DATETIME)
-//   - Long tag names suggesting metadata fields
-//
-// Note: HTML parser converts all tag names to lowercase, so we check for lowercase patterns
-func isStructuredDataTag(tag string) bool {
-	if tag == "" {
-		return false
-	}
-
-	// Tags with hyphens or underscores are common in structured data formats
-	// (HTML parser converts to lowercase, so we check for lowercase patterns)
-	if strings.Contains(tag, "-") || strings.Contains(tag, "_") {
-		return true
-	}
-
-	// Long tag names are typically metadata/structural fields
-	if len(tag) > 8 {
-		return true
-	}
-
-	return false
-}
-
-// extractTableTracked extracts HTML table content and converts it to the specified format.
-// This is the main entry point for table extraction that orchestrates the multi-step process.
-func extractTableTracked(table *html.Node, tb *trackedBuilder, tableFormat string) {
-	if table == nil {
-		return
-	}
-
-	// Ensure blank line before table for proper Markdown parsing
-	ensureNewlineTracked(tb)
-	if tb.lastChar == '\n' {
-		tb.WriteByte('\n')
-	}
-
-	// Step 1: Extract all row data from table
-	tableData, colWidths := extractTableData(table, tableFormat)
-
-	if len(tableData) == 0 {
-		return
-	}
-
-	// Step 2: Determine maximum columns
-	maxCols := calculateMaxColumns(tableData)
-
-	// Step 3: Render in requested format
-	switch strings.ToLower(strings.TrimSpace(tableFormat)) {
-	case "html":
-		extractTableAsHTML(tableData, tb)
-	default: // "markdown"
-		extractTableAsMarkdown(tableData, tb, maxCols, colWidths)
-	}
-
-	// Ensure blank line after table for proper Markdown parsing
-	tb.WriteByte('\n')
-	if tb.lastChar == '\n' {
-		tb.WriteByte('\n')
-	}
-}
-
-// extractTableData walks through table rows and extracts cell data.
-// Returns table rows with cell metadata and column widths from structure rows.
-func extractTableData(table *html.Node, tableFormat string) ([][]cellData, []string) {
-	var tableData [][]cellData
-	colWidths := make([]string, 0, initialColWidthsCap)
-
-	WalkNodes(table, func(node *html.Node) bool {
-		if node.Type != html.ElementNode || node.Data != "tr" {
-			return true
-		}
-
-		// Extract cells from this row
-		rawCells := extractRowCells(node)
-		if len(rawCells) == 0 {
-			return false
-		}
-
-		// Determine if this is a structure row (width definitions only, no real content)
-		isStructureRow := isStructureRow(rawCells)
-
-		// Expand cells with colspan for Markdown format
-		cells := rawCells
-		if tableFormat != "html" {
-			cells = expandColspanCells(rawCells)
-		}
-
-		// Collect column widths from structure rows
-		if isStructureRow {
-			colWidths = collectColumnWidths(rawCells, colWidths)
-		}
-
-		// Add row to table data (skip structure rows for Markdown)
-		if tableFormat == "html" {
-			tableData = append(tableData, cells)
-		} else if !isStructureRow {
-			tableData = append(tableData, cells)
-		}
-
-		return false
-	})
-
-	return tableData, colWidths
-}
-
-// extractRowCells extracts all cell data from a single table row (tr element).
-func extractRowCells(rowNode *html.Node) []cellData {
-	cells := make([]cellData, 0, 4)
-
-	for child := rowNode.FirstChild; child != nil; child = child.NextSibling {
-		if child.Type != html.ElementNode || (child.Data != "td" && child.Data != "th") {
-			continue
-		}
-
-		cellText := strings.TrimSpace(GetTextContent(child))
-		if cellText == "" {
-			cellText = " "
-		}
-
-		colspan := getColSpan(child)
-		if colspan < 1 {
-			colspan = 1
-		}
-		rowspan := getRowSpan(child)
-
-		cells = append(cells, cellData{
-			text:            cellText,
-			align:           getCellAlign(child),
-			colspan:         colspan,
-			rowspan:         rowspan,
-			isHeader:        child.Data == "th",
-			width:           getCellWidth(child),
-			originalColspan: colspan,
-		})
-	}
-
-	return cells
-}
-
-// isStructureRow determines if a row contains only width definitions (no real content).
-// Structure rows are used in Markdown tables to specify column widths.
-func isStructureRow(cells []cellData) bool {
-	hasWidthDefinitions := true
-	hasRealContent := false
-
-	for _, cell := range cells {
-		if cell.width == "" {
-			hasWidthDefinitions = false
-		}
-		if cell.text != " " && cell.text != "" && cell.text != "\u00a0" {
-			hasRealContent = true
-		}
-	}
-
-	return hasWidthDefinitions && !hasRealContent
-}
-
-// expandColspanCells expands cells with colspan > 1 into multiple placeholder cells.
-// This is needed for Markdown format which doesn't support colspan.
-func expandColspanCells(rawCells []cellData) []cellData {
-	cells := make([]cellData, 0, len(rawCells))
-
-	for _, rawCell := range rawCells {
-		// Add the original cell
-		cells = append(cells, rawCell)
-
-		// Add placeholder cells for colspan > 1
-		originalAlign := rawCell.align
-		for i := 1; i < rawCell.colspan; i++ {
-			cells = append(cells, cellData{
-				text:            " ",
-				align:           originalAlign,
-				colspan:         1,
-				rowspan:         rawCell.rowspan,
-				isHeader:        rawCell.isHeader,
-				width:           "",
-				isExpanded:      true,
-				originalColspan: 1,
-			})
-		}
-	}
-
-	return cells
-}
-
-// collectColumnWidths extracts width definitions from a structure row.
-func collectColumnWidths(cells []cellData, colWidths []string) []string {
-	for i, cell := range cells {
-		colWidths = ensureColWidthCapacity(colWidths, i)
-		if cell.width != "" {
-			colWidths[i] = cell.width
-		}
-	}
-	return colWidths
-}
-
-// calculateMaxColumns finds the maximum number of columns across all rows.
-func calculateMaxColumns(tableData [][]cellData) int {
-	maxCols := 0
-	for _, row := range tableData {
-		if len(row) > maxCols {
-			maxCols = len(row)
-		}
-	}
-	return maxCols
-}
-
-// extractTableAsMarkdown outputs table in Markdown format with alignment.
-// Note: Column widths are included as HTML comments since Markdown doesn't support column widths.
-func extractTableAsMarkdown(tableData [][]cellData, tb *trackedBuilder, maxCols int, structureRowWidths []string) {
-	// Pad rows to have consistent column count
-	tableData = padTableColumns(tableData, maxCols)
-
-	// Calculate column properties
-	colAligns := calculateColumnAlignments(tableData, maxCols, structureRowWidths)
-	colMaxWidths := calculateMaxColumnWidths(tableData, maxCols)
-
-	// Filter out columns that are entirely empty expanded cells
-	newToOldCol := filterExpandedColumns(tableData, maxCols)
-	numIncludedCols := len(newToOldCol)
-
-	// Build arrays for included columns only
-	includedColAligns := filterArray(colAligns, newToOldCol)
-	includedColMaxWidths := filterIntArray(colMaxWidths, newToOldCol)
-
-	// Ensure minimum width for alignment markers
-	for i := range includedColMaxWidths {
-		if includedColMaxWidths[i] < 3 {
-			includedColMaxWidths[i] = 3
-		}
-	}
-
-	// Render table rows with alignment separator after the first row
-	if len(tableData) > 0 {
-		// Render first row (header)
-		renderMarkdownRow(tb, tableData[0], newToOldCol, includedColAligns, includedColMaxWidths, numIncludedCols)
-
-		// Add alignment separator after header row (required by Markdown)
-		tb.WriteString("| ")
-		tb.WriteString(strings.Join(includedColAligns, " | "))
-		tb.WriteString(" |\n")
-
-		// Render remaining rows
-		for i := 1; i < len(tableData); i++ {
-			renderMarkdownRow(tb, tableData[i], newToOldCol, includedColAligns, includedColMaxWidths, numIncludedCols)
-		}
-	}
-}
-
-// padTableColumns ensures all rows have the same number of columns.
-func padTableColumns(tableData [][]cellData, maxCols int) [][]cellData {
-	for i := range tableData {
-		for len(tableData[i]) < maxCols {
-			tableData[i] = append(tableData[i], cellData{text: " ", align: alignDefault})
-		}
-	}
-	return tableData
-}
-
-// calculateColumnAlignments determines column alignment using majority voting.
-// Returns alignment strings in Markdown format (:---, :--:, ---:, etc.)
-func calculateColumnAlignments(tableData [][]cellData, maxCols int, structureRowWidths []string) []string {
-	colAligns := make([]string, maxCols)
-	alignCounts := make([]alignCount, maxCols)
-
-	// Count alignments from all non-expanded cells
-	for _, row := range tableData {
-		for i := 0; i < maxCols && i < len(row); i++ {
-			if !row[i].isExpanded && row[i].text != " " && row[i].align != alignDefault {
-				switch row[i].align {
-				case alignLeft:
-					alignCounts[i].left++
-				case alignCenter:
-					alignCounts[i].center++
-				case alignRight:
-					alignCounts[i].right++
-				case alignJustify:
-					alignCounts[i].justify++
-				default:
-					alignCounts[i].defaultCount++
-				}
-			}
-		}
-	}
-
-	// Determine majority alignment for each column
-	if len(tableData) > 0 {
-		for i := 0; i < maxCols; i++ {
-			colAligns[i] = determineColumnAlignment(alignCounts[i], tableData[0], i)
-		}
-	} else {
-		for i := range colAligns {
-			colAligns[i] = "---"
-		}
-	}
-
-	return colAligns
-}
-
-// determineColumnAlignment picks the majority alignment for a single column.
-func determineColumnAlignment(counts alignCount, firstRow []cellData, colIdx int) string {
-	maxCount := 0
-	majorityAlign := alignDefault
-
-	// Find the alignment with the most votes
-	if counts.left > maxCount {
-		maxCount = counts.left
-		majorityAlign = alignLeft
-	}
-	if counts.center > maxCount {
-		maxCount = counts.center
-		majorityAlign = alignCenter
-	}
-	if counts.right > maxCount {
-		maxCount = counts.right
-		majorityAlign = alignRight
-	}
-	if counts.justify > maxCount {
-		maxCount = counts.justify
-		majorityAlign = alignJustify
-	}
-
-	// If no clear majority, use first row's alignment
-	if maxCount == 0 && len(firstRow) > colIdx {
-		majorityAlign = firstRow[colIdx].align
-	}
-
-	// Check for mixed alignment (both left and right present)
-	hasMixedAlignment := counts.left > 0 && counts.right > 0
-
-	if hasMixedAlignment {
-		return "---"
-	}
-
-	// Convert to Markdown alignment format
-	switch majorityAlign {
-	case alignLeft:
-		return ":---"
-	case alignCenter:
-		return ":--:"
-	case alignRight:
-		return "---:"
-	case alignJustify:
-		return "---"
-	default:
-		return "---"
-	}
-}
-
-// calculateMaxColumnWidths finds the maximum text width for each column.
-func calculateMaxColumnWidths(tableData [][]cellData, maxCols int) []int {
-	colMaxWidths := make([]int, maxCols)
-	for _, row := range tableData {
-		for j := 0; j < maxCols && j < len(row); j++ {
-			textLen := len(row[j].text)
-			if textLen > colMaxWidths[j] {
-				colMaxWidths[j] = textLen
-			}
-		}
-	}
-	return colMaxWidths
-}
-
-// filterExpandedColumns identifies columns that should be excluded.
-// Returns a list of included column indices (columns with real content).
-func filterExpandedColumns(tableData [][]cellData, maxCols int) []int {
-	includeCol := make([]bool, maxCols)
-	newToOldCol := make([]int, 0, maxCols)
-
-	for j := 0; j < maxCols; j++ {
-		// Check if this column has any non-expanded content
-		allExpanded := true
-		for _, row := range tableData {
-			if j < len(row) && (!row[j].isExpanded || (row[j].text != " " && row[j].text != "")) {
-				allExpanded = false
-				break
-			}
-		}
-
-		includeCol[j] = !allExpanded
-		if !allExpanded {
-			newToOldCol = append(newToOldCol, j)
-		}
-	}
-
-	return newToOldCol
-}
-
-// filterArray filters a string array to include only specified indices.
-func filterArray(arr []string, indices []int) []string {
-	result := make([]string, len(indices))
-	for i, idx := range indices {
-		if idx < len(arr) {
-			result[i] = arr[idx]
-		}
-	}
-	return result
-}
-
-// filterIntArray filters an int array to include only specified indices.
-func filterIntArray(arr []int, indices []int) []int {
-	result := make([]int, len(indices))
-	for i, idx := range indices {
-		if idx < len(arr) {
-			result[i] = arr[idx]
-		}
-	}
-	return result
-}
-
-// renderMarkdownRow renders a single table row in Markdown format.
-func renderMarkdownRow(tb *trackedBuilder, row []cellData, newToOldCol []int,
-	colAligns []string, colMaxWidths []int, numCols int) {
-
-	tb.WriteString("| ")
-	for newJ, oldJ := range newToOldCol {
-		cellText := " "
-		if oldJ < len(row) {
-			cellText = row[oldJ].text
-		}
-
-		maxWidth := colMaxWidths[newJ]
-		textLen := len(cellText)
-
-		// Apply alignment-based padding
-		switch colAligns[newJ] {
-		case ":---": // left
-			tb.WriteString(cellText)
-			tb.WriteString(strings.Repeat(" ", maxWidth-textLen))
-		case "---:": // right
-			tb.WriteString(strings.Repeat(" ", maxWidth-textLen))
-			tb.WriteString(cellText)
-		case ":--:": // center
-			leftPad := (maxWidth - textLen) / 2
-			rightPad := maxWidth - textLen - leftPad
-			tb.WriteString(strings.Repeat(" ", leftPad))
-			tb.WriteString(cellText)
-			tb.WriteString(strings.Repeat(" ", rightPad))
-		default: // left (default)
-			tb.WriteString(cellText)
-			tb.WriteString(strings.Repeat(" ", maxWidth-textLen))
-		}
-
-		if newJ < numCols-1 {
-			tb.WriteString(" | ")
-		}
-	}
-	tb.WriteString(" |\n")
-}
-
-// extractTableAsHTML outputs table in HTML format with proper attributes.
-func extractTableAsHTML(tableData [][]cellData, tb *trackedBuilder) {
-	tb.WriteString("<table>\n")
-
-	for _, row := range tableData {
-		tb.WriteString("  <tr>\n")
-		for _, cell := range row {
-			renderHTMLCell(tb, cell)
-		}
-		tb.WriteString("  </tr>\n")
-	}
-
-	tb.WriteString("</table>")
-}
-
-// renderHTMLCell renders a single table cell in HTML format.
-func renderHTMLCell(tb *trackedBuilder, cell cellData) {
-	// Determine tag name
-	tag := "td"
-	if cell.isHeader {
-		tag = "th"
-	}
-	tb.WriteString("    <" + tag)
-
-	// Add style attribute
-	style := buildCellStyle(cell)
-	if style != "" {
-		tb.WriteString(` style="`)
-		tb.WriteString(style)
-		tb.WriteString(`"`)
-	}
-
-	// Add colspan attribute
-	if cell.originalColspan > 1 && !cell.isExpanded {
-		tb.WriteString(` colspan="`)
-		tb.WriteString(strconv.Itoa(cell.originalColspan))
-		tb.WriteString(`"`)
-	}
-
-	// Add rowspan attribute
-	if cell.rowspan > 1 {
-		tb.WriteString(` rowspan="`)
-		tb.WriteString(strconv.Itoa(cell.rowspan))
-		tb.WriteString(`"`)
-	}
-
-	// Write cell content
-	tb.WriteString(">")
-	tb.WriteString(cell.text)
-	tb.WriteString("</" + tag + ">\n")
-}
-
-// buildCellStyle constructs the style attribute value for a table cell.
-func buildCellStyle(cell cellData) string {
-	if cell.align == alignDefault && (cell.width == "" || cell.isExpanded) {
-		return ""
-	}
-
-	var styleParts []string
-	switch cell.align {
-	case alignLeft:
-		styleParts = append(styleParts, "text-align:left")
-	case alignCenter:
-		styleParts = append(styleParts, "text-align:center")
-	case alignRight:
-		styleParts = append(styleParts, "text-align:right")
-	case alignJustify:
-		styleParts = append(styleParts, "text-align:justify")
-	}
-
-	if cell.width != "" && !cell.isExpanded {
-		styleParts = append(styleParts, "width:"+cell.width)
-	}
-
-	return strings.Join(styleParts, ";")
-}
-
+// CleanContentNode removes non-content elements from the node tree.
 func CleanContentNode(node *html.Node) *html.Node {
 	if node == nil {
 		return nil

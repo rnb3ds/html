@@ -205,11 +205,11 @@ func TestExtractTableNil(t *testing.T) {
 	doc, _ := html.Parse(strings.NewReader("<table></table>"))
 	tableNode := FindElementByTag(doc, "table")
 	var sb strings.Builder
-	extractTableTracked(tableNode, newTrackedBuilder(&sb), "markdown")
+	ExtractTextWithStructureAndImages(tableNode, &sb, 0, nil, "markdown")
 
 	result := strings.TrimSpace(sb.String())
 	if result != "" {
-		t.Errorf("extractTableTracked(empty) should not write anything, got %q", result)
+		t.Errorf("ExtractTextWithStructureAndImages(empty table) should not write anything, got %q", result)
 	}
 }
 
@@ -351,27 +351,27 @@ func TestExtractTableAsHTML(t *testing.T) {
 	}{
 		{
 			name: "simple table",
-			html:  `<table><tr><th>Header</th></tr><tr><td>Data</td></tr></table>`,
+			html: `<table><tr><th>Header</th></tr><tr><td>Data</td></tr></table>`,
 			want: []string{"<table>", "<th>Header</th>", "<td>Data</td>", "</table>"},
 		},
 		{
 			name: "table with alignment",
-			html:  `<table><tr><th align="left">Left</th><th align="center">Center</th><th align="right">Right</th></tr></table>`,
+			html: `<table><tr><th align="left">Left</th><th align="center">Center</th><th align="right">Right</th></tr></table>`,
 			want: []string{"text-align:left", "text-align:center", "text-align:right"},
 		},
 		{
 			name: "table with width",
-			html:  `<table><tr><th style="width:50%">Header</th></tr></table>`,
+			html: `<table><tr><th style="width:50%">Header</th></tr></table>`,
 			want: []string{"width:50%"},
 		},
 		{
 			name: "table with colspan",
-			html:  `<table><tr><th colspan="2">Merged</th></tr></table>`,
+			html: `<table><tr><th colspan="2">Merged</th></tr></table>`,
 			want: []string{`colspan="2"`},
 		},
 		{
 			name: "table with rowspan",
-			html:  `<table><tr><td rowspan="2">Span</td></tr></table>`,
+			html: `<table><tr><td rowspan="2">Span</td></tr></table>`,
 			want: []string{`rowspan="2"`},
 		},
 	}

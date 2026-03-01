@@ -12,10 +12,10 @@ func TestBlockElementClassification(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name     string
-		tag      string
-		isBlock  bool
-		isPara   bool // isParagraphLevelBlockElement
+		name    string
+		tag     string
+		isBlock bool
+		isPara  bool // isParagraphLevelBlockElement
 	}{
 		// High priority block elements
 		{"main", "main", true, true},
@@ -75,9 +75,9 @@ func TestBlockElementClassification(t *testing.T) {
 				t.Errorf("IsBlockElement(%q) = %v, want %v", tt.tag, got, tt.isBlock)
 			}
 
-			// Test isParagraphLevelBlockElement
-			if got := isParagraphLevelBlockElement(tt.tag); got != tt.isPara {
-				t.Errorf("isParagraphLevelBlockElement(%q) = %v, want %v", tt.tag, got, tt.isPara)
+			// Test IsParagraphLevelBlockElement
+			if got := IsParagraphLevelBlockElement(tt.tag); got != tt.isPara {
+				t.Errorf("IsParagraphLevelBlockElement(%q) = %v, want %v", tt.tag, got, tt.isPara)
 			}
 		})
 	}
@@ -88,10 +88,10 @@ func TestNewBlockElementsSpacing(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name  string
-		html  string
-		want  string
-		desc  string
+		name string
+		html string
+		want string
+		desc string
 	}{
 		{
 			name: "main element adds paragraph spacing",

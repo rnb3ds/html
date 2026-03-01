@@ -1281,13 +1281,13 @@ func TestTableColumnWidths(t *testing.T) {
 		}
 
 		// Table metadata comments have been removed for cleaner output
-	// Check that table structure is preserved instead
-	if !strings.Contains(result.Text, "| Name |") {
-		t.Error("Markdown table should include table structure")
-	}
-	if !strings.Contains(result.Text, "| Value |") {
-		t.Error("Markdown table should include table structure")
-	}
+		// Check that table structure is preserved instead
+		if !strings.Contains(result.Text, "| Name |") {
+			t.Error("Markdown table should include table structure")
+		}
+		if !strings.Contains(result.Text, "| Value |") {
+			t.Error("Markdown table should include table structure")
+		}
 	})
 
 	t.Run("table without width attributes works normally", func(t *testing.T) {
@@ -2737,7 +2737,7 @@ func TestConfigValidationEdgeCases(t *testing.T) {
 		{
 			name: "MaxDepth at maximum",
 			config: html.Config{
-				MaxInputSize:   50 * 1024 * 1024,
+				MaxInputSize:    50 * 1024 * 1024,
 				MaxCacheEntries: 1000,
 				CacheTTL:        time.Hour,
 				WorkerPoolSize:  4,
@@ -2761,9 +2761,9 @@ func TestConfigValidationEdgeCases(t *testing.T) {
 			config: html.Config{
 				MaxInputSize:    50 * 1024 * 1024,
 				MaxCacheEntries: 0,
-				CacheTTL:         time.Hour,
+				CacheTTL:        time.Hour,
 				WorkerPoolSize:  4,
-				MaxDepth:         100,
+				MaxDepth:        100,
 			},
 			wantErr: false,
 		},
@@ -2774,7 +2774,7 @@ func TestConfigValidationEdgeCases(t *testing.T) {
 				MaxCacheEntries: 1000,
 				CacheTTL:        0,
 				WorkerPoolSize:  4,
-				MaxDepth:         100,
+				MaxDepth:        100,
 			},
 			wantErr: false,
 		},
@@ -4525,4 +4525,3 @@ func TestTableMarkdownEdgeCases(t *testing.T) {
 		}
 	})
 }
-

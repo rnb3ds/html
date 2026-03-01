@@ -704,6 +704,9 @@ func hasCyrillicCharacters(data []byte) bool {
 
 // hasExcessiveControlChars checks if data has too many control characters
 func hasExcessiveControlChars(data []byte) bool {
+	if len(data) == 0 {
+		return false
+	}
 	controlCount := 0
 	for _, b := range data {
 		// Count control characters (excluding common whitespace)

@@ -372,8 +372,8 @@ func TestNullByteInjection(t *testing.T) {
 	defer p.Close()
 
 	nullByteCases := []struct {
-		name  string
-		html  string
+		name string
+		html string
 	}{
 		{
 			name: "null in URL",

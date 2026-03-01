@@ -19,15 +19,15 @@ func TestWhitespacePreservation(t *testing.T) {
 		expected string // exact expected output
 	}{
 		{
-			name:     "parentheses with namespace tag - original case",
-			html:     `(<ix:nonnumeric>707</ix:nonnumeric>) <ix:nonnumeric>774-7000</ix:nonnumeric>`,
+			name: "parentheses with namespace tag - original case",
+			html: `(<ix:nonnumeric>707</ix:nonnumeric>) <ix:nonnumeric>774-7000</ix:nonnumeric>`,
 			// HTML parser: "(" + ix:nonnumeric("707") + ") " + ix:nonnumeric("774-7000")
 			// Trailing space in ") " is preserved
 			expected: "(707 ) 774-7000",
 		},
 		{
-			name:     "no space after closing parenthesis",
-			html:     `(<ix:nonnumeric>707</ix:nonnumeric>)<ix:nonnumeric>774-7000</ix:nonnumeric>`,
+			name: "no space after closing parenthesis",
+			html: `(<ix:nonnumeric>707</ix:nonnumeric>)<ix:nonnumeric>774-7000</ix:nonnumeric>`,
 			// HTML parser: "(" + ix:nonnumeric("707") + ")" + ix:nonnumeric("774-7000")
 			// No trailing space in ")"
 			expected: "(707 )774-7000",
@@ -40,15 +40,15 @@ func TestWhitespacePreservation(t *testing.T) {
 			expected: "Net income: 1000000",
 		},
 		{
-			name:     "namespace tag between words",
-			html:     `<span>Text<custom:value>123</custom:value>more</span>`,
+			name: "namespace tag between words",
+			html: `<span>Text<custom:value>123</custom:value>more</span>`,
 			// HTML parser: "Text" + custom:value("123") + "more"
 			// No spaces in source, but inline element adds spacing
 			expected: "Text123 more",
 		},
 		{
-			name:     "namespace tag with spaces in source",
-			html:     `<span>Text <custom:value>123</custom:value> more</span>`,
+			name: "namespace tag with spaces in source",
+			html: `<span>Text <custom:value>123</custom:value> more</span>`,
 			// HTML parser: "Text " + custom:value("123") + " more"
 			// The trailing space from "Text " is preserved
 			// The span element adds spacing after itself

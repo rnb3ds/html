@@ -74,11 +74,6 @@ func main() {
 	config := html.DefaultLinkExtractionConfig()
 	config.ResolveRelativeURLs = true // Convert relative URLs to absolute
 
-	result, err := processor.Extract([]byte(htmlContent), html.DefaultExtractConfig())
-	if err != nil {
-		log.Fatal(err)
-	}
-
 	links, err := html.ExtractAllLinks([]byte(htmlContent), config)
 	if err != nil {
 		log.Fatal(err)
@@ -204,7 +199,7 @@ func main() {
 	fmt.Println("\n\nPart 4: Image Extraction with Metadata")
 	fmt.Println("------------------------------------")
 
-	result, err = processor.Extract([]byte(htmlContent), html.DefaultExtractConfig())
+	result, err := processor.Extract([]byte(htmlContent), html.DefaultExtractConfig())
 	if err != nil {
 		log.Fatal(err)
 	}

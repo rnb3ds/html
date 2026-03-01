@@ -70,12 +70,20 @@ func (c *Cache) Get(key string) any {
 		return nil
 	}
 
-	// Update last used time and move to front
-	entry.lastUsed = now
-	c.moveToFront(entry)
+	// Cache the value before releasing the lock
+	value := entry.value
 	c.mu.RUnlock()
 
-	return entry.value
+	// Update last used time and move to front (requires write lock)
+	c.mu.Lock()
+	// Re-verify entry still exists after reacquiring lock
+	if entry, exists := c.entries[key]; exists && !entry.isExpired(now) {
+		entry.lastUsed = now
+		c.moveToFront(entry)
+	}
+	c.mu.Unlock()
+
+	return value
 }
 
 func (c *Cache) Set(key string, value any) {

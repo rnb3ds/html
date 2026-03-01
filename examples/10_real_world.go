@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/cybergodev/html"
+	"github.com/cybergodev/html/examples/truncate"
 )
 
 // This example shows real-world use cases.
@@ -21,7 +22,7 @@ func main() {
 	// Use Case 1: Blog article extraction
 	// ============================================================
 	fmt.Println("Use Case 1: Blog Scraping")
-	fmt.Println("------------------------")
+	fmt.Println("-------------------------")
 
 	blogHTML := `
 		<html>
@@ -45,7 +46,7 @@ func main() {
 
 	result, _ := processor.Extract([]byte(blogHTML))
 	fmt.Printf("Title: %s\n", result.Title)
-	fmt.Printf("Content: %s\n", truncate(result.Text, 80))
+	fmt.Printf("Content: %s\n", truncate.Truncate(result.Text, 80))
 	fmt.Printf("Images: %d\n\n", len(result.Images))
 
 	fmt.Println("✓ Removed noise: header, sidebar, footer")
@@ -55,7 +56,7 @@ func main() {
 	// Use Case 2: Newsletter processing
 	// ============================================================
 	fmt.Println("\nUse Case 2: Newsletter Content")
-	fmt.Println("----------------------------")
+	fmt.Println("------------------------------")
 
 	newsletterHTML := `
 		<html>
@@ -71,7 +72,7 @@ func main() {
 
 	result2, _ := processor.Extract([]byte(newsletterHTML))
 	fmt.Printf("Title: %s\n", result2.Title)
-	fmt.Printf("Content: %s\n\n", truncate(result2.Text, 80))
+	fmt.Printf("Content: %s\n\n", truncate.Truncate(result2.Text, 80))
 
 	fmt.Println("✓ Ignored hidden content (unsubscribe links)")
 	fmt.Println("✓ Extracted main content from tables")
@@ -80,7 +81,7 @@ func main() {
 	// Use Case 3: RSS feed item processing
 	// ============================================================
 	fmt.Println("\nUse Case 3: RSS Feed Items")
-	fmt.Println("-------------------------")
+	fmt.Println("---------------------------")
 
 	rssItems := []string{
 		`<item><title>Go 1.22 Released</title><description><p>New features.</p></description></item>`,
@@ -89,7 +90,6 @@ func main() {
 
 	fmt.Println("Processing RSS feed items:")
 	for i, item := range rssItems {
-		// Extract from description tag
 		content := extractDescription(item)
 		result, err := processor.Extract([]byte(content))
 		if err != nil {
@@ -102,7 +102,7 @@ func main() {
 	// Use Case 4: Documentation content
 	// ============================================================
 	fmt.Println("\n\nUse Case 4: Documentation Content")
-	fmt.Println("-----------------------------------")
+	fmt.Println("---------------------------------")
 
 	docsHTML := `
 		<html>
@@ -128,6 +128,30 @@ func main() {
 	fmt.Println("✓ Extracted documentation and code")
 
 	// ============================================================
+	// Use Case 5: Batch processing multiple pages
+	// ============================================================
+	fmt.Println("\nUse Case 5: Batch Processing")
+	fmt.Println("----------------------------")
+
+	pages := [][]byte{
+		[]byte(`<html><body><article><h1>Page 1</h1><p>Content 1</p></article></body></html>`),
+		[]byte(`<html><body><article><h1>Page 2</h1><p>Content 2</p></article></body></html>`),
+		[]byte(`<html><body><article><h1>Page 3</h1><p>Content 3</p></article></body></html>`),
+	}
+
+	results, err := processor.ExtractBatch(pages)
+	if err != nil {
+		fmt.Printf("Batch processing error: %v\n", err)
+	}
+
+	fmt.Printf("Processed %d pages:\n", len(results))
+	for i, r := range results {
+		if r != nil {
+			fmt.Printf("  [%d] %s (%d words)\n", i+1, r.Title, r.WordCount)
+		}
+	}
+
+	// ============================================================
 	// Summary
 	// ============================================================
 	fmt.Println("\n=== Common Patterns ===")
@@ -144,22 +168,20 @@ func main() {
 	fmt.Println()
 	fmt.Println("4. Documentation:")
 	fmt.Println("   Extract clean text from docs")
-
+	fmt.Println()
+	fmt.Println("5. Batch processing:")
+	fmt.Println("   results, _ := processor.ExtractBatch(pages)")
+	fmt.Println("   results, _ := processor.ExtractBatchFiles(filePaths)")
+	fmt.Println()
+	fmt.Println("6. File extraction:")
+	fmt.Println("   result, _ := processor.ExtractFromFile(\"article.html\")")
 }
 
 func extractDescription(item string) string {
-	// Simple extraction of description content
 	start := strings.Index(item, "<description>")
 	end := strings.Index(item, "</description>")
 	if start == -1 || end == -1 {
 		return ""
 	}
 	return item[start+len("<description>") : end]
-}
-
-func truncate(s string, maxLen int) string {
-	if len(s) <= maxLen {
-		return s
-	}
-	return s[:maxLen] + "..."
 }

@@ -11,10 +11,10 @@ func TestContainsWord(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name  string
-		text  string
-		word  string
-		want  bool
+		name string
+		text string
+		word string
+		want bool
 	}{
 		{
 			name: "word at start",
@@ -98,53 +98,53 @@ func TestGetCellAlign(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name     string
-		html     string
+		name      string
+		html      string
 		wantAlign cellAlign
 	}{
 		{
-			name:     "align attribute left",
-			html:     `<table><tr><td align="left">Text</td></tr></table>`,
+			name:      "align attribute left",
+			html:      `<table><tr><td align="left">Text</td></tr></table>`,
 			wantAlign: alignLeft,
 		},
 		{
-			name:     "align attribute center",
-			html:     `<table><tr><td align="center">Text</td></tr></table>`,
+			name:      "align attribute center",
+			html:      `<table><tr><td align="center">Text</td></tr></table>`,
 			wantAlign: alignCenter,
 		},
 		{
-			name:     "align attribute right",
-			html:     `<table><tr><td align="right">Text</td></tr></table>`,
+			name:      "align attribute right",
+			html:      `<table><tr><td align="right">Text</td></tr></table>`,
 			wantAlign: alignRight,
 		},
 		{
-			name:     "align attribute justify",
-			html:     `<table><tr><td align="justify">Text</td></tr></table>`,
+			name:      "align attribute justify",
+			html:      `<table><tr><td align="justify">Text</td></tr></table>`,
 			wantAlign: alignJustify,
 		},
 		{
-			name:     "style attribute text-align",
-			html:     `<table><tr><td style="text-align:center">Text</td></tr></table>`,
+			name:      "style attribute text-align",
+			html:      `<table><tr><td style="text-align:center">Text</td></tr></table>`,
 			wantAlign: alignCenter,
 		},
 		{
-			name:     "style with colon space",
-			html:     `<table><tr><td style="text-align: center">Text</td></tr></table>`,
+			name:      "style with colon space",
+			html:      `<table><tr><td style="text-align: center">Text</td></tr></table>`,
 			wantAlign: alignCenter,
 		},
 		{
-			name:     "align takes precedence over style",
-			html:     `<table><tr><td align="left" style="text-align:center">Text</td></tr></table>`,
+			name:      "align takes precedence over style",
+			html:      `<table><tr><td align="left" style="text-align:center">Text</td></tr></table>`,
 			wantAlign: alignLeft,
 		},
 		{
-			name:     "no alignment specified",
-			html:     `<table><tr><td>Text</td></tr></table>`,
+			name:      "no alignment specified",
+			html:      `<table><tr><td>Text</td></tr></table>`,
 			wantAlign: alignDefault,
 		},
 		{
-			name:     "uppercase style",
-			html:     `<table><tr><td style="TEXT-ALIGN:CENTER">Text</td></tr></table>`,
+			name:      "uppercase style",
+			html:      `<table><tr><td style="TEXT-ALIGN:CENTER">Text</td></tr></table>`,
 			wantAlign: alignCenter,
 		},
 	}

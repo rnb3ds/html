@@ -519,8 +519,8 @@ func TestUTF8WithWrongCharsetMeta(t *testing.T) {
 			shouldContain:   "Café",
 		},
 		{
-			name: "UTF-8 with Chinese chars and Windows-1252 meta",
-			data: []byte(`<html><head><meta charset="windows-1252"></head><body>Hello 世界</body></html>`),
+			name:            "UTF-8 with Chinese chars and Windows-1252 meta",
+			data:            []byte(`<html><head><meta charset="windows-1252"></head><body>Hello 世界</body></html>`),
 			expectedCharset: "utf-8",
 			shouldContain:   "世界",
 		},
@@ -564,4 +564,3 @@ func TestUTF8WithWrongCharsetMeta(t *testing.T) {
 		})
 	}
 }
-

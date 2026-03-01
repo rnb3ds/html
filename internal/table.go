@@ -4,33 +4,22 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/cybergodev/html/internal/table"
 	"golang.org/x/net/html"
 )
 
-// Table extraction types and constants
+// Type aliases for table package types (for internal use)
+type cellAlign = table.CellAlignment
+type cellData = table.CellData
 
-// Cell alignment type for table extraction
-type cellAlign int
-
+// Constants for cell alignment (for internal use)
 const (
-	alignLeft cellAlign = iota
-	alignCenter
-	alignRight
-	alignJustify
-	alignDefault
+	alignLeft    = table.AlignLeft
+	alignCenter  = table.AlignCenter
+	alignRight   = table.AlignRight
+	alignJustify = table.AlignJustify
+	alignDefault = table.AlignDefault
 )
-
-// Cell data with metadata for table extraction
-type cellData struct {
-	text            string
-	align           cellAlign
-	colspan         int
-	rowspan         int
-	isHeader        bool
-	width           string // Cell width (e.g., "100px", "1.0%", "auto")
-	isExpanded      bool   // True if this cell was created from colspan expansion
-	originalColspan int    // Original colspan value before expansion (for HTML output)
-}
 
 // containsWord checks if text contains word with proper boundary detection.
 // This is used for parsing CSS style attributes to ensure we match complete
@@ -41,7 +30,7 @@ func containsWord(text, word string) bool {
 
 // getCellAlign extracts the alignment from a table cell node.
 // It first checks the align attribute, then the style attribute for text-align.
-func getCellAlign(n *html.Node) cellAlign {
+func getCellAlign(n *html.Node) table.CellAlignment {
 	// First check align attribute (takes precedence)
 	for _, attr := range n.Attr {
 		attrKey := strings.ToLower(attr.Key)
@@ -49,13 +38,13 @@ func getCellAlign(n *html.Node) cellAlign {
 			alignVal := strings.ToLower(strings.TrimSpace(attr.Val))
 			switch alignVal {
 			case "left":
-				return alignLeft
+				return table.AlignLeft
 			case "center":
-				return alignCenter
+				return table.AlignCenter
 			case "right":
-				return alignRight
+				return table.AlignRight
 			case "justify":
-				return alignJustify
+				return table.AlignJustify
 			}
 		}
 	}
@@ -71,24 +60,24 @@ func getCellAlign(n *html.Node) cellAlign {
 			// Order matters: check longer/more specific patterns first
 			if containsWord(normalizedStyle, "text-align:justify") ||
 				containsWord(normalizedStyle, "text-align: justify") {
-				return alignJustify
+				return table.AlignJustify
 			}
 			if containsWord(normalizedStyle, "text-align:right") ||
 				containsWord(normalizedStyle, "text-align: right") {
-				return alignRight
+				return table.AlignRight
 			}
 			if containsWord(normalizedStyle, "text-align:center") ||
 				containsWord(normalizedStyle, "text-align: center") {
-				return alignCenter
+				return table.AlignCenter
 			}
 			if containsWord(normalizedStyle, "text-align:left") ||
 				containsWord(normalizedStyle, "text-align: left") {
-				return alignLeft
+				return table.AlignLeft
 			}
 		}
 	}
 
-	return alignDefault
+	return table.AlignDefault
 }
 
 // getColSpan extracts the colspan attribute value from a table cell.

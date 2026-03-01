@@ -570,7 +570,7 @@ wg.Wait()
 
 ## 🤝 Contributing
 
-Contributions, issue reports, and suggestions are welcome!
+Contributions welcome! Please read the contributing guidelines before submitting PRs.
 
 ## 📄 License
 
@@ -578,4 +578,6 @@ MIT License - See [LICENSE](LICENSE) file for details.
 
 ---
 
-**Crafted with care for the Go community** ❤️ | If this project helps you, please give it a ⭐️ Star!
+**Crafted with care for the Go community** ❤️
+
+If this project helps you, please give it a ⭐️ Star!

@@ -214,10 +214,16 @@ func TestErrorHandlingComprehensive(t *testing.T) {
 		p.Close()
 
 		operations := []func() error{
-			func() error { _, err := p.Extract([]byte("<html><body>test</body></html>"), html.DefaultExtractConfig()); return err },
+			func() error {
+				_, err := p.Extract([]byte("<html><body>test</body></html>"), html.DefaultExtractConfig())
+				return err
+			},
 			func() error { _, err := p.ExtractFromFile("test.html"); return err },
 			func() error { _, err := p.ExtractBatch([][]byte{[]byte("<html><body>test</body></html>")}); return err },
-			func() error { _, err := p.ExtractAllLinks([]byte("<html><body><a href='#'>link</a></body></html>")); return err },
+			func() error {
+				_, err := p.ExtractAllLinks([]byte("<html><body><a href='#'>link</a></body></html>"))
+				return err
+			},
 		}
 
 		for i, op := range operations {
