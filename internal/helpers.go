@@ -81,8 +81,49 @@ func isBoundaryChar(c byte, charSet boundaryCharSet) bool {
 
 // normalizeNonBreakingSpaces replaces all non-breaking spaces (\u00a0) with regular spaces.
 // This ensures consistent text processing across different HTML sources.
+// Optimized with early exit to avoid allocation when no NBSP is present.
 func normalizeNonBreakingSpaces(s string) string {
+	// Fast path: early exit if no non-breaking spaces present
+	// This avoids the allocation overhead of strings.ReplaceAll for common case
+	if !strings.Contains(s, "\u00a0") {
+		return s
+	}
 	return strings.ReplaceAll(s, "\u00a0", " ")
+}
+
+// normalizeLineBreaks replaces newlines with spaces and removes carriage returns
+// in a single pass. This is more efficient than two separate ReplaceAll calls.
+func normalizeLineBreaks(s string) string {
+	// Fast path: check if any line breaks exist
+	hasNewline := false
+	hasCR := false
+	for i := 0; i < len(s); i++ {
+		if s[i] == '\n' {
+			hasNewline = true
+		} else if s[i] == '\r' {
+			hasCR = true
+		}
+	}
+	if !hasNewline && !hasCR {
+		return s
+	}
+
+	// Single pass replacement
+	sb := GetBuilder()
+	defer PutBuilder(sb)
+	sb.Grow(len(s))
+
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if c == '\n' {
+			sb.WriteByte(' ')
+		} else if c == '\r' {
+			// Skip carriage returns
+		} else {
+			sb.WriteByte(c)
+		}
+	}
+	return sb.String()
 }
 
 var unwantedCharReplacer = strings.NewReplacer(
@@ -95,6 +136,18 @@ func CleanText(text string, whitespaceRegex *regexp.Regexp) string {
 	if text == "" {
 		return ""
 	}
+
+	// Fast path: check if processing is needed
+	// For clean text without special characters, skip expensive processing
+	hasNewlines := strings.Contains(text, "\n")
+	hasMultipleSpaces := strings.Contains(text, "  ") || strings.Contains(text, "\t")
+	hasNBSP := strings.Contains(text, "\u00a0")
+
+	if !hasNewlines && !hasMultipleSpaces && !hasNBSP {
+		// Clean text - just normalize entities
+		return ReplaceHTMLEntities(text)
+	}
+
 	if whitespaceRegex == nil {
 		defaultWhitespaceRegexOnce.Do(initDefaultWhitespaceRegex)
 		whitespaceRegex = defaultWhitespaceRegex
@@ -102,11 +155,8 @@ func CleanText(text string, whitespaceRegex *regexp.Regexp) string {
 	textLen := len(text)
 
 	// Use pooled builder for better memory efficiency
-	sb := BuilderPool.Get().(*strings.Builder)
-	defer func() {
-		sb.Reset()
-		BuilderPool.Put(sb)
-	}()
+	sb := GetBuilder()
+	defer PutBuilder(sb)
 
 	sb.Grow(textLen / cleanTextGrowthFactor)
 	start := 0
@@ -193,11 +243,8 @@ func FindElementByTag(doc *html.Node, tagName string) *html.Node {
 
 func GetTextContent(node *html.Node) string {
 	// Use pooled builder for better memory efficiency
-	sb := BuilderPool.Get().(*strings.Builder)
-	defer func() {
-		sb.Reset()
-		BuilderPool.Put(sb)
-	}()
+	sb := GetBuilder()
+	defer PutBuilder(sb)
 
 	sb.Grow(builderInitialSize)
 	prevEndedWithSpace := false
@@ -339,32 +386,77 @@ func ReplaceHTMLEntities(text string) string {
 // fastReplaceCommonEntities handles the 10 most common HTML entities with direct scanning.
 // This is significantly faster than strings.NewReplacer for these common cases.
 // Returns the input string unchanged if no common entities were found.
+// Optimized with single-pass detection to avoid multiple strings.Contains() calls.
 func fastReplaceCommonEntities(text string) string {
-	// Quick check: if none of the common entity patterns exist, return early
-	if !strings.Contains(text, "&amp;") &&
-		!strings.Contains(text, "&nbsp;") &&
-		!strings.Contains(text, "&lt;") &&
-		!strings.Contains(text, "&gt;") &&
-		!strings.Contains(text, "&quot;") &&
-		!strings.Contains(text, "&apos;") &&
-		!strings.Contains(text, "&copy;") &&
-		!strings.Contains(text, "&reg;") &&
-		!strings.Contains(text, "&mdash;") &&
-		!strings.Contains(text, "&ndash;") {
+	textLen := len(text)
+
+	// Single scan to find first ampersand - avoids multiple Contains() calls
+	firstAmpersand := -1
+	for i := 0; i < textLen; i++ {
+		if text[i] == '&' {
+			firstAmpersand = i
+			break
+		}
+	}
+
+	// Fast path: no ampersands means no entities possible
+	if firstAmpersand == -1 {
+		return text
+	}
+
+	// Quick check if any common entity patterns exist starting from first ampersand
+	// This avoids scanning the entire string for each pattern
+	remaining := text[firstAmpersand:]
+	hasCommonEntity := false
+	for i := 0; i < len(remaining); i++ {
+		if remaining[i] == '&' {
+			// Check for common entity patterns at this position
+			remLen := len(remaining) - i
+			switch {
+			case remLen >= 5 && remaining[i:i+5] == "&amp;":
+				hasCommonEntity = true
+			case remLen >= 6 && remaining[i:i+6] == "&nbsp;":
+				hasCommonEntity = true
+			case remLen >= 4 && remaining[i:i+4] == "&lt;":
+				hasCommonEntity = true
+			case remLen >= 4 && remaining[i:i+4] == "&gt;":
+				hasCommonEntity = true
+			case remLen >= 6 && remaining[i:i+6] == "&quot;":
+				hasCommonEntity = true
+			case remLen >= 6 && remaining[i:i+6] == "&apos;":
+				hasCommonEntity = true
+			case remLen >= 6 && remaining[i:i+6] == "&copy;":
+				hasCommonEntity = true
+			case remLen >= 5 && remaining[i:i+5] == "&reg;":
+				hasCommonEntity = true
+			case remLen >= 7 && remaining[i:i+7] == "&mdash;":
+				hasCommonEntity = true
+			case remLen >= 7 && remaining[i:i+7] == "&ndash;":
+				hasCommonEntity = true
+			}
+			if hasCommonEntity {
+				break
+			}
+		}
+	}
+
+	// Fast path: no common entities found
+	if !hasCommonEntity {
 		return text
 	}
 
 	// Use pooled builder for better memory efficiency
-	sb := BuilderPool.Get().(*strings.Builder)
-	defer func() {
-		sb.Reset()
-		BuilderPool.Put(sb)
-	}()
+	sb := GetBuilder()
+	defer PutBuilder(sb)
 
-	sb.Grow(len(text))
+	sb.Grow(textLen)
 
-	textLen := len(text)
-	i := 0
+	// Write prefix unchanged
+	if firstAmpersand > 0 {
+		sb.WriteString(text[:firstAmpersand])
+	}
+
+	i := firstAmpersand
 	for i < textLen {
 		if text[i] != '&' {
 			sb.WriteByte(text[i])
@@ -373,8 +465,8 @@ func fastReplaceCommonEntities(text string) string {
 		}
 
 		// Check if we have at least 4 characters for the shortest entity (&lt;)
-		remaining := textLen - i
-		if remaining < 4 {
+		remainingLen := textLen - i
+		if remainingLen < 4 {
 			sb.WriteByte(text[i])
 			i++
 			continue
@@ -383,34 +475,34 @@ func fastReplaceCommonEntities(text string) string {
 		// Fast switch for common entities (ordered by frequency)
 		// Each case checks bounds before slicing to prevent panic
 		switch {
-		case remaining >= 5 && text[i:i+5] == "&amp;":
+		case remainingLen >= 5 && text[i:i+5] == "&amp;":
 			sb.WriteByte('&')
 			i += 5
-		case remaining >= 6 && text[i:i+6] == "&nbsp;":
+		case remainingLen >= 6 && text[i:i+6] == "&nbsp;":
 			sb.WriteByte(' ')
 			i += 6
-		case remaining >= 4 && text[i:i+4] == "&lt;":
+		case remainingLen >= 4 && text[i:i+4] == "&lt;":
 			sb.WriteByte('<')
 			i += 4
-		case remaining >= 4 && text[i:i+4] == "&gt;":
+		case remainingLen >= 4 && text[i:i+4] == "&gt;":
 			sb.WriteByte('>')
 			i += 4
-		case remaining >= 6 && text[i:i+6] == "&quot;":
+		case remainingLen >= 6 && text[i:i+6] == "&quot;":
 			sb.WriteByte('"')
 			i += 6
-		case remaining >= 6 && text[i:i+6] == "&apos;":
+		case remainingLen >= 6 && text[i:i+6] == "&apos;":
 			sb.WriteByte('\'')
 			i += 6
-		case remaining >= 6 && text[i:i+6] == "&copy;":
+		case remainingLen >= 6 && text[i:i+6] == "&copy;":
 			sb.WriteString("©")
 			i += 6
-		case remaining >= 5 && text[i:i+5] == "&reg;":
+		case remainingLen >= 5 && text[i:i+5] == "&reg;":
 			sb.WriteString("®")
 			i += 5
-		case remaining >= 7 && text[i:i+7] == "&mdash;":
+		case remainingLen >= 7 && text[i:i+7] == "&mdash;":
 			sb.WriteString("—")
 			i += 7
-		case remaining >= 7 && text[i:i+7] == "&ndash;":
+		case remainingLen >= 7 && text[i:i+7] == "&ndash;":
 			sb.WriteString("–")
 			i += 7
 		default:
@@ -426,11 +518,8 @@ func fastReplaceCommonEntities(text string) string {
 // replaceHTMLEntitiesFull handles numeric entities and unknown named entities.
 func replaceHTMLEntitiesFull(text string) string {
 	// Use pooled builder for better memory efficiency
-	sb := BuilderPool.Get().(*strings.Builder)
-	defer func() {
-		sb.Reset()
-		BuilderPool.Put(sb)
-	}()
+	sb := GetBuilder()
+	defer PutBuilder(sb)
 
 	sb.Grow(len(text))
 

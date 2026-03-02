@@ -152,11 +152,6 @@ func HighSecurityAuditConfig() AuditConfig {
 	}
 }
 
-// DefaultAudit returns an AuditConfig with default settings (disabled).
-func DefaultAudit() AuditConfig {
-	return DefaultAuditConfig()
-}
-
 // AuditCollector collects audit entries during processing.
 // It is designed to be thread-safe for concurrent use.
 type AuditCollector struct {

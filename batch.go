@@ -87,6 +87,9 @@ func ExtractBatchFilesWithContext(ctx context.Context, filePaths []string, confi
 }
 
 // ExtractBatch extracts content from multiple HTML byte slices concurrently.
+// The concurrency level is controlled by the WorkerPoolSize configuration (default: 4).
+// Each extraction is performed independently with automatic encoding detection.
+// Returns a slice of results and a combined error if any extractions failed.
 func (p *Processor) ExtractBatch(htmlContents [][]byte, configs ...ExtractConfig) ([]*Result, error) {
 	if p == nil {
 		return nil, ErrProcessorClosed
@@ -129,6 +132,8 @@ func (p *Processor) ExtractBatch(htmlContents [][]byte, configs ...ExtractConfig
 }
 
 // ExtractBatchWithContext extracts content from multiple HTML byte slices concurrently with context support.
+// The concurrency level is controlled by the WorkerPoolSize configuration (default: 4).
+// Each extraction is performed independently with automatic encoding detection.
 // If the context is cancelled, pending extractions are skipped and the BatchResult.Cancelled count is incremented.
 func (p *Processor) ExtractBatchWithContext(ctx context.Context, htmlContents [][]byte, configs ...ExtractConfig) *BatchResult {
 	br := &BatchResult{
@@ -220,6 +225,9 @@ func (p *Processor) ExtractBatchWithContext(ctx context.Context, htmlContents []
 }
 
 // ExtractBatchFiles extracts content from multiple HTML files concurrently.
+// The concurrency level is controlled by the WorkerPoolSize configuration (default: 4).
+// Each extraction is performed independently with automatic encoding detection.
+// Returns a slice of results and a combined error if any extractions failed.
 func (p *Processor) ExtractBatchFiles(filePaths []string, configs ...ExtractConfig) ([]*Result, error) {
 	if p == nil {
 		return nil, ErrProcessorClosed
@@ -262,6 +270,8 @@ func (p *Processor) ExtractBatchFiles(filePaths []string, configs ...ExtractConf
 }
 
 // ExtractBatchFilesWithContext extracts content from multiple HTML files concurrently with context support.
+// The concurrency level is controlled by the WorkerPoolSize configuration (default: 4).
+// Each extraction is performed independently with automatic encoding detection.
 // If the context is cancelled, pending extractions are skipped and the BatchResult.Cancelled count is incremented.
 func (p *Processor) ExtractBatchFilesWithContext(ctx context.Context, filePaths []string, configs ...ExtractConfig) *BatchResult {
 	br := &BatchResult{

@@ -149,8 +149,10 @@ func padTableColumns(tableData [][]CellData, maxCols int) [][]CellData {
 
 // calculateColumnAlignments determines column alignment using majority voting.
 // Returns alignment strings in Markdown format (:---, :--:, ---:, etc.)
+// Optimized with pre-allocated slices.
 func calculateColumnAlignments(tableData [][]CellData, maxCols int, structureRowWidths []string) []string {
 	colAligns := make([]string, maxCols)
+	// Pre-allocate alignCounts with exact capacity needed
 	alignCounts := make([]AlignCount, maxCols)
 
 	// Count alignments from all non-expanded cells
@@ -238,7 +240,9 @@ func determineColumnAlignment(counts AlignCount, firstRow []CellData, colIdx int
 }
 
 // calculateMaxColumnWidths finds the maximum text width for each column.
+// Optimized with pre-allocated slice.
 func calculateMaxColumnWidths(tableData [][]CellData, maxCols int) []int {
+	// Pre-allocate with exact capacity needed
 	colMaxWidths := make([]int, maxCols)
 	for _, row := range tableData {
 		for j := 0; j < maxCols && j < len(row); j++ {
@@ -253,9 +257,15 @@ func calculateMaxColumnWidths(tableData [][]CellData, maxCols int) []int {
 
 // filterExpandedColumns identifies columns that should be excluded.
 // Returns a list of included column indices (columns with real content).
+// Optimized with pre-allocated slice capacity.
 func filterExpandedColumns(tableData [][]CellData, maxCols int) []int {
 	includeCol := make([]bool, maxCols)
-	newToOldCol := make([]int, 0, maxCols)
+	// Pre-allocate with estimated capacity: assume 80% of columns are included
+	estimatedInclusions := maxCols * 4 / 5
+	if estimatedInclusions < 1 {
+		estimatedInclusions = 1
+	}
+	newToOldCol := make([]int, 0, estimatedInclusions)
 
 	for j := 0; j < maxCols; j++ {
 		// Check if this column has any non-expanded content

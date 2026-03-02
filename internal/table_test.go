@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/cybergodev/html/internal/table"
 	stdxhtml "golang.org/x/net/html"
 )
 
@@ -100,52 +101,52 @@ func TestGetCellAlign(t *testing.T) {
 	tests := []struct {
 		name      string
 		html      string
-		wantAlign cellAlign
+		wantAlign table.CellAlignment
 	}{
 		{
 			name:      "align attribute left",
 			html:      `<table><tr><td align="left">Text</td></tr></table>`,
-			wantAlign: alignLeft,
+			wantAlign: table.AlignLeft,
 		},
 		{
 			name:      "align attribute center",
 			html:      `<table><tr><td align="center">Text</td></tr></table>`,
-			wantAlign: alignCenter,
+			wantAlign: table.AlignCenter,
 		},
 		{
 			name:      "align attribute right",
 			html:      `<table><tr><td align="right">Text</td></tr></table>`,
-			wantAlign: alignRight,
+			wantAlign: table.AlignRight,
 		},
 		{
 			name:      "align attribute justify",
 			html:      `<table><tr><td align="justify">Text</td></tr></table>`,
-			wantAlign: alignJustify,
+			wantAlign: table.AlignJustify,
 		},
 		{
 			name:      "style attribute text-align",
 			html:      `<table><tr><td style="text-align:center">Text</td></tr></table>`,
-			wantAlign: alignCenter,
+			wantAlign: table.AlignCenter,
 		},
 		{
 			name:      "style with colon space",
 			html:      `<table><tr><td style="text-align: center">Text</td></tr></table>`,
-			wantAlign: alignCenter,
+			wantAlign: table.AlignCenter,
 		},
 		{
 			name:      "align takes precedence over style",
 			html:      `<table><tr><td align="left" style="text-align:center">Text</td></tr></table>`,
-			wantAlign: alignLeft,
+			wantAlign: table.AlignLeft,
 		},
 		{
 			name:      "no alignment specified",
 			html:      `<table><tr><td>Text</td></tr></table>`,
-			wantAlign: alignDefault,
+			wantAlign: table.AlignDefault,
 		},
 		{
 			name:      "uppercase style",
 			html:      `<table><tr><td style="TEXT-ALIGN:CENTER">Text</td></tr></table>`,
-			wantAlign: alignCenter,
+			wantAlign: table.AlignCenter,
 		},
 	}
 
@@ -377,26 +378,26 @@ func TestCellAlignValues(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		align cellAlign
+		align table.CellAlignment
 		name  string
 	}{
-		{alignLeft, "left"},
-		{alignCenter, "center"},
-		{alignRight, "right"},
-		{alignJustify, "justify"},
-		{alignDefault, "default"},
+		{table.AlignLeft, "left"},
+		{table.AlignCenter, "center"},
+		{table.AlignRight, "right"},
+		{table.AlignJustify, "justify"},
+		{table.AlignDefault, "default"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Just verify the constants are different
-			aligns := []cellAlign{alignLeft, alignCenter, alignRight, alignJustify, alignDefault}
-			unique := make(map[cellAlign]bool)
+			aligns := []table.CellAlignment{table.AlignLeft, table.AlignCenter, table.AlignRight, table.AlignJustify, table.AlignDefault}
+			unique := make(map[table.CellAlignment]bool)
 			for _, a := range aligns {
 				unique[a] = true
 			}
 			if len(unique) != len(aligns) {
-				t.Error("cellAlign constants should be unique")
+				t.Error("CellAlignment constants should be unique")
 			}
 		})
 	}

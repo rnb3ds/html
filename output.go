@@ -7,7 +7,11 @@ import (
 
 // ExtractToMarkdown extracts content from HTML and returns it in Markdown format.
 // This is a convenience function that creates a temporary Processor with default settings.
-// For repeated extractions or custom configuration, use Processor.ExtractToMarkdown instead.
+// For repeated extractions or custom configuration (cache, timeout, etc.), use
+// Processor.ExtractToMarkdown instead.
+//
+// The method automatically detects the character encoding (Windows-1252, UTF-8, GBK, Shift_JIS, etc.)
+// from the HTML bytes and converts it to UTF-8 before processing.
 func ExtractToMarkdown(htmlBytes []byte, configs ...ExtractConfig) (string, error) {
 	processor, err := New()
 	if err != nil {
@@ -18,6 +22,8 @@ func ExtractToMarkdown(htmlBytes []byte, configs ...ExtractConfig) (string, erro
 }
 
 // ExtractToMarkdown extracts content from HTML and returns it in Markdown format.
+// The method automatically detects the character encoding (Windows-1252, UTF-8, GBK, Shift_JIS, etc.)
+// from the HTML bytes and converts it to UTF-8 before processing.
 // This method configures the extractor to use markdown format for inline images.
 // It uses the processor's configuration (cache, timeout, etc.) for extraction.
 func (p *Processor) ExtractToMarkdown(htmlBytes []byte, configs ...ExtractConfig) (string, error) {
@@ -32,7 +38,11 @@ func (p *Processor) ExtractToMarkdown(htmlBytes []byte, configs ...ExtractConfig
 
 // ExtractToMarkdownFromFile extracts content from an HTML file and returns it in Markdown format.
 // This is a convenience function that creates a temporary Processor with default settings.
-// For repeated extractions or custom configuration, use Processor.ExtractToMarkdownFromFile instead.
+// For repeated extractions or custom configuration (cache, timeout, etc.), use
+// Processor.ExtractToMarkdownFromFile instead.
+//
+// The method automatically detects the character encoding (Windows-1252, UTF-8, GBK, Shift_JIS, etc.)
+// from the HTML file and converts it to UTF-8 before processing.
 func ExtractToMarkdownFromFile(filePath string, configs ...ExtractConfig) (string, error) {
 	processor, err := New()
 	if err != nil {
@@ -43,6 +53,8 @@ func ExtractToMarkdownFromFile(filePath string, configs ...ExtractConfig) (strin
 }
 
 // ExtractToMarkdownFromFile extracts content from an HTML file and returns it in Markdown format.
+// The method automatically detects the character encoding (Windows-1252, UTF-8, GBK, Shift_JIS, etc.)
+// from the HTML file and converts it to UTF-8 before processing.
 // This method configures the extractor to use markdown format for inline images.
 // It uses the processor's configuration (cache, timeout, etc.) for extraction.
 func (p *Processor) ExtractToMarkdownFromFile(filePath string, configs ...ExtractConfig) (string, error) {
@@ -57,7 +69,11 @@ func (p *Processor) ExtractToMarkdownFromFile(filePath string, configs ...Extrac
 
 // ExtractToJSON extracts content from HTML and returns it as JSON.
 // This is a convenience function that creates a temporary Processor with default settings.
-// For repeated extractions or custom configuration, use Processor.ExtractToJSON instead.
+// For repeated extractions or custom configuration (cache, timeout, etc.), use
+// Processor.ExtractToJSON instead.
+//
+// The method automatically detects the character encoding (Windows-1252, UTF-8, GBK, Shift_JIS, etc.)
+// from the HTML bytes and converts it to UTF-8 before processing.
 func ExtractToJSON(htmlBytes []byte, configs ...ExtractConfig) ([]byte, error) {
 	processor, err := New()
 	if err != nil {
@@ -68,6 +84,8 @@ func ExtractToJSON(htmlBytes []byte, configs ...ExtractConfig) ([]byte, error) {
 }
 
 // ExtractToJSON extracts content from HTML and returns it as JSON.
+// The method automatically detects the character encoding (Windows-1252, UTF-8, GBK, Shift_JIS, etc.)
+// from the HTML bytes and converts it to UTF-8 before processing.
 // This method uses the processor's configuration (cache, timeout, etc.) for extraction.
 func (p *Processor) ExtractToJSON(htmlBytes []byte, configs ...ExtractConfig) ([]byte, error) {
 	result, err := p.Extract(htmlBytes, configs...)
@@ -79,7 +97,11 @@ func (p *Processor) ExtractToJSON(htmlBytes []byte, configs ...ExtractConfig) ([
 
 // ExtractToJSONFromFile extracts content from an HTML file and returns it as JSON.
 // This is a convenience function that creates a temporary Processor with default settings.
-// For repeated extractions or custom configuration, use Processor.ExtractToJSONFromFile instead.
+// For repeated extractions or custom configuration (cache, timeout, etc.), use
+// Processor.ExtractToJSONFromFile instead.
+//
+// The method automatically detects the character encoding (Windows-1252, UTF-8, GBK, Shift_JIS, etc.)
+// from the HTML file and converts it to UTF-8 before processing.
 func ExtractToJSONFromFile(filePath string, configs ...ExtractConfig) ([]byte, error) {
 	processor, err := New()
 	if err != nil {
@@ -90,6 +112,8 @@ func ExtractToJSONFromFile(filePath string, configs ...ExtractConfig) ([]byte, e
 }
 
 // ExtractToJSONFromFile extracts content from an HTML file and returns it as JSON.
+// The method automatically detects the character encoding (Windows-1252, UTF-8, GBK, Shift_JIS, etc.)
+// from the HTML file and converts it to UTF-8 before processing.
 // This method uses the processor's configuration (cache, timeout, etc.) for extraction.
 func (p *Processor) ExtractToJSONFromFile(filePath string, configs ...ExtractConfig) ([]byte, error) {
 	result, err := p.ExtractFromFile(filePath, configs...)

@@ -554,7 +554,9 @@ html.HighSecurityConfig() Config   // Security-optimized configuration
 // Extraction configuration
 html.DefaultExtractConfig() ExtractConfig
 html.TextOnlyExtractConfig() ExtractConfig  // Text-only preset
-html.FullContentExtractConfig() ExtractConfig // Full content preset
+// For full content with markdown images:
+// cfg := html.DefaultExtractConfig()
+// cfg.InlineImageFormat = "markdown"
 
 // Link extraction configuration
 html.DefaultLinkExtractionConfig() LinkExtractionConfig

@@ -37,7 +37,7 @@ func main() {
 	fmt.Println("-----------------------")
 
 	customConfig := html.DefaultConfig()
-	customConfig.MaxInputSize = 10 * 1024 * 1024  // 10 MB
+	customConfig.MaxInputSize = 10 * 1024 * 1024 // 10 MB
 	customConfig.MaxCacheEntries = 5000
 	customConfig.CacheTTL = 2 * time.Hour
 	customConfig.WorkerPoolSize = 8

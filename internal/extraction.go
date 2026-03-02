@@ -39,8 +39,8 @@ func extractTextWithStructure(node *html.Node, tb *table.TrackedBuilder, imageCo
 		textData = normalizeNonBreakingSpaces(textData)
 		textData = ReplaceHTMLEntities(textData)
 		// Replace internal newlines with spaces for multi-line text in HTML
-		textData = strings.ReplaceAll(textData, "\n", " ")
-		textData = strings.ReplaceAll(textData, "\r", "")
+		// Combined into a single pass for better performance
+		textData = normalizeLineBreaks(textData)
 
 		// Check if we're inside an inline/namespace element
 		isInsideInline := false

@@ -760,3 +760,212 @@ func TestChannelAuditSinkConcurrentClose(t *testing.T) {
 		}
 	}
 }
+
+// TestAuditCollectorWait tests the Wait method for async sink writes
+func TestAuditCollectorWait(t *testing.T) {
+	t.Parallel()
+
+	t.Run("Wait blocks until async writes complete", func(t *testing.T) {
+		var buf bytes.Buffer
+		sink := html.NewWriterAuditSink(&buf)
+
+		config := html.HighSecurityAuditConfig()
+		config.Sink = sink
+		collector := html.NewAuditCollector(config)
+		defer collector.Close()
+
+		// Record multiple entries
+		for i := 0; i < 10; i++ {
+			collector.RecordBlockedTag("script")
+		}
+
+		// Wait for all async writes
+		collector.Wait()
+
+		// All entries should be written
+		output := buf.String()
+		if output == "" {
+			t.Error("Expected audit output after Wait()")
+		}
+
+		// Count the number of JSON entries
+		entryCount := strings.Count(output, "\"event_type\"")
+		if entryCount != 10 {
+			t.Errorf("Expected 10 entries, got %d", entryCount)
+		}
+	})
+
+	t.Run("Wait on nil collector is safe", func(t *testing.T) {
+		var collector *html.AuditCollector
+		// Should not panic
+		collector.Wait()
+	})
+
+	t.Run("Wait with disabled audit is safe", func(t *testing.T) {
+		config := html.DefaultAuditConfig() // Disabled by default
+		collector := html.NewAuditCollector(config)
+		defer collector.Close()
+
+		collector.RecordBlockedTag("script")
+		collector.Wait() // Should complete immediately
+	})
+
+	t.Run("Wait allows multiple calls", func(t *testing.T) {
+		config := html.HighSecurityAuditConfig()
+		collector := html.NewAuditCollector(config)
+		defer collector.Close()
+
+		collector.RecordBlockedTag("script")
+		collector.Wait()
+		collector.Wait() // Second call should be safe
+		collector.Wait() // Third call should be safe
+	})
+}
+
+// TestRecordEncodingIssue tests the RecordEncodingIssue method
+func TestRecordEncodingIssue(t *testing.T) {
+	t.Parallel()
+
+	t.Run("records encoding issue event", func(t *testing.T) {
+		config := html.DefaultAuditConfig()
+		config.Enabled = true
+		config.LogEncodingIssues = true
+		collector := html.NewAuditCollector(config)
+		defer collector.Close()
+
+		collector.RecordEncodingIssue("windows-1252", "invalid byte sequence")
+
+		entries := collector.GetEntries()
+		if len(entries) != 1 {
+			t.Fatalf("Expected 1 entry, got %d", len(entries))
+		}
+
+		if entries[0].EventType != html.AuditEventEncodingIssue {
+			t.Errorf("Expected EventType %s, got %s", html.AuditEventEncodingIssue, entries[0].EventType)
+		}
+		if entries[0].Level != html.AuditLevelInfo {
+			t.Errorf("Expected Level %s, got %s", html.AuditLevelInfo, entries[0].Level)
+		}
+		if entries[0].Message != "invalid byte sequence" {
+			t.Errorf("Expected message 'invalid byte sequence', got '%s'", entries[0].Message)
+		}
+		if entries[0].Metadata["encoding"] != "windows-1252" {
+			t.Errorf("Expected encoding metadata, got %v", entries[0].Metadata["encoding"])
+		}
+	})
+
+	t.Run("nil collector handles gracefully", func(t *testing.T) {
+		var collector *html.AuditCollector
+		// Should not panic
+		collector.RecordEncodingIssue("utf-8", "test")
+	})
+
+	t.Run("disabled audit does not record", func(t *testing.T) {
+		config := html.DefaultAuditConfig()
+		config.Enabled = false
+		collector := html.NewAuditCollector(config)
+		defer collector.Close()
+
+		collector.RecordEncodingIssue("utf-8", "test")
+
+		entries := collector.GetEntries()
+		if len(entries) != 0 {
+			t.Errorf("Expected 0 entries when disabled, got %d", len(entries))
+		}
+	})
+
+	t.Run("LogEncodingIssues disabled does not record", func(t *testing.T) {
+		config := html.DefaultAuditConfig()
+		config.Enabled = true
+		config.LogEncodingIssues = false
+		collector := html.NewAuditCollector(config)
+		defer collector.Close()
+
+		collector.RecordEncodingIssue("utf-8", "test")
+
+		entries := collector.GetEntries()
+		if len(entries) != 0 {
+			t.Errorf("Expected 0 entries when LogEncodingIssues disabled, got %d", len(entries))
+		}
+	})
+
+	t.Run("records with various encodings", func(t *testing.T) {
+		config := html.DefaultAuditConfig()
+		config.Enabled = true
+		config.LogEncodingIssues = true
+		collector := html.NewAuditCollector(config)
+		defer collector.Close()
+
+		encodings := []string{"utf-8", "windows-1252", "iso-8859-1", "shift_jis", "gbk"}
+		for _, enc := range encodings {
+			collector.RecordEncodingIssue(enc, "detection failed")
+		}
+
+		entries := collector.GetEntries()
+		if len(entries) != len(encodings) {
+			t.Errorf("Expected %d entries, got %d", len(encodings), len(entries))
+		}
+	})
+}
+
+// TestClearAuditLog tests the ClearAuditLog method on Processor
+func TestClearAuditLog(t *testing.T) {
+	t.Parallel()
+
+	t.Run("ClearAuditLog clears processor audit entries", func(t *testing.T) {
+		auditConfig := html.DefaultAuditConfig()
+		auditConfig.Enabled = true
+
+		config := html.DefaultConfig()
+		config.Audit = auditConfig
+		p, err := html.New(config)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer p.Close()
+
+		// Process XSS HTML to generate audit entries
+		xssHTML := `<html><body><script>alert('XSS')</script><p>Content</p></body></html>`
+		_, err = p.Extract([]byte(xssHTML), html.DefaultExtractConfig())
+		if err != nil {
+			t.Fatalf("Extract() failed: %v", err)
+		}
+
+		// Verify entries exist
+		entries := p.GetAuditLog()
+		if len(entries) == 0 {
+			t.Fatal("Expected audit log entries before clear")
+		}
+
+		// Clear the log
+		p.ClearAuditLog()
+
+		// Verify entries cleared
+		entries = p.GetAuditLog()
+		if len(entries) != 0 {
+			t.Errorf("Expected 0 entries after clear, got %d", len(entries))
+		}
+	})
+
+	t.Run("ClearAuditLog allows continued processing", func(t *testing.T) {
+		auditConfig := html.DefaultAuditConfig()
+		auditConfig.Enabled = true
+
+		config := html.DefaultConfig()
+		config.Audit = auditConfig
+		p, _ := html.New(config)
+		defer p.Close()
+
+		// First extraction
+		p.Extract([]byte(`<html><body><script>1</script></body></html>`), html.DefaultExtractConfig())
+		p.ClearAuditLog()
+
+		// Second extraction
+		p.Extract([]byte(`<html><body><script>2</script></body></html>`), html.DefaultExtractConfig())
+
+		entries := p.GetAuditLog()
+		if len(entries) == 0 {
+			t.Error("Expected new audit entries after clear")
+		}
+	})
+}

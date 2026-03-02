@@ -554,7 +554,9 @@ html.HighSecurityConfig() Config   // 安全优化配置
 // 提取配置
 html.DefaultExtractConfig() ExtractConfig
 html.TextOnlyExtractConfig() ExtractConfig  // 文本专用预设
-html.FullContentExtractConfig() ExtractConfig // 完整内容预设
+// 如需完整内容含 Markdown 图片：
+// cfg := html.DefaultExtractConfig()
+// cfg.InlineImageFormat = "markdown"
 
 // 链接提取配置
 html.DefaultLinkExtractionConfig() LinkExtractionConfig

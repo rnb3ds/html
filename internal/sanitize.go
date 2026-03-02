@@ -7,10 +7,6 @@ import (
 	"golang.org/x/net/html"
 )
 
-const (
-	maxDataURILength = 100000 // Maximum data URL length (100KB) for security
-)
-
 var tagsToRemove = []string{
 	// Script and style containers
 	"script", "style", "noscript",
@@ -234,17 +230,15 @@ func RemoveTagContent(content, tag string) string {
 
 // removeTagContentStringBased removes tags using string operations.
 // This approach preserves character case and handles malformed HTML better than DOM parsing.
+// Uses BuilderPool for memory efficiency to reduce allocations during string building.
 func removeTagContentStringBased(content, tag string) string {
 	openTag := "<" + strings.ToLower(tag)
 	closeTag := "</" + strings.ToLower(tag) + ">"
 	lowerContent := strings.ToLower(content)
 
 	// Use pooled builder for better memory efficiency
-	sb := BuilderPool.Get().(*strings.Builder)
-	defer func() {
-		sb.Reset()
-		BuilderPool.Put(sb)
-	}()
+	sb := GetBuilder()
+	defer PutBuilder(sb)
 
 	sb.Grow(len(content))
 
@@ -363,7 +357,7 @@ func isValidDataURLWithAudit(url string, audit AuditRecorder) bool {
 
 	// Enforce maximum data URL size to prevent memory exhaustion
 	// Uses the same limit as IsValidURL for consistency
-	if len(url) > maxDataURILength {
+	if len(url) > MaxDataURILength {
 		audit.RecordBlockedURL(url, "data URL exceeds size limit")
 		return false
 	}

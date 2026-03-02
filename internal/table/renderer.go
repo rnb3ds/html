@@ -66,44 +66,9 @@ func (r *MarkdownRenderer) Format() string {
 }
 
 // Render renders the table data in Markdown format.
+// Delegates to extractTableAsMarkdown to avoid code duplication.
 func (r *MarkdownRenderer) Render(tableData [][]CellData, tb *TrackedBuilder, maxCols int, colWidths []string) {
-	// Pad rows to have consistent column count
-	tableData = padTableColumns(tableData, maxCols)
-
-	// Calculate column properties
-	colAligns := calculateColumnAlignments(tableData, maxCols, colWidths)
-	colMaxWidths := calculateMaxColumnWidths(tableData, maxCols)
-
-	// Filter out columns that are entirely empty expanded cells
-	newToOldCol := filterExpandedColumns(tableData, maxCols)
-	numIncludedCols := len(newToOldCol)
-
-	// Build arrays for included columns only
-	includedColAligns := filterArray(colAligns, newToOldCol)
-	includedColMaxWidths := filterIntArray(colMaxWidths, newToOldCol)
-
-	// Ensure minimum width for alignment markers
-	for i := range includedColMaxWidths {
-		if includedColMaxWidths[i] < 3 {
-			includedColMaxWidths[i] = 3
-		}
-	}
-
-	// Render table rows with alignment separator after the first row
-	if len(tableData) > 0 {
-		// Render first row (header)
-		renderMarkdownRow(tb, tableData[0], newToOldCol, includedColAligns, includedColMaxWidths, numIncludedCols)
-
-		// Add alignment separator after header row (required by Markdown)
-		tb.WriteString("| ")
-		tb.WriteString(strings.Join(includedColAligns, " | "))
-		tb.WriteString(" |\n")
-
-		// Render remaining rows
-		for i := 1; i < len(tableData); i++ {
-			renderMarkdownRow(tb, tableData[i], newToOldCol, includedColAligns, includedColMaxWidths, numIncludedCols)
-		}
-	}
+	extractTableAsMarkdown(tableData, tb, maxCols, colWidths)
 }
 
 // HTMLRenderer renders tables in HTML format.
@@ -115,33 +80,12 @@ func (r *HTMLRenderer) Format() string {
 }
 
 // Render renders the table data in HTML format.
+// Delegates to extractTableAsHTML to avoid code duplication.
 func (r *HTMLRenderer) Render(tableData [][]CellData, tb *TrackedBuilder, maxCols int, colWidths []string) {
-	tb.WriteString("<table>\n")
-
-	for _, row := range tableData {
-		tb.WriteString("  <tr>\n")
-		for _, cell := range row {
-			renderHTMLCell(tb, cell)
-		}
-		tb.WriteString("  </tr>\n")
-	}
-
-	tb.WriteString("</table>")
+	extractTableAsHTML(tableData, tb)
 }
 
-// renderMarkdownRow renders a single table row in Markdown format.
-// Note: This is defined in render.go
-// func renderMarkdownRow(tb *TrackedBuilder, row []CellData, newToOldCol []int,
-// 	colAligns []string, colMaxWidths []int, numCols int) { ... }
-
-// renderHTMLCell renders a single table cell in HTML format.
-// Note: This is defined in render.go
-// func renderHTMLCell(tb *TrackedBuilder, cell CellData) { ... }
-
-// buildCellStyle constructs the style attribute value for a table cell.
-// Note: This is defined in render.go
-// func buildCellStyle(cell CellData) string { ... }
-
-// intToString converts an integer to string without importing strconv.
-// Note: This is defined in render.go
-// func intToString(n int) string { ... }
+// Note: The following functions are defined in render.go:
+//   - renderMarkdownRow: renders a single table row in Markdown format
+//   - renderHTMLCell: renders a single table cell in HTML format
+//   - buildCellStyle: constructs the style attribute value for a table cell

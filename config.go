@@ -3,6 +3,7 @@ package html
 import (
 	"fmt"
 	"regexp"
+	"sync"
 	"time"
 )
 
@@ -16,17 +17,16 @@ const (
 	DefaultProcessingTimeout = 30 * time.Second
 
 	// Configuration limits
-	maxConfigInputSize  = 50 * 1024 * 1024
-	maxConfigWorkerSize = 256
-	maxConfigDepth      = 500
+	maxConfigInputSize    = 50 * 1024 * 1024
+	maxConfigWorkerSize   = 256
+	maxConfigDepth        = 500
+	maxConfigCacheEntries = 100000 // Maximum 100K cache entries to prevent memory exhaustion
 
 	// Processing limits
-	maxURLLength     = 2000
-	maxHTMLForRegex  = 1000000
-	maxRegexMatches  = 1000
-	maxDataURILength = 100000
-	maxCacheKeySize  = 64 * 1024
-	cacheKeySample   = 4096
+	maxHTMLForRegex = 1000000
+	maxRegexMatches = 1000
+	maxCacheKeySize = 64 * 1024
+	cacheKeySample  = 4096
 
 	// Buffer size estimates
 	initialTextSize   = 4096
@@ -57,6 +57,7 @@ type Config struct {
 	MaxDepth           int
 	ProcessingTimeout  time.Duration
 	Audit              AuditConfig
+	Scorer             Scorer `json:"-"` // Optional custom scorer for content extraction
 }
 
 // DefaultConfig returns the default processor configuration.
@@ -105,6 +106,8 @@ func (c Config) Validate() error {
 		return fmt.Errorf("%w: MaxInputSize too large (max %d), got %d", ErrInvalidConfig, maxConfigInputSize, c.MaxInputSize)
 	case c.MaxCacheEntries < 0:
 		return fmt.Errorf("%w: MaxCacheEntries cannot be negative, got %d", ErrInvalidConfig, c.MaxCacheEntries)
+	case c.MaxCacheEntries > maxConfigCacheEntries:
+		return fmt.Errorf("%w: MaxCacheEntries too large (max %d), got %d", ErrInvalidConfig, maxConfigCacheEntries, c.MaxCacheEntries)
 	case c.CacheTTL < 0:
 		return fmt.Errorf("%w: CacheTTL cannot be negative, got %v", ErrInvalidConfig, c.CacheTTL)
 	case c.WorkerPoolSize <= 0:
@@ -163,20 +166,6 @@ func TextOnlyExtractConfig() ExtractConfig {
 	}
 }
 
-// FullContentExtractConfig returns an ExtractConfig for extracting all content.
-// This enables all media preservation and uses markdown format for inline images.
-func FullContentExtractConfig() ExtractConfig {
-	return ExtractConfig{
-		ExtractArticle:    true,
-		PreserveImages:    true,
-		PreserveLinks:     true,
-		PreserveVideos:    true,
-		PreserveAudios:    true,
-		InlineImageFormat: "markdown",
-		TableFormat:       "markdown",
-	}
-}
-
 // LinkExtractionConfig holds the link extraction configuration.
 type LinkExtractionConfig struct {
 	ResolveRelativeURLs  bool
@@ -218,6 +207,46 @@ type Result struct {
 	ProcessingTime time.Duration `json:"processing_time_ms"`
 	WordCount      int           `json:"word_count"`
 	ReadingTime    time.Duration `json:"reading_time_ms"`
+}
+
+// resultPool is a sync.Pool for reusing Result structs in batch processing.
+// This reduces memory allocations for high-throughput scenarios.
+var resultPool = sync.Pool{
+	New: func() any {
+		return &Result{
+			Images: make([]ImageInfo, 0, 16),
+			Links:  make([]LinkInfo, 0, 16),
+			Videos: make([]VideoInfo, 0, 4),
+			Audios: make([]AudioInfo, 0, 4),
+		}
+	},
+}
+
+// getResult gets a Result from the pool.
+// The returned Result has pre-allocated slices ready for use.
+// Call putResult when done to return it to the pool.
+func getResult() *Result {
+	return resultPool.Get().(*Result)
+}
+
+// putResult returns a Result to the pool.
+// The Result is reset before being returned to the pool.
+// It is safe to call putResult with a nil pointer (no-op).
+func putResult(r *Result) {
+	if r == nil {
+		return
+	}
+	// Reset fields
+	r.Text = ""
+	r.Title = ""
+	r.Images = r.Images[:0]
+	r.Links = r.Links[:0]
+	r.Videos = r.Videos[:0]
+	r.Audios = r.Audios[:0]
+	r.WordCount = 0
+	r.ReadingTime = 0
+	r.ProcessingTime = 0
+	resultPool.Put(r)
 }
 
 // ImageInfo holds information about an extracted image.

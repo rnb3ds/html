@@ -86,20 +86,72 @@ func DefaultScoringConfig() *ScoringConfig {
 
 // DefaultScorer is the default implementation of the Scorer interface.
 type DefaultScorer struct {
-	config *ScoringConfig
+	config          *ScoringConfig
+	patternPrefixes map[byte][]patternScore // Pre-computed prefix index for fast pattern matching
+}
+
+// patternScore holds a pattern and its score for prefix-based filtering.
+type patternScore struct {
+	pattern string
+	score   int
 }
 
 // NewDefaultScorer creates a new DefaultScorer with the default configuration.
 func NewDefaultScorer() *DefaultScorer {
+	config := DefaultScoringConfig()
 	return &DefaultScorer{
-		config: DefaultScoringConfig(),
+		config:          config,
+		patternPrefixes: buildPatternPrefixIndex(config),
+	}
+}
+
+// buildPatternPrefixIndex creates a prefix-based index for fast pattern matching.
+// Patterns are grouped by their first character to enable early filtering.
+func buildPatternPrefixIndex(config *ScoringConfig) map[byte][]patternScore {
+	// Estimate capacity: most patterns start with unique characters
+	index := make(map[byte][]patternScore)
+
+	// Add all pattern categories to the index
+	addPatternsToIndex(index, config.PositiveStrongPatterns)
+	addPatternsToIndex(index, config.PositiveMediumPatterns)
+	addPatternsToIndex(index, config.NegativeStrongPatterns)
+	addPatternsToIndex(index, config.NegativeMediumPatterns)
+	addPatternsToIndex(index, config.NegativeWeakPatterns)
+
+	return index
+}
+
+// addPatternsToIndex adds patterns to the prefix index grouped by their first character.
+func addPatternsToIndex(index map[byte][]patternScore, patterns map[string]int) {
+	for pattern, score := range patterns {
+		if len(pattern) == 0 {
+			continue
+		}
+		firstChar := pattern[0]
+		// Convert to lowercase for case-insensitive matching
+		if firstChar >= 'A' && firstChar <= 'Z' {
+			firstChar += 32
+		}
+		index[firstChar] = append(index[firstChar], patternScore{
+			pattern: pattern,
+			score:   score,
+		})
 	}
 }
 
 // NewDefaultScorerWithConfig creates a new DefaultScorer with custom configuration.
+// If config is nil, nil is stored but the pattern prefix index is built from default config.
 func NewDefaultScorerWithConfig(config *ScoringConfig) *DefaultScorer {
+	// Build pattern prefix index from config (use default if nil)
+	var prefixes map[byte][]patternScore
+	if config != nil {
+		prefixes = buildPatternPrefixIndex(config)
+	} else {
+		prefixes = buildPatternPrefixIndex(DefaultScoringConfig())
+	}
 	return &DefaultScorer{
-		config: config,
+		config:          config,
+		patternPrefixes: prefixes,
 	}
 }
 
@@ -243,13 +295,43 @@ func (s *DefaultScorer) scoreAttributes(n *html.Node) int {
 }
 
 // calculatePatternScore calculates score based on pattern matching.
+// Optimized with prefix filtering to only check patterns whose first character
+// appears in the value string, reducing unnecessary pattern matching.
 func (s *DefaultScorer) calculatePatternScore(value string, patterns map[string]int) int {
+	if len(value) == 0 || len(patterns) == 0 {
+		return 0
+	}
+
 	score := 0
-	for pattern, patternScore := range patterns {
-		if hasWordBoundary(value, pattern, boundaryStandard) {
-			score += patternScore
+
+	// Build a set of unique first characters in the value (lowercase)
+	valueChars := make(map[byte]bool)
+	for i := 0; i < len(value); i++ {
+		c := value[i]
+		// Convert to lowercase for case-insensitive matching
+		if c >= 'A' && c <= 'Z' {
+			c += 32
+		}
+		// Only consider alphanumeric characters as potential pattern starts
+		if (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') {
+			valueChars[c] = true
 		}
 	}
+
+	// Only check patterns whose first character appears in value
+	for char := range valueChars {
+		if candidates, ok := s.patternPrefixes[char]; ok {
+			for _, ps := range candidates {
+				// Only check patterns that belong to the input patterns map
+				if _, exists := patterns[ps.pattern]; exists {
+					if hasWordBoundary(value, ps.pattern, boundaryStandard) {
+						score += ps.score
+					}
+				}
+			}
+		}
+	}
+
 	return score
 }
 

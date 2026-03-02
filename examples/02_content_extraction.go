@@ -51,8 +51,9 @@ func main() {
 	// ============================================================
 	// 3. Full content with markdown images
 	// ============================================================
-	fmt.Println("3. Full content (using FullContentExtractConfig()):")
-	fullConfig := html.FullContentExtractConfig()
+	fmt.Println("3. Full content (with markdown image format):")
+	fullConfig := html.DefaultExtractConfig()
+	fullConfig.InlineImageFormat = "markdown"
 	result, _ = processor.Extract([]byte(sampleHTML), fullConfig)
 	fmt.Printf("   %s\n\n", truncate.Truncate(result.Text, 80))
 
@@ -104,8 +105,8 @@ func main() {
 	// Summary
 	// ============================================================
 	fmt.Println("\n=== Configuration Summary ===")
-	fmt.Println("• TextOnlyExtractConfig()   - Plain text, no media")
-	fmt.Println("• FullContentExtractConfig() - All media with markdown formatting")
+	fmt.Println("• TextOnlyExtractConfig()    - Plain text, no media")
+	fmt.Println("• DefaultExtractConfig()     - All media, customize as needed")
 	fmt.Println("• InlineImageFormat: none | markdown | html | placeholder")
 	fmt.Println("• TableFormat:    markdown | html")
 	fmt.Println("• Encoding:       Specify for non-UTF-8 content")

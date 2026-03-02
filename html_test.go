@@ -4525,3 +4525,481 @@ func TestTableMarkdownEdgeCases(t *testing.T) {
 		}
 	})
 }
+
+// ============================================================================
+// TextOnlyExtractConfig Tests
+// ============================================================================
+
+func TestTextOnlyExtractConfig(t *testing.T) {
+	t.Parallel()
+
+	t.Run("TextOnlyExtractConfig disables all media", func(t *testing.T) {
+		config := html.TextOnlyExtractConfig()
+
+		if !config.ExtractArticle {
+			t.Error("ExtractArticle should be true")
+		}
+		if config.PreserveImages {
+			t.Error("PreserveImages should be false")
+		}
+		if config.PreserveLinks {
+			t.Error("PreserveLinks should be false")
+		}
+		if config.PreserveVideos {
+			t.Error("PreserveVideos should be false")
+		}
+		if config.PreserveAudios {
+			t.Error("PreserveAudios should be false")
+		}
+		if config.InlineImageFormat != "none" {
+			t.Errorf("InlineImageFormat should be 'none', got '%s'", config.InlineImageFormat)
+		}
+	})
+
+	t.Run("TextOnlyExtractConfig extracts only text", func(t *testing.T) {
+		htmlContent := `<html><head><title>Test</title></head><body>
+			<article>
+				<h1>Article Title</h1>
+				<p>Paragraph content.</p>
+				<a href="https://example.com">Link</a>
+				<img src="image.jpg" alt="Image">
+				<video src="video.mp4"></video>
+			</article>
+		</body></html>`
+
+		result, err := html.Extract([]byte(htmlContent), html.TextOnlyExtractConfig())
+		if err != nil {
+			t.Fatalf("Extract() failed: %v", err)
+		}
+
+		// Should have text
+		if result.Text == "" {
+			t.Error("Should extract text")
+		}
+
+		// Should NOT have media
+		if len(result.Images) > 0 {
+			t.Error("Should not extract images with TextOnlyExtractConfig")
+		}
+		if len(result.Links) > 0 {
+			t.Error("Should not extract links with TextOnlyExtractConfig")
+		}
+		if len(result.Videos) > 0 {
+			t.Error("Should not extract videos with TextOnlyExtractConfig")
+		}
+		if len(result.Audios) > 0 {
+			t.Error("Should not extract audios with TextOnlyExtractConfig")
+		}
+	})
+
+	t.Run("TextOnlyExtractConfig vs DefaultExtractConfig", func(t *testing.T) {
+		defaultConfig := html.DefaultExtractConfig()
+		textOnlyConfig := html.TextOnlyExtractConfig()
+
+		// ExtractArticle should be same
+		if defaultConfig.ExtractArticle != textOnlyConfig.ExtractArticle {
+			t.Error("ExtractArticle should be same")
+		}
+
+		// Media preservation should differ
+		if defaultConfig.PreserveImages == textOnlyConfig.PreserveImages {
+			t.Error("PreserveImages should differ")
+		}
+		if defaultConfig.PreserveLinks == textOnlyConfig.PreserveLinks {
+			t.Error("PreserveLinks should differ")
+		}
+	})
+}
+
+// ============================================================================
+// resolveExtractConfig Merge Tests
+// ============================================================================
+
+func TestResolveExtractConfigMerge(t *testing.T) {
+	t.Parallel()
+
+	t.Run("no config returns defaults", func(t *testing.T) {
+		// This test verifies that passing no config uses defaults
+		p, err := html.New()
+		if err != nil {
+			t.Fatalf("New() failed: %v", err)
+		}
+		defer p.Close()
+
+		htmlContent := `<html><head><title>Test</title></head><body>
+			<article class="entry-content">
+				<h1>Article Title</h1>
+				<p>Paragraph content.</p>
+			</article>
+		</body></html>`
+
+		// Call without config - should use defaults
+		result, err := p.Extract([]byte(htmlContent))
+		if err != nil {
+			t.Fatalf("Extract() failed: %v", err)
+		}
+
+		// DefaultExtractConfig has ExtractArticle=true, so content should be extracted
+		if result.Text == "" {
+			t.Error("Expected text to be extracted with default config")
+		}
+		if !strings.Contains(result.Text, "Article Title") {
+			t.Errorf("Expected 'Article Title' in text, got: %s", result.Text)
+		}
+	})
+
+	t.Run("empty config returns defaults", func(t *testing.T) {
+		// This test verifies that passing an empty config uses defaults
+		p, err := html.New()
+		if err != nil {
+			t.Fatalf("New() failed: %v", err)
+		}
+		defer p.Close()
+
+		htmlContent := `<html><head><title>Test</title></head><body>
+			<article class="entry-content">
+				<h1>Article Title</h1>
+				<p>Paragraph content.</p>
+			</article>
+		</body></html>`
+
+		// Call with empty config - should behave same as no config
+		result, err := p.Extract([]byte(htmlContent), html.ExtractConfig{})
+		if err != nil {
+			t.Fatalf("Extract() failed: %v", err)
+		}
+
+		// Should extract article content because empty config uses defaults
+		if result.Text == "" {
+			t.Error("Expected text to be extracted with empty config (should use defaults)")
+		}
+		if !strings.Contains(result.Text, "Article Title") {
+			t.Errorf("Expected 'Article Title' in text, got: %s", result.Text)
+		}
+	})
+
+	t.Run("string-only config preserves boolean defaults", func(t *testing.T) {
+		// This is the key test: when user only sets string fields,
+		// boolean fields should keep their default true values
+		p, err := html.New()
+		if err != nil {
+			t.Fatalf("New() failed: %v", err)
+		}
+		defer p.Close()
+
+		htmlContent := `<html><head><title>Test</title></head><body>
+			<article class="entry-content">
+				<h1>Article Title</h1>
+				<p>Paragraph content.</p>
+				<img src="image.jpg" alt="Test Image">
+				<a href="https://example.com">Link</a>
+			</article>
+		</body></html>`
+
+		// Only set string fields - boolean defaults should be preserved
+		result, err := p.Extract([]byte(htmlContent), html.ExtractConfig{
+			InlineImageFormat: "html",
+			TableFormat:       "html",
+		})
+		if err != nil {
+			t.Fatalf("Extract() failed: %v", err)
+		}
+
+		// ExtractArticle should default to true
+		if result.Text == "" {
+			t.Error("Expected text to be extracted (ExtractArticle defaults to true)")
+		}
+
+		// PreserveImages should default to true
+		if len(result.Images) == 0 {
+			t.Error("Expected images to be preserved (PreserveImages defaults to true)")
+		}
+
+		// PreserveLinks should default to true
+		if len(result.Links) == 0 {
+			t.Error("Expected links to be preserved (PreserveLinks defaults to true)")
+		}
+	})
+
+	t.Run("string fields merge correctly", func(t *testing.T) {
+		p, err := html.New()
+		if err != nil {
+			t.Fatalf("New() failed: %v", err)
+		}
+		defer p.Close()
+
+		htmlContent := `<html><head><title>Test</title></head><body>
+			<article>
+				<h1>Article Title</h1>
+				<p>Paragraph content.</p>
+			</article>
+		</body></html>`
+
+		// Set custom string fields
+		result, err := p.Extract([]byte(htmlContent), html.ExtractConfig{
+			InlineImageFormat: "markdown",
+			TableFormat:       "html",
+		})
+		if err != nil {
+			t.Fatalf("Extract() failed: %v", err)
+		}
+
+		// Should extract content
+		if result.Text == "" {
+			t.Error("Expected text to be extracted")
+		}
+	})
+
+	t.Run("invalid table format normalized to markdown", func(t *testing.T) {
+		p, err := html.New()
+		if err != nil {
+			t.Fatalf("New() failed: %v", err)
+		}
+		defer p.Close()
+
+		htmlContent := `<html><head><title>Test</title></head><body>
+			<article>
+				<h1>Article Title</h1>
+				<table><tr><td>Cell</td></tr></table>
+			</article>
+		</body></html>`
+
+		// Set invalid table format
+		result, err := p.Extract([]byte(htmlContent), html.ExtractConfig{
+			TableFormat: "invalid",
+		})
+		if err != nil {
+			t.Fatalf("Extract() failed: %v", err)
+		}
+
+		// Should still work, with table format normalized to markdown
+		if result.Text == "" {
+			t.Error("Expected text to be extracted")
+		}
+	})
+
+	t.Run("invalid inline image format normalized to none", func(t *testing.T) {
+		p, err := html.New()
+		if err != nil {
+			t.Fatalf("New() failed: %v", err)
+		}
+		defer p.Close()
+
+		htmlContent := `<html><head><title>Test</title></head><body>
+			<article>
+				<h1>Article Title</h1>
+				<img src="image.jpg" alt="Test">
+			</article>
+		</body></html>`
+
+		// Set invalid inline image format
+		result, err := p.Extract([]byte(htmlContent), html.ExtractConfig{
+			InlineImageFormat: "invalid",
+		})
+		if err != nil {
+			t.Fatalf("Extract() failed: %v", err)
+		}
+
+		// Should still work, with inline image format normalized to none
+		if result.Text == "" {
+			t.Error("Expected text to be extracted")
+		}
+	})
+
+	t.Run("TextOnlyExtractConfig disables media preservation", func(t *testing.T) {
+		// To disable media preservation, use TextOnlyExtractConfig()
+		p, err := html.New()
+		if err != nil {
+			t.Fatalf("New() failed: %v", err)
+		}
+		defer p.Close()
+
+		htmlContent := `<html><head><title>Test</title></head><body>
+			<article class="entry-content">
+				<h1>Article Title</h1>
+				<p>Paragraph content.</p>
+				<img src="image.jpg" alt="Test Image">
+				<a href="https://example.com">Link</a>
+			</article>
+		</body></html>`
+
+		// Use TextOnlyExtractConfig to disable media
+		result, err := p.Extract([]byte(htmlContent), html.TextOnlyExtractConfig())
+		if err != nil {
+			t.Fatalf("Extract() failed: %v", err)
+		}
+
+		// Should have text
+		if result.Text == "" {
+			t.Error("Expected text to be extracted")
+		}
+
+		// Should NOT have media
+		if len(result.Images) > 0 {
+			t.Error("Expected no images with TextOnlyExtractConfig")
+		}
+		if len(result.Links) > 0 {
+			t.Error("Expected no links with TextOnlyExtractConfig")
+		}
+	})
+
+	t.Run("Encoding field merges correctly", func(t *testing.T) {
+		p, err := html.New()
+		if err != nil {
+			t.Fatalf("New() failed: %v", err)
+		}
+		defer p.Close()
+
+		// UTF-8 encoded HTML
+		htmlContent := []byte(`<html><head><title>Test</title></head><body>
+			<article>
+				<h1>Article Title</h1>
+				<p>中文内容测试</p>
+			</article>
+		</body></html>`)
+
+		// Set Encoding field along with using defaults for booleans
+		result, err := p.Extract(htmlContent, html.ExtractConfig{
+			Encoding: "utf-8",
+		})
+		if err != nil {
+			t.Fatalf("Extract() failed: %v", err)
+		}
+
+		// Should extract content correctly
+		if result.Text == "" {
+			t.Error("Expected text to be extracted")
+		}
+	})
+}
+
+// ============================================================================
+// resolveLinkExtractionConfig Merge Tests
+// ============================================================================
+
+func TestResolveLinkExtractionConfigMerge(t *testing.T) {
+	t.Parallel()
+
+	t.Run("no config returns defaults", func(t *testing.T) {
+		p, err := html.New()
+		if err != nil {
+			t.Fatalf("New() failed: %v", err)
+		}
+		defer p.Close()
+
+		htmlContent := `<html><head><title>Test</title></head><body>
+			<a href="https://example.com">Link</a>
+			<img src="image.jpg">
+			<video src="video.mp4"></video>
+		</body></html>`
+
+		// Call without config - should use defaults
+		links, err := p.ExtractAllLinks([]byte(htmlContent))
+		if err != nil {
+			t.Fatalf("ExtractAllLinks() failed: %v", err)
+		}
+
+		// DefaultLinkExtractionConfig has all Include* fields set to true
+		if len(links) == 0 {
+			t.Error("Expected links, images, and videos to be extracted with default config")
+		}
+	})
+
+	t.Run("empty config returns defaults", func(t *testing.T) {
+		p, err := html.New()
+		if err != nil {
+			t.Fatalf("New() failed: %v", err)
+		}
+		defer p.Close()
+
+		htmlContent := `<html><head><title>Test</title></head><body>
+			<a href="https://example.com">Link</a>
+			<img src="image.jpg">
+			<video src="video.mp4"></video>
+		</body></html>`
+
+		// Call with empty config - should behave same as no config
+		links, err := p.ExtractAllLinks([]byte(htmlContent), html.LinkExtractionConfig{})
+		if err != nil {
+			t.Fatalf("ExtractAllLinks() failed: %v", err)
+		}
+
+		// Should use defaults
+		if len(links) == 0 {
+			t.Error("Expected links to be extracted with empty config (should use defaults)")
+		}
+	})
+
+	t.Run("string-only config preserves boolean defaults", func(t *testing.T) {
+		p, err := html.New()
+		if err != nil {
+			t.Fatalf("New() failed: %v", err)
+		}
+		defer p.Close()
+
+		htmlContent := `<html><head><title>Test</title></head><body>
+			<a href="https://example.com">Link</a>
+			<img src="image.jpg">
+			<video src="video.mp4"></video>
+		</body></html>`
+
+		// Only set BaseURL string field - boolean defaults should be preserved
+		links, err := p.ExtractAllLinks([]byte(htmlContent), html.LinkExtractionConfig{
+			BaseURL: "https://mysite.com/",
+		})
+		if err != nil {
+			t.Fatalf("ExtractAllLinks() failed: %v", err)
+		}
+
+		// Should still extract all types (defaults preserved)
+		if len(links) == 0 {
+			t.Error("Expected all link types to be extracted (boolean defaults preserved)")
+		}
+	})
+
+	t.Run("explicit true overrides default false", func(t *testing.T) {
+		p, err := html.New()
+		if err != nil {
+			t.Fatalf("New() failed: %v", err)
+		}
+		defer p.Close()
+
+		htmlContent := `<html><head><title>Test</title></head><body>
+			<a href="https://example.com">Link</a>
+			<img src="image.jpg">
+			<video src="video.mp4"></video>
+		</body></html>`
+
+		// Explicitly set IncludeImages to true, others remain false
+		links, err := p.ExtractAllLinks([]byte(htmlContent), html.LinkExtractionConfig{
+			IncludeImages: true,
+		})
+		if err != nil {
+			t.Fatalf("ExtractAllLinks() failed: %v", err)
+		}
+
+		// When IncludeImages is true, hasExplicitTrue becomes true
+		// So all user's boolean values are used: IncludeImages=true, IncludeVideos=false, etc.
+		// Should have images
+		hasImages := false
+		for _, link := range links {
+			if link.Type == "image" {
+				hasImages = true
+			}
+		}
+		if !hasImages {
+			t.Error("Expected images to be included (IncludeImages=true)")
+		}
+
+		// Should NOT have videos (user set IncludeVideos to false by zero)
+		hasVideos := false
+		for _, link := range links {
+			if link.Type == "video" {
+				hasVideos = true
+			}
+		}
+		if hasVideos {
+			t.Error("Expected videos to NOT be included (IncludeVideos=false)")
+		}
+	})
+}

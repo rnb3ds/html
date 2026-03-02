@@ -684,3 +684,161 @@ func BenchmarkCleanText(b *testing.B) {
 		}
 	})
 }
+
+// Benchmarks for performance optimizations
+
+func BenchmarkNormalizeNonBreakingSpaces(b *testing.B) {
+	tests := []struct {
+		name string
+		text string
+	}{
+		{"NoNBSP", "This is regular text without non-breaking spaces"},
+		{"WithNBSP", "This\u00a0is\u00a0text\u00a0with\u00a0NBSP"},
+		{"LargeNoNBSP", strings.Repeat("Regular text ", 100)},
+		{"LargeWithNBSP", strings.Repeat("Text\u00a0", 100)},
+	}
+	for _, tt := range tests {
+		b.Run(tt.name, func(b *testing.B) {
+			for i := 0; i < b.N; i++ {
+				normalizeNonBreakingSpaces(tt.text)
+			}
+		})
+	}
+}
+
+func BenchmarkCleanTextEarlyExit(b *testing.B) {
+	whitespaceRegex := regexp.MustCompile(`\s+`)
+
+	tests := []struct {
+		name string
+		text string
+	}{
+		{"CleanText", "This is clean text without special characters"},
+		{"WithNewlines", "Line1\nLine2\nLine3"},
+		{"WithMultipleSpaces", "Text  with   multiple    spaces"},
+		{"WithNBSP", "Text\u00a0with\u00a0NBSP"},
+		{"ComplexText", "Line1\n  Text  with   spaces\u00a0and NBSP"},
+		{"LargeCleanText", strings.Repeat("Clean text ", 100)},
+	}
+	for _, tt := range tests {
+		b.Run(tt.name, func(b *testing.B) {
+			for i := 0; i < b.N; i++ {
+				CleanText(tt.text, whitespaceRegex)
+			}
+		})
+	}
+}
+
+// ============================================================================
+// IsValidURL Tests
+// ============================================================================
+
+func TestIsValidURL(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		url      string
+		expected bool
+	}{
+		// Valid URLs
+		{"simple path", "/path/to/resource", true},
+		{"relative path", "image.jpg", true},
+		{"http URL", "http://example.com", true},
+		{"https URL", "https://example.com/path", true},
+		{"URL with query", "/path?query=value", true},
+		{"URL with fragment", "/path#section", true},
+		{"data URL small", "data:text/plain;base64,SGVsbG8=", true},
+		{"protocol relative", "//example.com/path", true},
+		{"URL with port", "http://example.com:8080/path", true},
+		{"dot relative path", "./image.png", true},
+
+		// Invalid URLs
+		{"empty string", "", false},
+		{"URL with newline", "http://example.com\nmalicious", false},
+		{"URL with tab", "http://example.com\tmalicious", false},
+		{"URL with control char", "http://example.com\x00malicious", false},
+		{"URL with angle bracket", "http://example.com<script>", false},
+		{"URL with quote", "http://example.com'onclick", false},
+		{"URL with double quote", "http://example.com\"onclick", false},
+
+		// Edge cases
+		{"very long URL over limit", strings.Repeat("a", MaxURLLength+1), false},
+		{"URL at max length", strings.Repeat("a", MaxURLLength), true},
+		{"data URL too long", "data:text/plain;base64," + strings.Repeat("A", MaxDataURILength+1), false},
+		{"data URL with invalid char", "data:text/plain;base64,\x00invalid", false},
+
+		// Path traversal
+		{"path traversal /../", "/../etc/passwd", false},
+		{"path traversal ././", "././etc/passwd", false},
+		{"protocol relative dangerous", "//javascript:alert(1)", false},
+		{"protocol relative vbscript", "//vbscript:alert(1)", false},
+		{"protocol relative file", "//file:///etc/passwd", false},
+
+		// These are accepted by current implementation
+		{"javascript URL (not blocked)", "javascript:alert(1)", true},
+		{"file URL (not blocked)", "file:///etc/passwd", true},
+		{"anchor only (not accepted)", "#section", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := IsValidURL(tt.url)
+			if result != tt.expected {
+				t.Errorf("IsValidURL(%q) = %v, want %v", tt.url, result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestIsValidURLDataURIs(t *testing.T) {
+	t.Parallel()
+
+	t.Run("valid data URIs", func(t *testing.T) {
+		validDataURIs := []string{
+			"data:text/plain,Hello",
+			"data:image/png;base64,iVBORw0KGgo=",
+		}
+
+		for _, uri := range validDataURIs {
+			if !IsValidURL(uri) {
+				t.Errorf("IsValidURL(%q) should be true", uri)
+			}
+		}
+	})
+
+	t.Run("invalid data URIs", func(t *testing.T) {
+		invalidDataURIs := []string{
+			"data:text/html,<script>alert(1)</script>", // contains < and >
+			"data:text/plain,\x01",                     // control character
+			"data:text/html,<h1>Hello</h1>",            // contains < and >
+			"data:image/svg+xml,<svg></svg>",           // contains < and >
+		}
+
+		for _, uri := range invalidDataURIs {
+			if IsValidURL(uri) {
+				t.Errorf("IsValidURL(%q) should be false", uri)
+			}
+		}
+	})
+}
+
+func BenchmarkIsValidURL(b *testing.B) {
+	tests := []struct {
+		name string
+		url  string
+	}{
+		{"simple path", "/path/to/file.html"},
+		{"https URL", "https://example.com/path/to/resource"},
+		{"data URI", "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB"},
+		{"long URL", "https://example.com/" + strings.Repeat("path/", 50)},
+	}
+
+	for _, tt := range tests {
+		b.Run(tt.name, func(b *testing.B) {
+			for i := 0; i < b.N; i++ {
+				IsValidURL(tt.url)
+			}
+		})
+	}
+}

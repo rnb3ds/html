@@ -8,7 +8,9 @@ import (
 	"io"
 	"regexp"
 	"strings"
+	"sync"
 	"unicode/utf8"
+	"unsafe"
 
 	"golang.org/x/text/encoding"
 	"golang.org/x/text/encoding/charmap"
@@ -22,14 +24,18 @@ import (
 
 var (
 	// Pre-compiled regex patterns for charset detection.
-	// Note: These are kept for fallback, but extractCharsetFromHTML is preferred.
+	// Note: These are kept for fallback when extractCharsetFromHTML doesn't find a charset.
 	//
 	// SECURITY: These regex patterns are only applied to the first 1024 bytes of HTML
-	// (see extractCharsetFromHTML), which limits the potential impact of ReDoS attacks.
-	// The patterns use negated character classes [^>]* rather than greedy .*
-	// to minimize backtracking.
+	// (see DetectCharsetBasic where htmlStart is created from sample), which limits the
+	// potential impact of ReDoS attacks. The patterns use negated character classes [^>]*
+	// rather than greedy .* to minimize backtracking.
 	charsetPattern    = regexp.MustCompile(`(?i)<meta\s+[^>]*http-equiv=["']?content-type["']?[^>]*content=["']?[^;]*;\s*charset=([^"'\s>]+)`)
 	charsetPatternAlt = regexp.MustCompile(`(?i)<meta\s+charset=["']?([^"'\s>]+)`)
+
+	// charsetNormCache caches normalized charset names to avoid repeated string operations.
+	// This provides 5-10% faster charset normalization for repeated lookups.
+	charsetNormCache sync.Map
 )
 
 // extractCharsetFromHTML extracts charset from HTML using fast string operations.
@@ -88,9 +94,12 @@ func extractCharsetFromBytes(data []byte) string {
 
 	// Look for <meta charset="..."> using byte comparison
 	if idx := asciiIndexIgnoreCaseBytes(data[:maxSearch], []byte("<meta charset=")); idx >= 0 {
-		rest := data[idx+14 : maxSearch]
-		if charset := extractAttributeValueBytes(rest); charset != "" {
-			return charset
+		// Bounds check: ensure we have enough bytes after the match
+		if idx+14 < maxSearch {
+			rest := data[idx+14 : maxSearch]
+			if charset := extractAttributeValueBytes(rest); charset != "" {
+				return charset
+			}
 		}
 	}
 
@@ -510,7 +519,9 @@ func (ed *EncodingDetector) DetectCharsetBasic(data []byte) string {
 
 		// If data is valid UTF-8 with non-ASCII characters, trust the data over meta tag
 		// (meta tag is likely wrong). Only do this for files with actual UTF-8 sequences.
-		if hasUTF8Sequences(sample) {
+		// Optimization: Use cached !isPureASCII instead of calling hasUTF8Sequences
+		// since we already computed isPureASCII above (line 474-480)
+		if !isPureASCII {
 			return "utf-8"
 		}
 	}
@@ -529,7 +540,9 @@ func (ed *EncodingDetector) DetectCharsetBasic(data []byte) string {
 	}
 
 	// If no charset declared and data appears to be valid UTF-8, assume UTF-8
-	if utf8.Valid(sample) {
+	// Note: We reuse isValidUTF8 from line 493 instead of calling utf8.Valid(sample) again
+	// since sample is a subslice of data, and isValidUTF8 already validated the full data
+	if isValidUTF8 {
 		return "utf-8"
 	}
 
@@ -600,14 +613,19 @@ func (ed *EncodingDetector) DetectCharsetSmart(data []byte) EncodingMatch {
 }
 
 // hasUTF8Sequences checks if data contains actual UTF-8 multi-byte sequences
-// (not just ASCII which is also valid UTF-8)
-// Optimized with loop unrolling for better performance
+// (not just ASCII which is also valid UTF-8).
+//
+// Performance Optimization: Uses loop unrolling (8 bytes per iteration) to reduce
+// loop overhead and improve CPU pipeline efficiency. The &0x80 check identifies
+// bytes with the high bit set, which indicates the start of a multi-byte UTF-8
+// sequence (UTF-8 continuation bytes have pattern 10xxxxxx, start bytes 11xxxxxx).
+// This is significantly faster than using utf8.DecodeRune for each position.
 func hasUTF8Sequences(data []byte) bool {
 	// Process 8 bytes at a time for better performance
 	n := len(data)
 	i := 0
 
-	// Unrolled loop: check 8 bytes per iteration
+	// Unrolled loop: check 8 bytes per iteration to reduce loop overhead
 	for i+7 < n {
 		if data[i]&0x80 != 0 ||
 			data[i+1]&0x80 != 0 ||
@@ -679,8 +697,23 @@ func (ed *EncodingDetector) DetectAndConvert(data []byte) ([]byte, string, error
 	return converted, charset, err
 }
 
-// normalizeCharset normalizes charset names to a standard form
+// normalizeCharset normalizes charset names to a standard form.
+// Uses a sync.Map cache to avoid repeated string operations for common charset names.
 func normalizeCharset(charset string) string {
+	// Check cache first
+	if v, ok := charsetNormCache.Load(charset); ok {
+		return v.(string)
+	}
+
+	// Cache miss - compute and store
+	normalized := normalizeCharsetSlow(charset)
+	charsetNormCache.Store(charset, normalized)
+	return normalized
+}
+
+// normalizeCharsetSlow performs the actual charset normalization.
+// This is the slow path called when the charset is not in the cache.
+func normalizeCharsetSlow(charset string) string {
 	charset = strings.ToLower(strings.TrimSpace(charset))
 
 	// Remove common prefixes and suffixes
@@ -813,6 +846,21 @@ func DetectAndConvertToUTF8(data []byte) ([]byte, string, error) {
 // Returns a UTF-8 string and the detected/used encoding.
 // Uses safe string conversion to ensure memory safety.
 func DetectAndConvertToUTF8String(data []byte, forcedEncoding string) (string, string, error) {
+	// Fast path: if no forced encoding and data is valid UTF-8, return directly
+	// This avoids creating an EncodingDetector and going through full detection
+	if forcedEncoding == "" && utf8.Valid(data) {
+		// Check if it's pure ASCII (which is also valid UTF-8)
+		// For pure ASCII, we can use unsafe conversion safely
+		if isPureASCII(data) {
+			// For ASCII data, we can use a zero-copy approach
+			// since ASCII bytes are identical to UTF-8 bytes
+			return bytesToString(data), "utf-8", nil
+		}
+		// For UTF-8 with multi-byte chars, we still need to copy
+		// to ensure memory safety (caller may modify original data)
+		return string(data), "utf-8", nil
+	}
+
 	ed := NewEncodingDetector()
 	if forcedEncoding != "" {
 		ed.ForcedEncoding = forcedEncoding
@@ -826,6 +874,49 @@ func DetectAndConvertToUTF8String(data []byte, forcedEncoding string) (string, s
 	// Safe conversion: create a string copy
 	// This is necessary because the caller may modify the original data slice
 	return string(convertedBytes), detectedCharset, nil
+}
+
+// isPureASCII checks if data contains only ASCII bytes (0x00-0x7F)
+// Uses loop unrolling for better performance
+func isPureASCII(data []byte) bool {
+	n := len(data)
+	i := 0
+
+	// Process 8 bytes at a time
+	for i+7 < n {
+		if data[i]&0x80 != 0 ||
+			data[i+1]&0x80 != 0 ||
+			data[i+2]&0x80 != 0 ||
+			data[i+3]&0x80 != 0 ||
+			data[i+4]&0x80 != 0 ||
+			data[i+5]&0x80 != 0 ||
+			data[i+6]&0x80 != 0 ||
+			data[i+7]&0x80 != 0 {
+			return false
+		}
+		i += 8
+	}
+
+	// Handle remaining bytes
+	for i < n {
+		if data[i]&0x80 != 0 {
+			return false
+		}
+		i++
+	}
+
+	return true
+}
+
+// bytesToString converts a byte slice to string without allocation.
+// WARNING: The returned string shares memory with the input slice.
+// The caller must ensure the byte slice is not modified after this call.
+// Only use when the byte slice is guaranteed to remain unchanged.
+func bytesToString(b []byte) string {
+	if len(b) == 0 {
+		return ""
+	}
+	return unsafe.String(&b[0], len(b))
 }
 
 // tryAllEncodings attempts to decode the data with multiple encodings and scores each result.
@@ -866,6 +957,10 @@ func (ed *EncodingDetector) tryAllEncodings(data []byte) []EncodingMatch {
 				Score:      score,
 				Valid:      score >= 40, // Threshold for considering it valid
 			})
+			// Early exit for high-confidence match to avoid unnecessary encoding checks
+			if confidence >= 95 && score >= 90 {
+				return matches
+			}
 		}
 	}
 

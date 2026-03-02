@@ -12,6 +12,9 @@ import (
 // This is a convenience function that creates a temporary Processor with default settings.
 // For repeated extractions or custom configuration (cache, timeout, etc.), use
 // Processor.ExtractAllLinks instead.
+//
+// The method automatically detects the character encoding (Windows-1252, UTF-8, GBK, Shift_JIS, etc.)
+// from the HTML bytes and converts it to UTF-8 before extracting links.
 func ExtractAllLinks(htmlBytes []byte, configs ...LinkExtractionConfig) ([]LinkResource, error) {
 	processor, err := New()
 	if err != nil {
@@ -25,6 +28,9 @@ func ExtractAllLinks(htmlBytes []byte, configs ...LinkExtractionConfig) ([]LinkR
 // This is a convenience function that creates a temporary Processor with default settings.
 // For repeated extractions or custom configuration (cache, timeout, etc.), use
 // Processor.ExtractAllLinksFromFile instead.
+//
+// The method automatically detects the character encoding (Windows-1252, UTF-8, GBK, Shift_JIS, etc.)
+// from the HTML file and converts it to UTF-8 before extracting links.
 func ExtractAllLinksFromFile(filePath string, configs ...LinkExtractionConfig) ([]LinkResource, error) {
 	processor, err := New()
 	if err != nil {
@@ -35,8 +41,9 @@ func ExtractAllLinksFromFile(filePath string, configs ...LinkExtractionConfig) (
 }
 
 // ExtractAllLinks extracts all links from HTML bytes with automatic encoding detection.
-// The method automatically detects character encoding and converts to UTF-8 before
-// extracting links, ensuring that link titles and text are properly decoded.
+// The method automatically detects the character encoding (Windows-1252, UTF-8, GBK, Shift_JIS, etc.)
+// from the HTML bytes and converts it to UTF-8 before extracting links,
+// ensuring that link titles and text are properly decoded.
 func (p *Processor) ExtractAllLinks(htmlBytes []byte, configs ...LinkExtractionConfig) (links []LinkResource, err error) {
 	// Defense-in-depth: recover from unexpected panics
 	defer func() {
@@ -93,6 +100,8 @@ func (p *Processor) ExtractAllLinks(htmlBytes []byte, configs ...LinkExtractionC
 }
 
 // ExtractAllLinksFromFile extracts all links from an HTML file with automatic encoding detection.
+// The method automatically detects the character encoding (Windows-1252, UTF-8, GBK, Shift_JIS, etc.)
+// from the HTML file and converts it to UTF-8 before extracting links.
 // Use this when you have a file path instead of raw bytes.
 func (p *Processor) ExtractAllLinksFromFile(filePath string, configs ...LinkExtractionConfig) (links []LinkResource, err error) {
 	// Defense-in-depth: recover from unexpected panics

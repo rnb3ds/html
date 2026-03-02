@@ -21,7 +21,15 @@ const (
 // BuilderPool is a sync.Pool for strings.Builder instances.
 // Use this for functions that build strings incrementally to reduce allocations.
 //
-// Usage pattern:
+// For most use cases, prefer the helper functions GetBuilder() and PutBuilder():
+//
+//	sb := internal.GetBuilder()
+//	defer internal.PutBuilder(sb)
+//	sb.Grow(estimatedSize)
+//	// ... use sb ...
+//	return sb.String()
+//
+// Direct pool access is also available for advanced use cases:
 //
 //	sbPtr := internal.BuilderPool.Get().(*strings.Builder)
 //	sb := *sbPtr
@@ -29,9 +37,6 @@ const (
 //	    sb.Reset()
 //	    internal.BuilderPool.Put(sbPtr)
 //	}()
-//	sb.Grow(estimatedSize)
-//	// ... use sb ...
-//	return sb.String()
 var BuilderPool = sync.Pool{
 	New: func() any {
 		sb := &strings.Builder{}
@@ -43,7 +48,15 @@ var BuilderPool = sync.Pool{
 // BufferPool is a sync.Pool for bytes.Buffer instances.
 // Use this for functions that work with byte slices to reduce allocations.
 //
-// Usage pattern:
+// For most use cases, prefer the helper functions GetBuffer() and PutBuffer():
+//
+//	buf := internal.GetBuffer()
+//	defer internal.PutBuffer(buf)
+//	buf.Grow(estimatedSize)
+//	// ... use buf ...
+//	return buf.Bytes()
+//
+// Direct pool access is also available for advanced use cases:
 //
 //	bufPtr := internal.BufferPool.Get().(*bytes.Buffer)
 //	buf := *bufPtr
@@ -51,9 +64,6 @@ var BuilderPool = sync.Pool{
 //	    buf.Reset()
 //	    internal.BufferPool.Put(bufPtr)
 //	}()
-//	buf.Grow(estimatedSize)
-//	// ... use buf ...
-//	return buf.Bytes()
 var BufferPool = sync.Pool{
 	New: func() any {
 		return bytes.NewBuffer(make([]byte, 0, bufferPoolInitialCapacity))
@@ -160,7 +170,11 @@ func GetHash128() hash.Hash {
 
 // PutHash128 returns an FNV-128a hasher to the pool.
 // The hasher is reset before being returned to the pool.
+// It is safe to call PutHash128 with a nil pointer (no-op).
 func PutHash128(h hash.Hash) {
+	if h == nil {
+		return
+	}
 	h.Reset()
 	Hash128Pool.Put(h)
 }
@@ -189,7 +203,11 @@ func GetTransformBuffer() *[]byte {
 
 // PutTransformBuffer returns a byte slice to the transform buffer pool.
 // The slice is reset to zero length before being returned.
+// It is safe to call PutTransformBuffer with a nil pointer (no-op).
 func PutTransformBuffer(buf *[]byte) {
+	if buf == nil {
+		return
+	}
 	*buf = (*buf)[:0]
 	TransformBufferPool.Put(buf)
 }
