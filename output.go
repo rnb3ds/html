@@ -2,125 +2,116 @@ package html
 
 import (
 	"encoding/json"
-	"fmt"
 )
 
 // ExtractToMarkdown extracts content from HTML and returns it in Markdown format.
-// This is a convenience function that creates a temporary Processor with default settings.
-// For repeated extractions or custom configuration (cache, timeout, etc.), use
-// Processor.ExtractToMarkdown instead.
-//
 // The method automatically detects the character encoding (Windows-1252, UTF-8, GBK, Shift_JIS, etc.)
 // from the HTML bytes and converts it to UTF-8 before processing.
-func ExtractToMarkdown(htmlBytes []byte, configs ...ExtractConfig) (string, error) {
-	processor, err := New()
+// This method configures the extractor to use markdown format for inline images.
+// It uses the processor's configuration (cache, timeout, etc.) for extraction.
+func (p *Processor) ExtractToMarkdown(htmlBytes []byte) (string, error) {
+	config := p.getExtractConfig()
+	config.InlineImageFormat = "markdown"
+	result, err := p.extractInternal(htmlBytes, config)
 	if err != nil {
-		return "", fmt.Errorf("create processor: %w", err)
+		return "", err
 	}
-	defer processor.Close()
-	return processor.ExtractToMarkdown(htmlBytes, configs...)
+	return result.Text, nil
 }
+
+// ExtractToMarkdownFromFile extracts content from an HTML file and returns it in Markdown format.
+// The method automatically detects the character encoding (Windows-1252, UTF-8, GBK, Shift_JIS, etc.)
+// from the HTML file and converts it to UTF-8 before processing.
+// This method configures the extractor to use markdown format for inline images.
+// It uses the processor's configuration (cache, timeout, etc.) for extraction.
+func (p *Processor) ExtractToMarkdownFromFile(filePath string) (string, error) {
+	config := p.getExtractConfig()
+	config.InlineImageFormat = "markdown"
+	result, err := p.extractFromFileWithConfig(filePath, config)
+	if err != nil {
+		return "", err
+	}
+	return result.Text, nil
+}
+
+// ExtractToJSON extracts content from HTML and returns it as JSON.
+// The method automatically detects the character encoding (Windows-1252, UTF-8, GBK, Shift_JIS, etc.)
+// from the HTML bytes and converts it to UTF-8 before processing.
+// This method uses the processor's configuration (cache, timeout, etc.) for extraction.
+func (p *Processor) ExtractToJSON(htmlBytes []byte) ([]byte, error) {
+	result, err := p.Extract(htmlBytes)
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(result)
+}
+
+// ExtractToJSONFromFile extracts content from an HTML file and returns it as JSON.
+// The method automatically detects the character encoding (Windows-1252, UTF-8, GBK, Shift_JIS, etc.)
+// from the HTML file and converts it to UTF-8 before processing.
+// This method uses the processor's configuration (cache, timeout, etc.) for extraction.
+func (p *Processor) ExtractToJSONFromFile(filePath string) ([]byte, error) {
+	result, err := p.ExtractFromFile(filePath)
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(result)
+}
+
+// ============================================================================
+// Deprecated Package Functions (for backward compatibility)
+// ============================================================================
 
 // ExtractToMarkdown extracts content from HTML and returns it in Markdown format.
-// The method automatically detects the character encoding (Windows-1252, UTF-8, GBK, Shift_JIS, etc.)
-// from the HTML bytes and converts it to UTF-8 before processing.
-// This method configures the extractor to use markdown format for inline images.
-// It uses the processor's configuration (cache, timeout, etc.) for extraction.
-func (p *Processor) ExtractToMarkdown(htmlBytes []byte, configs ...ExtractConfig) (string, error) {
-	config := resolveExtractConfig(configs...)
-	config.InlineImageFormat = "markdown"
-	result, err := p.Extract(htmlBytes, config)
+// This is a convenience function that creates a temporary Processor with default settings.
+//
+// Deprecated: Use Processor.ExtractToMarkdown instead for better performance with repeated calls.
+func ExtractToMarkdown(htmlBytes []byte) (string, error) {
+	processor, err := New(MarkdownConfig())
 	if err != nil {
 		return "", err
 	}
-	return result.Text, nil
+	defer processor.Close()
+	return processor.ExtractToMarkdown(htmlBytes)
 }
 
 // ExtractToMarkdownFromFile extracts content from an HTML file and returns it in Markdown format.
 // This is a convenience function that creates a temporary Processor with default settings.
-// For repeated extractions or custom configuration (cache, timeout, etc.), use
-// Processor.ExtractToMarkdownFromFile instead.
 //
-// The method automatically detects the character encoding (Windows-1252, UTF-8, GBK, Shift_JIS, etc.)
-// from the HTML file and converts it to UTF-8 before processing.
-func ExtractToMarkdownFromFile(filePath string, configs ...ExtractConfig) (string, error) {
-	processor, err := New()
-	if err != nil {
-		return "", fmt.Errorf("create processor: %w", err)
-	}
-	defer processor.Close()
-	return processor.ExtractToMarkdownFromFile(filePath, configs...)
-}
-
-// ExtractToMarkdownFromFile extracts content from an HTML file and returns it in Markdown format.
-// The method automatically detects the character encoding (Windows-1252, UTF-8, GBK, Shift_JIS, etc.)
-// from the HTML file and converts it to UTF-8 before processing.
-// This method configures the extractor to use markdown format for inline images.
-// It uses the processor's configuration (cache, timeout, etc.) for extraction.
-func (p *Processor) ExtractToMarkdownFromFile(filePath string, configs ...ExtractConfig) (string, error) {
-	config := resolveExtractConfig(configs...)
-	config.InlineImageFormat = "markdown"
-	result, err := p.ExtractFromFile(filePath, config)
+// Deprecated: Use Processor.ExtractToMarkdownFromFile instead for better performance with repeated calls.
+func ExtractToMarkdownFromFile(filePath string) (string, error) {
+	processor, err := New(MarkdownConfig())
 	if err != nil {
 		return "", err
 	}
-	return result.Text, nil
+	defer processor.Close()
+	return processor.ExtractToMarkdownFromFile(filePath)
 }
 
 // ExtractToJSON extracts content from HTML and returns it as JSON.
 // This is a convenience function that creates a temporary Processor with default settings.
-// For repeated extractions or custom configuration (cache, timeout, etc.), use
-// Processor.ExtractToJSON instead.
 //
-// The method automatically detects the character encoding (Windows-1252, UTF-8, GBK, Shift_JIS, etc.)
-// from the HTML bytes and converts it to UTF-8 before processing.
-func ExtractToJSON(htmlBytes []byte, configs ...ExtractConfig) ([]byte, error) {
-	processor, err := New()
-	if err != nil {
-		return nil, fmt.Errorf("create processor: %w", err)
-	}
-	defer processor.Close()
-	return processor.ExtractToJSON(htmlBytes, configs...)
-}
-
-// ExtractToJSON extracts content from HTML and returns it as JSON.
-// The method automatically detects the character encoding (Windows-1252, UTF-8, GBK, Shift_JIS, etc.)
-// from the HTML bytes and converts it to UTF-8 before processing.
-// This method uses the processor's configuration (cache, timeout, etc.) for extraction.
-func (p *Processor) ExtractToJSON(htmlBytes []byte, configs ...ExtractConfig) ([]byte, error) {
-	result, err := p.Extract(htmlBytes, configs...)
+// Deprecated: Use Processor.ExtractToJSON instead for better performance with repeated calls.
+func ExtractToJSON(htmlBytes []byte) ([]byte, error) {
+	processor, err := New(DefaultConfig())
 	if err != nil {
 		return nil, err
 	}
-	return json.Marshal(result)
+	defer processor.Close()
+	return processor.ExtractToJSON(htmlBytes)
 }
 
 // ExtractToJSONFromFile extracts content from an HTML file and returns it as JSON.
 // This is a convenience function that creates a temporary Processor with default settings.
-// For repeated extractions or custom configuration (cache, timeout, etc.), use
-// Processor.ExtractToJSONFromFile instead.
 //
-// The method automatically detects the character encoding (Windows-1252, UTF-8, GBK, Shift_JIS, etc.)
-// from the HTML file and converts it to UTF-8 before processing.
-func ExtractToJSONFromFile(filePath string, configs ...ExtractConfig) ([]byte, error) {
-	processor, err := New()
-	if err != nil {
-		return nil, fmt.Errorf("create processor: %w", err)
-	}
-	defer processor.Close()
-	return processor.ExtractToJSONFromFile(filePath, configs...)
-}
-
-// ExtractToJSONFromFile extracts content from an HTML file and returns it as JSON.
-// The method automatically detects the character encoding (Windows-1252, UTF-8, GBK, Shift_JIS, etc.)
-// from the HTML file and converts it to UTF-8 before processing.
-// This method uses the processor's configuration (cache, timeout, etc.) for extraction.
-func (p *Processor) ExtractToJSONFromFile(filePath string, configs ...ExtractConfig) ([]byte, error) {
-	result, err := p.ExtractFromFile(filePath, configs...)
+// Deprecated: Use Processor.ExtractToJSONFromFile instead for better performance with repeated calls.
+func ExtractToJSONFromFile(filePath string) ([]byte, error) {
+	processor, err := New(DefaultConfig())
 	if err != nil {
 		return nil, err
 	}
-	return json.Marshal(result)
+	defer processor.Close()
+	return processor.ExtractToJSONFromFile(filePath)
 }
 
 // jsonResult wraps Result for custom JSON marshaling with duration formatting.

@@ -94,7 +94,7 @@ func main() {
 	defer processor3.Close()
 
 	batchStart := time.Now()
-	results, _ := processor3.ExtractBatch(docs, html.DefaultExtractConfig())
+	results, _ := processor3.ExtractBatch(docs)
 	batchTime := time.Since(batchStart)
 
 	fmt.Printf("Processed %d docs in %v\n", len(results), batchTime)

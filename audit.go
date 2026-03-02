@@ -152,6 +152,22 @@ func HighSecurityAuditConfig() AuditConfig {
 	}
 }
 
+// isEmpty checks if the AuditConfig has all zero values.
+func (c AuditConfig) isEmpty() bool {
+	return !c.Enabled &&
+		!c.LogBlockedTags &&
+		!c.LogBlockedAttrs &&
+		!c.LogBlockedURLs &&
+		!c.LogInputViolations &&
+		!c.LogDepthViolations &&
+		!c.LogTimeouts &&
+		!c.LogEncodingIssues &&
+		!c.LogPathTraversal &&
+		!c.IncludeRawValues &&
+		c.MaxRawValueLength == 0 &&
+		c.Sink == nil
+}
+
 // AuditCollector collects audit entries during processing.
 // It is designed to be thread-safe for concurrent use.
 type AuditCollector struct {

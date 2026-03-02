@@ -57,7 +57,10 @@ func main() {
 	fmt.Println("2. Markdown Output")
 	fmt.Println("-------------------")
 
-	markdown, err := processor.ExtractToMarkdown([]byte(htmlContent))
+	mdProcessor, _ := html.New(html.MarkdownConfig())
+	defer mdProcessor.Close()
+
+	markdown, err := mdProcessor.ExtractToMarkdown([]byte(htmlContent))
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -80,16 +83,20 @@ func main() {
 	`
 
 	// Markdown table format
-	mdConfig := html.DefaultExtractConfig()
-	mdConfig.TableFormat = "markdown"
-	mdResult, _ := processor.Extract([]byte(tableHTML), mdConfig)
+	mdTableConfig := html.DefaultConfig()
+	mdTableConfig.TableFormat = "markdown"
+	mdTableProcessor, _ := html.New(mdTableConfig)
+	defer mdTableProcessor.Close()
+	mdResult, _ := mdTableProcessor.Extract([]byte(tableHTML))
 	fmt.Println("Markdown table:")
 	fmt.Println(mdResult.Text)
 
 	// HTML table format
-	htmlConfig := html.DefaultExtractConfig()
-	htmlConfig.TableFormat = "html"
-	htmlResult, _ := processor.Extract([]byte(tableHTML), htmlConfig)
+	htmlTableConfig := html.DefaultConfig()
+	htmlTableConfig.TableFormat = "html"
+	htmlTableProcessor, _ := html.New(htmlTableConfig)
+	defer htmlTableProcessor.Close()
+	htmlResult, _ := htmlTableProcessor.Extract([]byte(tableHTML))
 	fmt.Println("HTML table:")
 	fmt.Println(htmlResult.Text)
 
@@ -119,10 +126,12 @@ func main() {
 	}
 
 	for _, f := range formats {
-		config := html.DefaultExtractConfig()
-		config.InlineImageFormat = f.format
-		result, _ := processor.Extract([]byte(imageHTML), config)
+		cfg := html.DefaultConfig()
+		cfg.ImageFormat = f.format
+		p, _ := html.New(cfg)
+		result, _ := p.Extract([]byte(imageHTML))
 		fmt.Printf("\n%s format:\n%s\n", f.name, result.Text)
+		p.Close()
 	}
 
 	// ============================================================

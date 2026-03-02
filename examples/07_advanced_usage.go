@@ -23,7 +23,9 @@ func main() {
 	fmt.Println("-----------------")
 
 	scorer := &ArticleScorer{minParagraphLength: 50}
-	scorerProcessor, err := html.New(scorer)
+	scorerConfig := html.DefaultConfig()
+	scorerConfig.Scorer = scorer
+	scorerProcessor, err := html.New(scorerConfig)
 	if err != nil {
 		log.Fatal(err)
 	}

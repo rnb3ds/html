@@ -10,7 +10,6 @@ import (
 	"strings"
 	"sync"
 	"unicode/utf8"
-	"unsafe"
 
 	"golang.org/x/text/encoding"
 	"golang.org/x/text/encoding/charmap"
@@ -37,6 +36,66 @@ var (
 	// This provides 5-10% faster charset normalization for repeated lookups.
 	charsetNormCache sync.Map
 )
+
+// charsetAliases maps charset aliases to their canonical names.
+// This map is used for fast O(1) lookup during charset normalization.
+var charsetAliases = map[string]string{
+	// Windows code pages
+	"1252":        "windows-1252",
+	"cp1252":      "windows-1252",
+	"windows1252": "windows-1252",
+	"1251":        "windows-1251",
+	"cp1251":      "windows-1251",
+	"windows1251": "windows-1251",
+	"1250":        "windows-1250",
+	"cp1250":      "windows-1250",
+	"windows1250": "windows-1250",
+	// ISO-8859 variants
+	"8859-1":      "iso-8859-1",
+	"88591":       "iso-8859-1",
+	"iso88591":    "iso-8859-1",
+	"iso_8859-1":  "iso-8859-1",
+	"iso_8859_1":  "iso-8859-1",
+	"latin1":      "iso-8859-1",
+	"latin-1":     "iso-8859-1",
+	"8859-15":     "iso-8859-15",
+	"885915":      "iso-8859-15",
+	"iso885915":   "iso-8859-15",
+	"iso_8859-15": "iso-8859-15",
+	"iso_8859_15": "iso-8859-15",
+	// UTF variants
+	"utf8":     "utf-8",
+	"utf-8":    "utf-8",
+	"utf_8":    "utf-8",
+	"utf16":    "utf-16le",
+	"utf-16":   "utf-16le",
+	"utf_16":   "utf-16le",
+	"utf16le":  "utf-16le",
+	"utf-16le": "utf-16le",
+	"utf16be":  "utf-16be",
+	"utf-16be": "utf-16be",
+	// Japanese
+	"shift_jis": "shift_jis",
+	"shift-jis": "shift_jis",
+	"shiftjis":  "shift_jis",
+	"sjis":      "shift_jis",
+	"x-sjis":    "shift_jis",
+	"euc-jp":    "euc-jp",
+	"euc_jp":    "euc-jp",
+	"eucjp":     "euc-jp",
+	// Korean
+	"euc-kr": "euc-kr",
+	"euc_kr": "euc-kr",
+	"euckr":  "euc-kr",
+	// Chinese
+	"gb2312":     "gbk",
+	"gb2312-80":  "gbk",
+	"gb2312_80":  "gbk",
+	"gbk":        "gbk",
+	"big5":       "big5",
+	"big-5":      "big5",
+	"big5-hkscs": "big5",
+}
 
 // extractCharsetFromHTML extracts charset from HTML using fast string operations.
 // This is a faster alternative to regex-based extraction for common cases.
@@ -520,7 +579,7 @@ func (ed *EncodingDetector) DetectCharsetBasic(data []byte) string {
 		// If data is valid UTF-8 with non-ASCII characters, trust the data over meta tag
 		// (meta tag is likely wrong). Only do this for files with actual UTF-8 sequences.
 		// Optimization: Use cached !isPureASCII instead of calling hasUTF8Sequences
-		// since we already computed isPureASCII above (line 474-480)
+		// since we already computed isPureASCII above
 		if !isPureASCII {
 			return "utf-8"
 		}
@@ -540,7 +599,7 @@ func (ed *EncodingDetector) DetectCharsetBasic(data []byte) string {
 	}
 
 	// If no charset declared and data appears to be valid UTF-8, assume UTF-8
-	// Note: We reuse isValidUTF8 from line 493 instead of calling utf8.Valid(sample) again
+	// Note: We reuse isValidUTF8 computed earlier instead of calling utf8.Valid(sample) again
 	// since sample is a subslice of data, and isValidUTF8 already validated the full data
 	if isValidUTF8 {
 		return "utf-8"
@@ -612,45 +671,6 @@ func (ed *EncodingDetector) DetectCharsetSmart(data []byte) EncodingMatch {
 	return bestMatch
 }
 
-// hasUTF8Sequences checks if data contains actual UTF-8 multi-byte sequences
-// (not just ASCII which is also valid UTF-8).
-//
-// Performance Optimization: Uses loop unrolling (8 bytes per iteration) to reduce
-// loop overhead and improve CPU pipeline efficiency. The &0x80 check identifies
-// bytes with the high bit set, which indicates the start of a multi-byte UTF-8
-// sequence (UTF-8 continuation bytes have pattern 10xxxxxx, start bytes 11xxxxxx).
-// This is significantly faster than using utf8.DecodeRune for each position.
-func hasUTF8Sequences(data []byte) bool {
-	// Process 8 bytes at a time for better performance
-	n := len(data)
-	i := 0
-
-	// Unrolled loop: check 8 bytes per iteration to reduce loop overhead
-	for i+7 < n {
-		if data[i]&0x80 != 0 ||
-			data[i+1]&0x80 != 0 ||
-			data[i+2]&0x80 != 0 ||
-			data[i+3]&0x80 != 0 ||
-			data[i+4]&0x80 != 0 ||
-			data[i+5]&0x80 != 0 ||
-			data[i+6]&0x80 != 0 ||
-			data[i+7]&0x80 != 0 {
-			return true
-		}
-		i += 8
-	}
-
-	// Handle remaining bytes
-	for i < n {
-		if data[i]&0x80 != 0 {
-			return true
-		}
-		i++
-	}
-
-	return false
-}
-
 // ToUTF8 converts the given data from the detected charset to UTF-8
 func (ed *EncodingDetector) ToUTF8(data []byte, charset string) ([]byte, error) {
 	charset = normalizeCharset(charset)
@@ -716,50 +736,19 @@ func normalizeCharset(charset string) string {
 func normalizeCharsetSlow(charset string) string {
 	charset = strings.ToLower(strings.TrimSpace(charset))
 
-	// Remove common prefixes and suffixes
-	charset = strings.TrimPrefix(charset, "text/")
-	charset = strings.TrimPrefix(charset, "text-")
-	charset = strings.TrimPrefix(charset, "windows-")
-	charset = strings.TrimPrefix(charset, "cp")
-	charset = strings.TrimPrefix(charset, "codepage-")
-	charset = strings.TrimPrefix(charset, "ibm-")
-	charset = strings.TrimPrefix(charset, "iso-")
-	charset = strings.TrimPrefix(charset, "iso_")
-	// Don't use TrimPrefix for "latin" as it would match "latin1" -> "1"
-	if strings.HasPrefix(charset, "latin") && len(charset) > 5 {
-		charset = "iso-8859-1" // latin1, latin-1, etc. defaults to iso-8859-1
+	// Remove common prefixes
+	for _, prefix := range []string{"text/", "text-", "windows-", "cp", "codepage-", "ibm-", "iso-", "iso_"} {
+		charset = strings.TrimPrefix(charset, prefix)
 	}
 
-	// Handle specific mappings
-	switch charset {
-	case "1252", "cp1252", "windows1252":
-		return "windows-1252"
-	case "1251", "cp1251", "windows1251":
-		return "windows-1251"
-	case "1250", "cp1250", "windows1250":
-		return "windows-1250"
-	case "8859-1", "88591", "iso88591", "iso_8859-1", "iso_8859_1", "latin1", "latin-1":
+	// Handle latin prefix specially (don't use TrimPrefix as it would match "latin1" -> "1")
+	if strings.HasPrefix(charset, "latin") && len(charset) > 5 {
 		return "iso-8859-1"
-	case "8859-15", "885915", "iso885915", "iso_8859-15", "iso_8859_15":
-		return "iso-8859-15"
-	case "utf8", "utf-8", "utf_8":
-		return "utf-8"
-	case "utf16", "utf-16", "utf_16", "utf16le", "utf-16le":
-		return "utf-16le"
-	case "utf16be", "utf-16be":
-		return "utf-16be"
-	case "shift_jis", "shift-jis", "shiftjis", "sjis", "x-sjis":
-		return "shift_jis"
-	case "euc-jp", "euc_jp", "eucjp":
-		return "euc-jp"
-	case "euc-kr", "euc_kr", "euckr":
-		return "euc-kr"
-	case "gb2312", "gb2312-80", "gb2312_80":
-		return "gbk"
-	case "gbk":
-		return "gbk"
-	case "big5", "big-5", "big5-hkscs":
-		return "big5"
+	}
+
+	// Look up canonical name in alias map
+	if canonical, ok := charsetAliases[charset]; ok {
+		return canonical
 	}
 
 	return charset
@@ -846,19 +835,20 @@ func DetectAndConvertToUTF8(data []byte) ([]byte, string, error) {
 // Returns a UTF-8 string and the detected/used encoding.
 // Uses safe string conversion to ensure memory safety.
 func DetectAndConvertToUTF8String(data []byte, forcedEncoding string) (string, string, error) {
-	// Fast path: if no forced encoding and data is valid UTF-8, return directly
-	// This avoids creating an EncodingDetector and going through full detection
-	if forcedEncoding == "" && utf8.Valid(data) {
-		// Check if it's pure ASCII (which is also valid UTF-8)
-		// For pure ASCII, we can use unsafe conversion safely
+	// Fast path: if no forced encoding, try quick ASCII/UTF-8 detection
+	if forcedEncoding == "" {
+		// Combined ASCII check - if pure ASCII, it's valid UTF-8
 		if isPureASCII(data) {
 			// For ASCII data, we can use a zero-copy approach
 			// since ASCII bytes are identical to UTF-8 bytes
-			return bytesToString(data), "utf-8", nil
+			return BytesToString(data), "utf-8", nil
 		}
-		// For UTF-8 with multi-byte chars, we still need to copy
-		// to ensure memory safety (caller may modify original data)
-		return string(data), "utf-8", nil
+		// Non-ASCII data: check if valid UTF-8
+		if utf8.Valid(data) {
+			// For UTF-8 with multi-byte chars, we need to copy
+			// to ensure memory safety (caller may modify original data)
+			return string(data), "utf-8", nil
+		}
 	}
 
 	ed := NewEncodingDetector()
@@ -877,21 +867,43 @@ func DetectAndConvertToUTF8String(data []byte, forcedEncoding string) (string, s
 }
 
 // isPureASCII checks if data contains only ASCII bytes (0x00-0x7F)
-// Uses loop unrolling for better performance
+// Uses word-sized reads and loop unrolling for optimal performance.
+// Processes 32 bytes per iteration to maximize CPU pipeline efficiency.
 func isPureASCII(data []byte) bool {
 	n := len(data)
-	i := 0
+	if n == 0 {
+		return true
+	}
 
-	// Process 8 bytes at a time
-	for i+7 < n {
-		if data[i]&0x80 != 0 ||
-			data[i+1]&0x80 != 0 ||
-			data[i+2]&0x80 != 0 ||
-			data[i+3]&0x80 != 0 ||
-			data[i+4]&0x80 != 0 ||
-			data[i+5]&0x80 != 0 ||
-			data[i+6]&0x80 != 0 ||
-			data[i+7]&0x80 != 0 {
+	// Process 32 bytes at a time using word-sized reads
+	// This reduces loop overhead by 4x compared to 8-byte processing
+	i := 0
+	for i+32 <= n {
+		// Load 8 bytes at a time and check high bits
+		// Using direct byte access to avoid unsafe operations while maintaining performance
+		if (uint64(data[i])|uint64(data[i+1])|uint64(data[i+2])|uint64(data[i+3])|
+			uint64(data[i+4])|uint64(data[i+5])|uint64(data[i+6])|uint64(data[i+7]))&0x80 != 0 {
+			return false
+		}
+		if (uint64(data[i+8])|uint64(data[i+9])|uint64(data[i+10])|uint64(data[i+11])|
+			uint64(data[i+12])|uint64(data[i+13])|uint64(data[i+14])|uint64(data[i+15]))&0x80 != 0 {
+			return false
+		}
+		if (uint64(data[i+16])|uint64(data[i+17])|uint64(data[i+18])|uint64(data[i+19])|
+			uint64(data[i+20])|uint64(data[i+21])|uint64(data[i+22])|uint64(data[i+23]))&0x80 != 0 {
+			return false
+		}
+		if (uint64(data[i+24])|uint64(data[i+25])|uint64(data[i+26])|uint64(data[i+27])|
+			uint64(data[i+28])|uint64(data[i+29])|uint64(data[i+30])|uint64(data[i+31]))&0x80 != 0 {
+			return false
+		}
+		i += 32
+	}
+
+	// Handle remaining 8-byte chunks
+	for i+8 <= n {
+		if (uint64(data[i])|uint64(data[i+1])|uint64(data[i+2])|uint64(data[i+3])|
+			uint64(data[i+4])|uint64(data[i+5])|uint64(data[i+6])|uint64(data[i+7]))&0x80 != 0 {
 			return false
 		}
 		i += 8
@@ -906,17 +918,6 @@ func isPureASCII(data []byte) bool {
 	}
 
 	return true
-}
-
-// bytesToString converts a byte slice to string without allocation.
-// WARNING: The returned string shares memory with the input slice.
-// The caller must ensure the byte slice is not modified after this call.
-// Only use when the byte slice is guaranteed to remain unchanged.
-func bytesToString(b []byte) string {
-	if len(b) == 0 {
-		return ""
-	}
-	return unsafe.String(&b[0], len(b))
 }
 
 // tryAllEncodings attempts to decode the data with multiple encodings and scores each result.
@@ -1003,19 +1004,13 @@ func (ed *EncodingDetector) scoreEncodingMatch(data []byte, charset string) int 
 	return ed.scoreEncodingMatchOptimized(data, charset, utf8.Valid(data))
 }
 
-// scoreUTF8 scores UTF-8 data
+// scoreUTF8 scores UTF-8 data. Caller must ensure data is valid UTF-8.
 func (ed *EncodingDetector) scoreUTF8(data []byte) int {
-	if !utf8.Valid(data) {
-		return 0
-	}
-
-	score := 0
-
-	// Base score for valid UTF-8
-	score += 40
+	// Pre-condition: data is valid UTF-8 (verified by caller)
+	score := 40 // Base score for valid UTF-8
 
 	// Bonus for non-ASCII content (real UTF-8, not just ASCII)
-	if hasUTF8Sequences(data) {
+	if !isPureASCII(data) {
 		score += 30
 	}
 

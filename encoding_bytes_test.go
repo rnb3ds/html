@@ -83,7 +83,14 @@ func TestExtractToMarkdown(t *testing.T) {
 
 		htmlBytes, _ := os.ReadFile(testFile)
 
-		markdown, err := html.ExtractToMarkdown(htmlBytes)
+		cfg := html.MarkdownConfig()
+		p, err := html.New(cfg)
+		if err != nil {
+			t.Fatalf("New() failed: %v", err)
+		}
+		defer p.Close()
+
+		markdown, err := p.ExtractToMarkdown(htmlBytes)
 		if err != nil {
 			t.Fatalf("ExtractToMarkdown failed: %v", err)
 		}
@@ -103,7 +110,14 @@ func TestExtractToMarkdown(t *testing.T) {
 		htmlContent := `<html><body><p>Hello 世界 © 2025</p></body></html>`
 		htmlBytes := []byte(htmlContent)
 
-		markdown, err := html.ExtractToMarkdown(htmlBytes)
+		cfg := html.MarkdownConfig()
+		p, err := html.New(cfg)
+		if err != nil {
+			t.Fatalf("New() failed: %v", err)
+		}
+		defer p.Close()
+
+		markdown, err := p.ExtractToMarkdown(htmlBytes)
 		if err != nil {
 			t.Fatalf("ExtractToMarkdown failed: %v", err)
 		}
@@ -163,7 +177,13 @@ func TestExtractAllLinksWithEncoding(t *testing.T) {
 		</body></html>`
 		htmlBytes := []byte(htmlContent)
 
-		links, err := html.ExtractAllLinks(htmlBytes)
+		p, err := html.New(html.DefaultConfig())
+		if err != nil {
+			t.Fatalf("New() failed: %v", err)
+		}
+		defer p.Close()
+
+		links, err := p.ExtractAllLinks(htmlBytes)
 		if err != nil {
 			t.Fatalf("ExtractAllLinks failed: %v", err)
 		}
@@ -178,7 +198,13 @@ func TestExtractAllLinksWithEncoding(t *testing.T) {
 		htmlBytes := []byte(`<html><head><meta charset="windows-1252"></head>
 		<body><a href="/test">Company's Website</a></body></html>`)
 
-		links, err := html.ExtractAllLinks(htmlBytes)
+		p, err := html.New(html.DefaultConfig())
+		if err != nil {
+			t.Fatalf("New() failed: %v", err)
+		}
+		defer p.Close()
+
+		links, err := p.ExtractAllLinks(htmlBytes)
 		if err != nil {
 			t.Fatalf("ExtractAllLinks failed: %v", err)
 		}
@@ -276,13 +302,19 @@ func TestExtractWithForcedEncoding(t *testing.T) {
 	htmlContent := "<html><body><p>Test</p></body></html>"
 	htmlBytes := []byte(htmlContent)
 
-	// Test with forced encoding
-	config := html.DefaultExtractConfig()
-	config.Encoding = "utf-8"
+	// Test with forced encoding in processor config
+	cfg := html.DefaultConfig()
+	cfg.Encoding = "utf-8"
 
-	result, err := html.Extract(htmlBytes, config)
+	p, err := html.New(cfg)
 	if err != nil {
-		t.Fatalf("Extract with config failed: %v", err)
+		t.Fatalf("New() failed: %v", err)
+	}
+	defer p.Close()
+
+	result, err := p.Extract(htmlBytes)
+	if err != nil {
+		t.Fatalf("Extract failed: %v", err)
 	}
 
 	if !strings.Contains(result.Text, "Test") {

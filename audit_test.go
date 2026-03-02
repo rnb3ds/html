@@ -36,7 +36,7 @@ func TestAuditLoggingEnabled(t *testing.T) {
 		<p>Safe content</p>
 	</body></html>`
 
-	_, err = p.Extract([]byte(xssHTML), html.DefaultExtractConfig())
+	_, err = p.Extract([]byte(xssHTML))
 	if err != nil {
 		t.Fatalf("Extract() failed: %v", err)
 	}
@@ -97,7 +97,7 @@ func TestAuditLoggingDisabled(t *testing.T) {
 
 	xssHTML := `<html><body><script>alert('XSS')</script><p>Content</p></body></html>`
 
-	_, err = p.Extract([]byte(xssHTML), html.DefaultExtractConfig())
+	_, err = p.Extract([]byte(xssHTML))
 	if err != nil {
 		t.Fatalf("Extract() failed: %v", err)
 	}
@@ -127,7 +127,7 @@ func TestAuditInputViolation(t *testing.T) {
 
 	largeHTML := strings.Repeat("<div>test content</div>", 100) // ~2KB
 
-	_, err = p.Extract([]byte(largeHTML), html.DefaultExtractConfig())
+	_, err = p.Extract([]byte(largeHTML))
 	if err == nil {
 		t.Fatal("Expected error for oversized input")
 	}
@@ -247,7 +247,7 @@ func TestAuditRawValueTruncation(t *testing.T) {
 	longValue := strings.Repeat("A", 200)
 	xssHTML := `<html><body><div onclick="` + longValue + `">Content</div></body></html>`
 
-	_, err = p.Extract([]byte(xssHTML), html.DefaultExtractConfig())
+	_, err = p.Extract([]byte(xssHTML))
 	if err != nil {
 		t.Fatalf("Extract() failed: %v", err)
 	}
@@ -281,7 +281,7 @@ func TestAuditExcludeRawValues(t *testing.T) {
 
 	xssHTML := `<html><body><div onclick="alert('XSS')">Content</div></body></html>`
 
-	_, err = p.Extract([]byte(xssHTML), html.DefaultExtractConfig())
+	_, err = p.Extract([]byte(xssHTML))
 	if err != nil {
 		t.Fatalf("Extract() failed: %v", err)
 	}
@@ -665,7 +665,7 @@ func TestAuditWithCustomSink(t *testing.T) {
 
 	xssHTML := `<html><body><script>alert('XSS')</script><p>Content</p></body></html>`
 
-	_, err = p.Extract([]byte(xssHTML), html.DefaultExtractConfig())
+	_, err = p.Extract([]byte(xssHTML))
 	if err != nil {
 		t.Fatalf("Extract() failed: %v", err)
 	}
@@ -692,7 +692,7 @@ func BenchmarkAuditLogging(b *testing.B) {
 
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
-			p.Extract(htmlContent, html.DefaultExtractConfig())
+			p.Extract(htmlContent)
 		}
 	})
 
@@ -706,7 +706,7 @@ func BenchmarkAuditLogging(b *testing.B) {
 
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
-			p.Extract(htmlContent, html.DefaultExtractConfig())
+			p.Extract(htmlContent)
 			p.ClearAuditLog()
 		}
 	})
@@ -721,7 +721,7 @@ func BenchmarkAuditLogging(b *testing.B) {
 
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
-			p.Extract(htmlContent, html.DefaultExtractConfig())
+			p.Extract(htmlContent)
 			p.ClearAuditLog()
 		}
 	})
@@ -926,7 +926,7 @@ func TestClearAuditLog(t *testing.T) {
 
 		// Process XSS HTML to generate audit entries
 		xssHTML := `<html><body><script>alert('XSS')</script><p>Content</p></body></html>`
-		_, err = p.Extract([]byte(xssHTML), html.DefaultExtractConfig())
+		_, err = p.Extract([]byte(xssHTML))
 		if err != nil {
 			t.Fatalf("Extract() failed: %v", err)
 		}
@@ -957,11 +957,11 @@ func TestClearAuditLog(t *testing.T) {
 		defer p.Close()
 
 		// First extraction
-		p.Extract([]byte(`<html><body><script>1</script></body></html>`), html.DefaultExtractConfig())
+		p.Extract([]byte(`<html><body><script>1</script></body></html>`))
 		p.ClearAuditLog()
 
 		// Second extraction
-		p.Extract([]byte(`<html><body><script>2</script></body></html>`), html.DefaultExtractConfig())
+		p.Extract([]byte(`<html><body><script>2</script></body></html>`))
 
 		entries := p.GetAuditLog()
 		if len(entries) == 0 {

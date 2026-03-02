@@ -1,7 +1,7 @@
 package html_test
 
 // batch_test.go - Tests for batch extraction functions
-// Tests for ExtractBatch, ExtractBatchWithContext, ExtractBatchFiles, ExtractBatchFilesWithContext
+// Tests for Processor.ExtractBatch, ExtractBatchWithContext, ExtractBatchFiles, ExtractBatchFilesWithContext
 
 import (
 	"context"
@@ -14,18 +14,24 @@ import (
 	"github.com/cybergodev/html"
 )
 
-// TestExtractBatch tests the ExtractBatch convenience function.
+// TestExtractBatch tests the ExtractBatch processor method.
 func TestExtractBatch(t *testing.T) {
 	t.Parallel()
 
 	t.Run("basic batch extraction", func(t *testing.T) {
+		p, err := html.New(html.DefaultConfig())
+		if err != nil {
+			t.Fatalf("New() failed: %v", err)
+		}
+		defer p.Close()
+
 		docs := [][]byte{
 			[]byte(`<html><body><p>Document 1</p></body></html>`),
 			[]byte(`<html><body><p>Document 2</p></body></html>`),
 			[]byte(`<html><body><p>Document 3</p></body></html>`),
 		}
 
-		results, err := html.ExtractBatch(docs)
+		results, err := p.ExtractBatch(docs)
 		if err != nil {
 			t.Fatalf("ExtractBatch() failed: %v", err)
 		}
@@ -47,7 +53,13 @@ func TestExtractBatch(t *testing.T) {
 	})
 
 	t.Run("empty batch", func(t *testing.T) {
-		results, err := html.ExtractBatch(nil)
+		p, err := html.New(html.DefaultConfig())
+		if err != nil {
+			t.Fatalf("New() failed: %v", err)
+		}
+		defer p.Close()
+
+		results, err := p.ExtractBatch(nil)
 		if err != nil {
 			t.Fatalf("ExtractBatch(nil) failed: %v", err)
 		}
@@ -55,7 +67,7 @@ func TestExtractBatch(t *testing.T) {
 			t.Errorf("Expected 0 results for nil input, got %d", len(results))
 		}
 
-		results, err = html.ExtractBatch([][]byte{})
+		results, err = p.ExtractBatch([][]byte{})
 		if err != nil {
 			t.Fatalf("ExtractBatch([]) failed: %v", err)
 		}
@@ -65,13 +77,19 @@ func TestExtractBatch(t *testing.T) {
 	})
 
 	t.Run("batch with invalid HTML", func(t *testing.T) {
+		p, err := html.New(html.DefaultConfig())
+		if err != nil {
+			t.Fatalf("New() failed: %v", err)
+		}
+		defer p.Close()
+
 		docs := [][]byte{
 			[]byte(`<html><body><p>Valid</p></body></html>`),
 			[]byte(""), // Empty
 			[]byte(`<html><body><p>Also valid</p></body></html>`),
 		}
 
-		results, err := html.ExtractBatch(docs)
+		results, err := p.ExtractBatch(docs)
 		if err != nil {
 			t.Fatalf("ExtractBatch() failed: %v", err)
 		}
@@ -82,18 +100,24 @@ func TestExtractBatch(t *testing.T) {
 	})
 }
 
-// TestExtractBatchWithContextFunc tests the ExtractBatchWithContext convenience function.
-func TestExtractBatchWithContextFunc(t *testing.T) {
+// TestExtractBatchWithContext tests the ExtractBatchWithContext processor method.
+func TestExtractBatchWithContext(t *testing.T) {
 	t.Parallel()
 
 	t.Run("successful batch with context", func(t *testing.T) {
+		p, err := html.New(html.DefaultConfig())
+		if err != nil {
+			t.Fatalf("New() failed: %v", err)
+		}
+		defer p.Close()
+
 		ctx := context.Background()
 		docs := [][]byte{
 			[]byte(`<html><body><p>Doc 1</p></body></html>`),
 			[]byte(`<html><body><p>Doc 2</p></body></html>`),
 		}
 
-		result := html.ExtractBatchWithContext(ctx, docs)
+		result := p.ExtractBatchWithContext(ctx, docs)
 
 		if len(result.Results) != len(docs) {
 			t.Errorf("Expected %d results, got %d", len(docs), len(result.Results))
@@ -110,6 +134,12 @@ func TestExtractBatchWithContextFunc(t *testing.T) {
 	})
 
 	t.Run("cancelled context", func(t *testing.T) {
+		p, err := html.New(html.DefaultConfig())
+		if err != nil {
+			t.Fatalf("New() failed: %v", err)
+		}
+		defer p.Close()
+
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel() // Cancel immediately
 
@@ -118,7 +148,7 @@ func TestExtractBatchWithContextFunc(t *testing.T) {
 			docs[i] = []byte(`<html><body><p>Content</p></body></html>`)
 		}
 
-		result := html.ExtractBatchWithContext(ctx, docs)
+		result := p.ExtractBatchWithContext(ctx, docs)
 
 		// Some or all should be cancelled
 		if result.Cancelled == 0 && result.Success == 0 {
@@ -127,6 +157,12 @@ func TestExtractBatchWithContextFunc(t *testing.T) {
 	})
 
 	t.Run("context timeout", func(t *testing.T) {
+		p, err := html.New(html.DefaultConfig())
+		if err != nil {
+			t.Fatalf("New() failed: %v", err)
+		}
+		defer p.Close()
+
 		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Nanosecond)
 		defer cancel()
 
@@ -138,7 +174,7 @@ func TestExtractBatchWithContextFunc(t *testing.T) {
 			docs[i] = []byte(`<html><body><p>Content</p></body></html>`)
 		}
 
-		result := html.ExtractBatchWithContext(ctx, docs)
+		result := p.ExtractBatchWithContext(ctx, docs)
 
 		// With expired context, operations should be cancelled
 		if result.Cancelled == 0 && result.Success == 0 {
@@ -148,8 +184,14 @@ func TestExtractBatchWithContextFunc(t *testing.T) {
 	})
 
 	t.Run("empty batch with context", func(t *testing.T) {
+		p, err := html.New(html.DefaultConfig())
+		if err != nil {
+			t.Fatalf("New() failed: %v", err)
+		}
+		defer p.Close()
+
 		ctx := context.Background()
-		result := html.ExtractBatchWithContext(ctx, nil)
+		result := p.ExtractBatchWithContext(ctx, nil)
 
 		if len(result.Results) != 0 {
 			t.Errorf("Expected 0 results for nil input, got %d", len(result.Results))
@@ -160,7 +202,7 @@ func TestExtractBatchWithContextFunc(t *testing.T) {
 	})
 }
 
-// TestExtractBatchFiles tests the ExtractBatchFiles convenience function.
+// TestExtractBatchFiles tests the ExtractBatchFiles processor method.
 func TestExtractBatchFiles(t *testing.T) {
 	t.Parallel()
 
@@ -180,7 +222,13 @@ func TestExtractBatchFiles(t *testing.T) {
 			}
 		}
 
-		results, err := html.ExtractBatchFiles(files)
+		p, err := html.New(html.DefaultConfig())
+		if err != nil {
+			t.Fatalf("New() failed: %v", err)
+		}
+		defer p.Close()
+
+		results, err := p.ExtractBatchFiles(files)
 		if err != nil {
 			t.Fatalf("ExtractBatchFiles() failed: %v", err)
 		}
@@ -201,7 +249,13 @@ func TestExtractBatchFiles(t *testing.T) {
 			"non-existent-file.html",
 		}
 
-		results, err := html.ExtractBatchFiles(files)
+		p, err := html.New(html.DefaultConfig())
+		if err != nil {
+			t.Fatalf("New() failed: %v", err)
+		}
+		defer p.Close()
+
+		results, err := p.ExtractBatchFiles(files)
 		if err == nil {
 			t.Error("Expected error for non-existent file")
 		}
@@ -209,7 +263,13 @@ func TestExtractBatchFiles(t *testing.T) {
 	})
 
 	t.Run("empty file list", func(t *testing.T) {
-		results, err := html.ExtractBatchFiles(nil)
+		p, err := html.New(html.DefaultConfig())
+		if err != nil {
+			t.Fatalf("New() failed: %v", err)
+		}
+		defer p.Close()
+
+		results, err := p.ExtractBatchFiles(nil)
 		if err != nil {
 			t.Fatalf("ExtractBatchFiles(nil) failed: %v", err)
 		}
@@ -219,11 +279,17 @@ func TestExtractBatchFiles(t *testing.T) {
 	})
 }
 
-// TestExtractBatchFilesWithContextFunc tests the ExtractBatchFilesWithContext convenience function.
-func TestExtractBatchFilesWithContextFunc(t *testing.T) {
+// TestExtractBatchFilesWithContext tests the ExtractBatchFilesWithContext processor method.
+func TestExtractBatchFilesWithContext(t *testing.T) {
 	t.Parallel()
 
 	t.Run("batch file extraction with context", func(t *testing.T) {
+		p, err := html.New(html.DefaultConfig())
+		if err != nil {
+			t.Fatalf("New() failed: %v", err)
+		}
+		defer p.Close()
+
 		ctx := context.Background()
 
 		// Create temp files
@@ -240,7 +306,7 @@ func TestExtractBatchFilesWithContextFunc(t *testing.T) {
 			}
 		}
 
-		result := html.ExtractBatchFilesWithContext(ctx, files)
+		result := p.ExtractBatchFilesWithContext(ctx, files)
 
 		if len(result.Results) != len(files) {
 			t.Errorf("Expected %d results, got %d", len(files), len(result.Results))
@@ -251,6 +317,12 @@ func TestExtractBatchFilesWithContextFunc(t *testing.T) {
 	})
 
 	t.Run("batch files with cancelled context", func(t *testing.T) {
+		p, err := html.New(html.DefaultConfig())
+		if err != nil {
+			t.Fatalf("New() failed: %v", err)
+		}
+		defer p.Close()
+
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
 
@@ -260,7 +332,7 @@ func TestExtractBatchFilesWithContextFunc(t *testing.T) {
 			files[i] = tmpDir + "/file.html"
 		}
 
-		result := html.ExtractBatchFilesWithContext(ctx, files)
+		result := p.ExtractBatchFilesWithContext(ctx, files)
 
 		// With cancelled context, operations should be cancelled
 		totalProcessed := result.Cancelled + result.Success + result.Failed
@@ -271,6 +343,12 @@ func TestExtractBatchFilesWithContextFunc(t *testing.T) {
 	})
 
 	t.Run("batch files with errors", func(t *testing.T) {
+		p, err := html.New(html.DefaultConfig())
+		if err != nil {
+			t.Fatalf("New() failed: %v", err)
+		}
+		defer p.Close()
+
 		ctx := context.Background()
 
 		// Mix of valid and invalid files
@@ -285,7 +363,7 @@ func TestExtractBatchFilesWithContextFunc(t *testing.T) {
 			"non-existent-file.html",
 		}
 
-		result := html.ExtractBatchFilesWithContext(ctx, files)
+		result := p.ExtractBatchFilesWithContext(ctx, files)
 
 		if result.Success == 0 {
 			t.Error("Expected at least one successful extraction")
@@ -301,7 +379,7 @@ func TestProcessorExtractBatch(t *testing.T) {
 	t.Parallel()
 
 	t.Run("processor batch extraction", func(t *testing.T) {
-		p, err := html.New()
+		p, err := html.New(html.DefaultConfig())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -322,19 +400,20 @@ func TestProcessorExtractBatch(t *testing.T) {
 		}
 	})
 
-	t.Run("processor batch with config", func(t *testing.T) {
-		p, err := html.New()
+	t.Run("processor batch with custom config", func(t *testing.T) {
+		cfg := html.DefaultConfig()
+		cfg.PreserveImages = false
+		p, err := html.New(cfg)
 		if err != nil {
 			t.Fatal(err)
 		}
 		defer p.Close()
 
 		docs := [][]byte{
-			[]byte(`<html><body><p>Content</p></body></html>`),
+			[]byte(`<html><body><p>Content</p><img src="test.jpg"/></body></html>`),
 		}
 
-		config := html.DefaultExtractConfig()
-		results, err := p.ExtractBatch(docs, config)
+		results, err := p.ExtractBatch(docs)
 		if err != nil {
 			t.Fatalf("ExtractBatch() with config failed: %v", err)
 		}
@@ -342,10 +421,13 @@ func TestProcessorExtractBatch(t *testing.T) {
 		if len(results) != 1 {
 			t.Errorf("Expected 1 result, got %d", len(results))
 		}
+		if len(results[0].Images) != 0 {
+			t.Errorf("Expected no images with PreserveImages=false")
+		}
 	})
 
 	t.Run("processor batch on closed processor", func(t *testing.T) {
-		p, _ := html.New()
+		p, _ := html.New(html.DefaultConfig())
 		p.Close()
 
 		docs := [][]byte{
@@ -367,7 +449,7 @@ func TestProcessorExtractBatchWithContext(t *testing.T) {
 	t.Parallel()
 
 	t.Run("processor batch with context", func(t *testing.T) {
-		p, err := html.New()
+		p, err := html.New(html.DefaultConfig())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -386,7 +468,7 @@ func TestProcessorExtractBatchWithContext(t *testing.T) {
 	})
 
 	t.Run("processor batch with context on closed processor", func(t *testing.T) {
-		p, _ := html.New()
+		p, _ := html.New(html.DefaultConfig())
 		p.Close()
 
 		ctx := context.Background()
@@ -410,7 +492,7 @@ func TestProcessorExtractBatchFiles(t *testing.T) {
 	t.Parallel()
 
 	t.Run("processor batch file extraction", func(t *testing.T) {
-		p, err := html.New()
+		p, err := html.New(html.DefaultConfig())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -440,7 +522,7 @@ func TestProcessorExtractBatchFiles(t *testing.T) {
 	})
 
 	t.Run("processor batch files on closed processor", func(t *testing.T) {
-		p, _ := html.New()
+		p, _ := html.New(html.DefaultConfig())
 		p.Close()
 
 		files := []string{"test.html"}
@@ -457,7 +539,7 @@ func TestProcessorExtractBatchFilesWithContext(t *testing.T) {
 	t.Parallel()
 
 	t.Run("processor batch files with context", func(t *testing.T) {
-		p, err := html.New()
+		p, err := html.New(html.DefaultConfig())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -483,7 +565,7 @@ func TestBatchResultStructure(t *testing.T) {
 	t.Parallel()
 
 	t.Run("verify batch result fields", func(t *testing.T) {
-		p, _ := html.New()
+		p, _ := html.New(html.DefaultConfig())
 		defer p.Close()
 
 		ctx := context.Background()
@@ -516,7 +598,7 @@ func TestBatchResultStructure(t *testing.T) {
 func TestConcurrentBatchOperations(t *testing.T) {
 	t.Parallel()
 
-	p, err := html.New()
+	p, err := html.New(html.DefaultConfig())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -551,7 +633,7 @@ func TestBatchWithLargeInput(t *testing.T) {
 		t.Skip("Skipping large input test in short mode")
 	}
 
-	p, err := html.New()
+	p, err := html.New(html.DefaultConfig())
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -100,7 +100,7 @@ func TestGoroutineLeakInBatchWithContext(t *testing.T) {
 
 // TestGoroutineLeakInCancelledContext tests goroutine cleanup when context is cancelled.
 func TestGoroutineLeakInCancelledContext(t *testing.T) {
-	processor, err := New()
+	processor, err := New(DefaultConfig())
 	if err != nil {
 		t.Fatalf("Failed to create processor: %v", err)
 	}
@@ -390,7 +390,7 @@ func TestWithTimeoutLongRunningOperation(t *testing.T) {
 
 // TestProcessorDoubleClose tests that double Close() calls are safe.
 func TestProcessorDoubleClose(t *testing.T) {
-	processor, err := New()
+	processor, err := New(DefaultConfig())
 	if err != nil {
 		t.Fatalf("Failed to create processor: %v", err)
 	}
@@ -416,7 +416,7 @@ func TestProcessorDoubleClose(t *testing.T) {
 
 // TestConcurrentCloseAndExtract tests safety of concurrent Close() and Extract() calls.
 func TestConcurrentCloseAndExtract(t *testing.T) {
-	processor, err := New()
+	processor, err := New(DefaultConfig())
 	if err != nil {
 		t.Fatalf("Failed to create processor: %v", err)
 	}

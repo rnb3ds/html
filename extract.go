@@ -9,33 +9,10 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"unsafe"
 
 	"github.com/cybergodev/html/internal"
 	stdxhtml "golang.org/x/net/html"
 )
-
-// stringToBytes converts a string to a byte slice without memory allocation.
-// The returned slice shares memory with the original string.
-//
-// SAFETY: The returned slice MUST NOT be modified. Go strings are immutable,
-// and modifying the returned slice would violate this immutability, potentially
-// causing undefined behavior in other code holding references to the string.
-//
-// LIFETIME: The returned slice is valid as long as the original string is not
-// garbage collected. In practice, this means the slice should only be used
-// within the same scope as the string, and should not be stored beyond the
-// string's lifetime.
-//
-// PERFORMANCE: This function is used to avoid allocations when passing strings
-// to functions that accept []byte (e.g., hash.Write). For short-lived operations
-// where the string is guaranteed to remain in scope, this is safe and efficient.
-func stringToBytes(s string) []byte {
-	if s == "" {
-		return nil
-	}
-	return unsafe.Slice(unsafe.StringData(s), len(s))
-}
 
 // Extract extracts content from HTML bytes with automatic encoding detection.
 // This is a convenience function that creates a temporary Processor with default settings.
@@ -44,13 +21,13 @@ func stringToBytes(s string) []byte {
 //
 // The method automatically detects the character encoding (Windows-1252, UTF-8, GBK, Shift_JIS, etc.)
 // from the HTML bytes and converts it to UTF-8 before processing.
-func Extract(htmlBytes []byte, configs ...ExtractConfig) (*Result, error) {
-	processor, err := New()
+func Extract(htmlBytes []byte) (*Result, error) {
+	processor, err := New(DefaultConfig())
 	if err != nil {
 		return nil, fmt.Errorf("create processor: %w", err)
 	}
 	defer processor.Close()
-	return processor.Extract(htmlBytes, configs...)
+	return processor.Extract(htmlBytes)
 }
 
 // ExtractFromFile extracts content from an HTML file with automatic encoding detection.
@@ -60,13 +37,13 @@ func Extract(htmlBytes []byte, configs ...ExtractConfig) (*Result, error) {
 //
 // The method automatically detects the character encoding (Windows-1252, UTF-8, GBK, Shift_JIS, etc.)
 // from the HTML file and converts it to UTF-8 before processing.
-func ExtractFromFile(filePath string, configs ...ExtractConfig) (*Result, error) {
-	processor, err := New()
+func ExtractFromFile(filePath string) (*Result, error) {
+	processor, err := New(DefaultConfig())
 	if err != nil {
 		return nil, fmt.Errorf("create processor: %w", err)
 	}
 	defer processor.Close()
-	return processor.ExtractFromFile(filePath, configs...)
+	return processor.ExtractFromFile(filePath)
 }
 
 // ExtractText extracts plain text from HTML bytes with automatic encoding detection.
@@ -76,13 +53,13 @@ func ExtractFromFile(filePath string, configs ...ExtractConfig) (*Result, error)
 //
 // The method automatically detects the character encoding (Windows-1252, UTF-8, GBK, Shift_JIS, etc.)
 // from the HTML bytes and converts it to UTF-8 before processing.
-func ExtractText(htmlBytes []byte, configs ...ExtractConfig) (string, error) {
-	processor, err := New()
+func ExtractText(htmlBytes []byte) (string, error) {
+	processor, err := New(DefaultConfig())
 	if err != nil {
 		return "", fmt.Errorf("create processor: %w", err)
 	}
 	defer processor.Close()
-	return processor.ExtractText(htmlBytes, configs...)
+	return processor.ExtractText(htmlBytes)
 }
 
 // ExtractTextFromFile extracts plain text from an HTML file with automatic encoding detection.
@@ -92,13 +69,13 @@ func ExtractText(htmlBytes []byte, configs ...ExtractConfig) (string, error) {
 //
 // The method automatically detects the character encoding (Windows-1252, UTF-8, GBK, Shift_JIS, etc.)
 // from the HTML file and converts it to UTF-8 before processing.
-func ExtractTextFromFile(filePath string, configs ...ExtractConfig) (string, error) {
-	processor, err := New()
+func ExtractTextFromFile(filePath string) (string, error) {
+	processor, err := New(DefaultConfig())
 	if err != nil {
 		return "", fmt.Errorf("create processor: %w", err)
 	}
 	defer processor.Close()
-	return processor.ExtractTextFromFile(filePath, configs...)
+	return processor.ExtractTextFromFile(filePath)
 }
 
 // Extract extracts content from HTML bytes with automatic encoding detection.
@@ -107,7 +84,7 @@ func ExtractTextFromFile(filePath string, configs ...ExtractConfig) (string, err
 //
 // This is the primary method for HTML content extraction when the source encoding
 // may not be UTF-8, such as content from HTTP responses, databases, or files.
-func (p *Processor) Extract(htmlBytes []byte, configs ...ExtractConfig) (result *Result, err error) {
+func (p *Processor) Extract(htmlBytes []byte) (result *Result, err error) {
 	// Defense-in-depth: recover from unexpected panics
 	defer func() {
 		if r := recover(); r != nil {
@@ -122,7 +99,7 @@ func (p *Processor) Extract(htmlBytes []byte, configs ...ExtractConfig) (result 
 		return nil, ErrProcessorClosed
 	}
 
-	config := resolveExtractConfig(configs...)
+	config := p.getExtractConfig()
 
 	if len(htmlBytes) > p.config.MaxInputSize {
 		p.audit.RecordInputViolation(len(htmlBytes), p.config.MaxInputSize, "input_too_large")
@@ -186,7 +163,7 @@ func (p *Processor) Extract(htmlBytes []byte, configs ...ExtractConfig) (result 
 // The method automatically detects the character encoding (Windows-1252, UTF-8, GBK, Shift_JIS, etc.)
 // from the HTML file and converts it to UTF-8 before processing.
 // Use this when you have a file path instead of raw bytes.
-func (p *Processor) ExtractFromFile(filePath string, configs ...ExtractConfig) (result *Result, err error) {
+func (p *Processor) ExtractFromFile(filePath string) (result *Result, err error) {
 	// Defense-in-depth: recover from unexpected panics
 	defer func() {
 		if r := recover(); r != nil {
@@ -216,8 +193,6 @@ func (p *Processor) ExtractFromFile(filePath string, configs ...ExtractConfig) (
 		return nil, fmt.Errorf("%w: path traversal detected: %s", ErrInvalidFilePath, cleanPath)
 	}
 
-	config := resolveExtractConfig(configs...)
-
 	data, readErr := readFile(cleanPath)
 	if readErr != nil {
 		if osIsNotExist(readErr) {
@@ -226,15 +201,15 @@ func (p *Processor) ExtractFromFile(filePath string, configs ...ExtractConfig) (
 		return nil, fmt.Errorf("read file %q: %w", cleanPath, readErr)
 	}
 
-	return p.Extract(data, config)
+	return p.Extract(data)
 }
 
 // ExtractText extracts plain text from HTML bytes with automatic encoding detection.
 // The method automatically detects the character encoding (Windows-1252, UTF-8, GBK, Shift_JIS, etc.)
 // from the HTML bytes and converts it to UTF-8 before processing.
 // This is a convenience method that returns only the text content without other metadata.
-func (p *Processor) ExtractText(htmlBytes []byte, configs ...ExtractConfig) (string, error) {
-	result, err := p.Extract(htmlBytes, configs...)
+func (p *Processor) ExtractText(htmlBytes []byte) (string, error) {
+	result, err := p.Extract(htmlBytes)
 	if err != nil {
 		return "", err
 	}
@@ -246,8 +221,8 @@ func (p *Processor) ExtractText(htmlBytes []byte, configs ...ExtractConfig) (str
 // from the HTML file and converts it to UTF-8 before processing.
 // Use this when you have a file path instead of raw bytes.
 // This is a convenience method that returns only the text content without other metadata.
-func (p *Processor) ExtractTextFromFile(filePath string, configs ...ExtractConfig) (string, error) {
-	result, err := p.ExtractFromFile(filePath, configs...)
+func (p *Processor) ExtractTextFromFile(filePath string) (string, error) {
+	result, err := p.ExtractFromFile(filePath)
 	if err != nil {
 		return "", err
 	}
@@ -663,32 +638,48 @@ func (p *Processor) calculateReadingTime(wordCount int) time.Duration {
 }
 
 // generateCacheKey creates a hash for cache key generation.
-// Uses a custom wyhash-inspired algorithm that is faster than FNV-128a.
+// Uses a simplified xxHash-inspired algorithm optimized for speed.
 // Uses multi-point sampling for large documents to better distinguish similar content.
-// Optimized to avoid heap allocations.
+// Optimized to minimize CPU overhead while maintaining good distribution.
 func (p *Processor) generateCacheKey(content string, opts ExtractConfig) string {
-	// Initialize hash with config flags using a fast mixing function
-	var h1, h2 uint64 = 0x6a09e667f3bcc908, 0xbb67ae8584caa73b // wyhash constants
+	// Pack boolean flags into a single uint8 for faster hashing
+	// Bits: 0=ExtractArticle, 1=PreserveImages, 2=PreserveLinks, 3=PreserveVideos, 4=PreserveAudios
+	flags := uint8(0)
+	if opts.ExtractArticle {
+		flags |= 1 << 0
+	}
+	if opts.PreserveImages {
+		flags |= 1 << 1
+	}
+	if opts.PreserveLinks {
+		flags |= 1 << 2
+	}
+	if opts.PreserveVideos {
+		flags |= 1 << 3
+	}
+	if opts.PreserveAudios {
+		flags |= 1 << 4
+	}
 
-	// Mix config flags
-	h1 = wyhashMix(h1, uint64(boolToUint(opts.ExtractArticle)))
-	h1 = wyhashMix(h1, uint64(boolToUint(opts.PreserveImages)))
-	h1 = wyhashMix(h1, uint64(boolToUint(opts.PreserveLinks)))
-	h2 = wyhashMix(h2, uint64(boolToUint(opts.PreserveVideos)))
-	h2 = wyhashMix(h2, uint64(boolToUint(opts.PreserveAudios)))
+	// Initialize hash with prime constants (xxHash-inspired)
+	var h uint64 = 0x9E3779B185EBCA87 // Golden ratio fractional bits
 
-	// Mix string options
-	h1 = wyhashString(h1, opts.InlineImageFormat)
-	h2 = wyhashString(h2, opts.TableFormat)
+	// Mix flags
+	h ^= uint64(flags)
+	h = hashMix(h)
+
+	// Mix string options with reduced operations
+	h = hashMixString(h, opts.InlineImageFormat)
+	h = hashMixString(h, opts.TableFormat)
 
 	contentLen := len(content)
 	if contentLen <= maxCacheKeySize {
-		// Hash the entire content
-		h1, h2 = wyhashBytes(h1, h2, stringToBytes(content))
+		// Hash the entire content using simplified algorithm
+		h = hashMixBytes(h, internal.StringToBytes(content))
 	} else {
 		// Optimized multi-point sampling for large documents
-		// Sample from 5 positions: beginning, 25%, 50%, 75%, and end
-		const sampleCount = 5
+		// Sample from 3 positions instead of 5 to reduce overhead
+		const sampleCount = 3
 		sampleSize := cacheKeySample / sampleCount
 		if sampleSize < 512 {
 			sampleSize = 512
@@ -697,12 +688,14 @@ func (p *Processor) generateCacheKey(content string, opts ExtractConfig) string 
 		for i := 0; i < sampleCount; i++ {
 			var start, end int
 			if i == sampleCount-1 {
+				// Last sample: end of content
 				end = contentLen
 				start = contentLen - sampleSize
 				if start < 0 {
 					start = 0
 				}
 			} else {
+				// First two samples: beginning and middle
 				offset := (contentLen * i) / sampleCount
 				start = offset
 				end = start + sampleSize
@@ -712,59 +705,83 @@ func (p *Processor) generateCacheKey(content string, opts ExtractConfig) string 
 			}
 
 			if start < end {
-				h1, h2 = wyhashBytes(h1, h2, stringToBytes(content[start:end]))
+				h = hashMixBytes(h, internal.StringToBytes(content[start:end]))
 			}
 		}
 
 		// Mix content length
-		h1 = wyhashMix(h1, uint64(contentLen))
+		h ^= uint64(contentLen)
+		h = hashMix(h)
 	}
 
-	// Final mix
-	h1 ^= h2
-	h2 ^= h1
-	h1 ^= h2
+	// Final avalanche
+	h ^= h >> 33
+	h *= 0xFF51AFD7ED558CCD
+	h ^= h >> 33
 
-	// Return as 16-byte string
-	var buf [16]byte
-	binary.LittleEndian.PutUint64(buf[0:8], h1)
-	binary.LittleEndian.PutUint64(buf[8:16], h2)
+	// Return as 8-byte string (reduced from 16-byte for efficiency)
+	var buf [8]byte
+	binary.LittleEndian.PutUint64(buf[:], h)
 	return string(buf[:])
 }
 
-// boolToUint converts bool to uint64 (1 for true, 0 for false)
-func boolToUint(b bool) uint {
-	if b {
-		return 1
-	}
-	return 0
-}
-
-// wyhashMix performs a single mixing step inspired by wyhash
-func wyhashMix(a, b uint64) uint64 {
-	a ^= b
-	a *= 0x6a09e667f3bcc908
-	a = (a ^ (a >> 31)) * 0xbb67ae8584caa73b
-	return a ^ (a >> 31)
-}
-
-// wyhashString hashes a string into the hash state
-func wyhashString(h uint64, s string) uint64 {
-	for i := 0; i < len(s); i++ {
-		h = wyhashMix(h, uint64(s[i]))
-	}
+// hashMix performs a single mixing step (inlined for performance)
+func hashMix(h uint64) uint64 {
+	h ^= h >> 23
+	h *= 0x2127599BF4325C37
+	h ^= h >> 47
 	return h
 }
 
-// wyhashBytes hashes a byte slice into the hash state
-func wyhashBytes(h1, h2 uint64, data []byte) (uint64, uint64) {
-	// Process 8 bytes at a time
-	n := len(data)
-	i := 0
+// hashMixString hashes a string into the hash state
+func hashMixString(h uint64, s string) uint64 {
+	// Quick hash for short strings
+	n := len(s)
+	if n == 0 {
+		return h
+	}
 
+	// Hash length
+	h ^= uint64(n)
+	h = hashMix(h)
+
+	// Process 8 bytes at a time
+	i := 0
+	for i+7 < n {
+		v := binary.LittleEndian.Uint64(internal.StringToBytes(s[i : i+8]))
+		h ^= v
+		h = hashMix(h)
+		i += 8
+	}
+
+	// Handle remaining bytes
+	if i < n {
+		var v uint64
+		shift := uint(0)
+		for j := i; j < n; j++ {
+			v |= uint64(s[j]) << shift
+			shift += 8
+		}
+		h ^= v
+		h = hashMix(h)
+	}
+
+	return h
+}
+
+// hashMixBytes hashes a byte slice into the hash state
+func hashMixBytes(h uint64, data []byte) uint64 {
+	n := len(data)
+	if n == 0 {
+		return h
+	}
+
+	// Process 8 bytes at a time
+	i := 0
 	for i+7 < n {
 		v := binary.LittleEndian.Uint64(data[i : i+8])
-		h1 = wyhashMix(h1, v)
+		h ^= v
+		h = hashMix(h)
 		i += 8
 	}
 
@@ -776,16 +793,9 @@ func wyhashBytes(h1, h2 uint64, data []byte) (uint64, uint64) {
 			v |= uint64(data[j]) << shift
 			shift += 8
 		}
-		h2 = wyhashMix(h2, v)
+		h ^= v
+		h = hashMix(h)
 	}
 
-	return h1, h2
-}
-
-// boolToString returns "1" for true and "0" for false
-func boolToString(b bool) string {
-	if b {
-		return "1"
-	}
-	return "0"
+	return h
 }

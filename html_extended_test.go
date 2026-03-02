@@ -33,7 +33,7 @@ func TestErrorHandlingComprehensive(t *testing.T) {
 
 		largeHTML := strings.Repeat("<div>test content here</div>", 10000)
 
-		_, err = p.Extract([]byte(largeHTML), html.DefaultExtractConfig())
+		_, err = p.Extract([]byte(largeHTML))
 		if err == nil {
 			t.Errorf("Expected error for large input, got nil")
 		}
@@ -49,20 +49,20 @@ func TestErrorHandlingComprehensive(t *testing.T) {
 		defer p.Close()
 
 		validHTML := strings.Repeat("<div>a</div>", 100)
-		_, err = p.Extract([]byte(validHTML), html.DefaultExtractConfig())
+		_, err = p.Extract([]byte(validHTML))
 		if err != nil {
 			t.Errorf("Should accept input at MaxInputSize boundary, got: %v", err)
 		}
 
 		oversizedHTML := strings.Repeat("<div>a</div>", 1000)
-		_, err = p.Extract([]byte(oversizedHTML), html.DefaultExtractConfig())
+		_, err = p.Extract([]byte(oversizedHTML))
 		if err == nil {
 			t.Errorf("Expected error for oversize input, got nil")
 		}
 	})
 
 	t.Run("ErrInvalidHTML - malformed HTML handling", func(t *testing.T) {
-		p, _ := html.New()
+		p, _ := html.New(html.DefaultConfig())
 		defer p.Close()
 
 		malformedCases := []struct {
@@ -77,7 +77,7 @@ func TestErrorHandlingComprehensive(t *testing.T) {
 		for _, tc := range malformedCases {
 			t.Run(tc.name, func(t *testing.T) {
 				// The library is tolerant and tries to extract anyway
-				result, err := p.Extract([]byte(tc.html), html.DefaultExtractConfig())
+				result, err := p.Extract([]byte(tc.html))
 				if err != nil {
 					t.Errorf("Library should tolerate malformed HTML, got: %v", err)
 				}
@@ -97,7 +97,7 @@ func TestErrorHandlingComprehensive(t *testing.T) {
 			defer p.Close()
 
 			deepHTML := strings.Repeat("<div>", 200) + "test" + strings.Repeat("</div>", 200)
-			_, err = p.Extract([]byte(deepHTML), html.DefaultExtractConfig())
+			_, err = p.Extract([]byte(deepHTML))
 			// This should error due to max depth
 			if err == nil {
 				t.Error("Expected error for excessively deep nesting")
@@ -116,14 +116,14 @@ func TestErrorHandlingComprehensive(t *testing.T) {
 
 		largeHTML := strings.Repeat("<div>"+strings.Repeat("test ", 100)+"</div>", 1000)
 
-		_, err = p.Extract([]byte(largeHTML), html.DefaultExtractConfig())
+		_, err = p.Extract([]byte(largeHTML))
 		if err != html.ErrProcessingTimeout {
 			t.Errorf("Expected ErrProcessingTimeout, got: %v", err)
 		}
 	})
 
 	t.Run("ErrFileNotFound - non-existent file", func(t *testing.T) {
-		p, _ := html.New()
+		p, _ := html.New(html.DefaultConfig())
 		defer p.Close()
 
 		_, err := p.ExtractFromFile("non-existent-file-12345.html")
@@ -136,7 +136,7 @@ func TestErrorHandlingComprehensive(t *testing.T) {
 	})
 
 	t.Run("ErrInvalidFilePath - empty and invalid paths", func(t *testing.T) {
-		p, _ := html.New()
+		p, _ := html.New(html.DefaultConfig())
 		defer p.Close()
 
 		// Empty string should return ErrInvalidFilePath
@@ -154,12 +154,12 @@ func TestErrorHandlingComprehensive(t *testing.T) {
 	})
 
 	t.Run("ErrProcessorClosed - operations after close", func(t *testing.T) {
-		p, _ := html.New()
+		p, _ := html.New(html.DefaultConfig())
 		p.Close()
 
 		operations := []func() error{
 			func() error {
-				_, err := p.Extract([]byte("<html><body>test</body></html>"), html.DefaultExtractConfig())
+				_, err := p.Extract([]byte("<html><body>test</body></html>"))
 				return err
 			},
 			func() error { _, err := p.ExtractFromFile("test.html"); return err },
@@ -194,7 +194,7 @@ func TestEdgeCasesComprehensive(t *testing.T) {
 	t.Parallel()
 
 	t.Run("Empty and whitespace-only HTML", func(t *testing.T) {
-		p, _ := html.New()
+		p, _ := html.New(html.DefaultConfig())
 		defer p.Close()
 
 		emptyCases := []string{
@@ -209,7 +209,7 @@ func TestEdgeCasesComprehensive(t *testing.T) {
 
 		for _, htmlContent := range emptyCases {
 			t.Run(fmt.Sprintf("empty_%d", len(htmlContent)), func(t *testing.T) {
-				result, err := p.Extract([]byte(htmlContent), html.DefaultExtractConfig())
+				result, err := p.Extract([]byte(htmlContent))
 				if err != nil {
 					t.Errorf("Empty HTML should return result, not error: %v", err)
 				}
@@ -221,7 +221,7 @@ func TestEdgeCasesComprehensive(t *testing.T) {
 	})
 
 	t.Run("Unicode content handling", func(t *testing.T) {
-		p, _ := html.New()
+		p, _ := html.New(html.DefaultConfig())
 		defer p.Close()
 
 		unicodeHTML := `<html><body>
@@ -233,7 +233,7 @@ func TestEdgeCasesComprehensive(t *testing.T) {
 			<p>العربية</p>
 		</body></html>`
 
-		result, err := p.Extract([]byte(unicodeHTML), html.DefaultExtractConfig())
+		result, err := p.Extract([]byte(unicodeHTML))
 		if err != nil {
 			t.Fatalf("Extract() failed: %v", err)
 		}
@@ -253,7 +253,7 @@ func TestEdgeCasesComprehensive(t *testing.T) {
 	})
 
 	t.Run("Excessive whitespace handling", func(t *testing.T) {
-		p, _ := html.New()
+		p, _ := html.New(html.DefaultConfig())
 		defer p.Close()
 
 		whitespaceHTML := `<html><body>
@@ -266,7 +266,7 @@ newlines</p>
 			<p>Text	with	tabs</p>
 		</body></html>`
 
-		result, err := p.Extract([]byte(whitespaceHTML), html.DefaultExtractConfig())
+		result, err := p.Extract([]byte(whitespaceHTML))
 		if err != nil {
 			t.Fatalf("Extract() failed: %v", err)
 		}
@@ -280,7 +280,7 @@ newlines</p>
 	})
 
 	t.Run("Mixed content and scripts", func(t *testing.T) {
-		p, _ := html.New()
+		p, _ := html.New(html.DefaultConfig())
 		defer p.Close()
 
 		mixedHTML := `<html><body>
@@ -290,7 +290,7 @@ newlines</p>
 			<noscript>JavaScript required</noscript>
 		</body></html>`
 
-		result, err := p.Extract([]byte(mixedHTML), html.DefaultExtractConfig())
+		result, err := p.Extract([]byte(mixedHTML))
 		if err != nil {
 			t.Fatalf("Extract() failed: %v", err)
 		}
@@ -304,7 +304,7 @@ newlines</p>
 	})
 
 	t.Run("Entity decoding edge cases", func(t *testing.T) {
-		p, _ := html.New()
+		p, _ := html.New(html.DefaultConfig())
 		defer p.Close()
 
 		entityHTML := `<html><body>
@@ -315,7 +315,7 @@ newlines</p>
 			<p>&#65;&#x41;</p>
 		</body></html>`
 
-		result, err := p.Extract([]byte(entityHTML), html.DefaultExtractConfig())
+		result, err := p.Extract([]byte(entityHTML))
 		if err != nil {
 			t.Fatalf("Extract() failed: %v", err)
 		}
@@ -340,7 +340,7 @@ func TestUnicodeEdgeCases(t *testing.T) {
 	t.Parallel()
 
 	t.Run("zero-width characters", func(t *testing.T) {
-		p, _ := html.New()
+		p, _ := html.New(html.DefaultConfig())
 		defer p.Close()
 
 		// Contains various zero-width characters
@@ -354,7 +354,7 @@ func TestUnicodeEdgeCases(t *testing.T) {
 			`<p>\uFEFFBOM\uFEFFtest</p>` +
 			`</body></html>`
 
-		result, err := p.Extract([]byte(htmlContent), html.DefaultExtractConfig())
+		result, err := p.Extract([]byte(htmlContent))
 		if err != nil {
 			t.Fatalf("Extract() failed: %v", err)
 		}
@@ -369,7 +369,7 @@ func TestUnicodeEdgeCases(t *testing.T) {
 	})
 
 	t.Run("combining characters", func(t *testing.T) {
-		p, _ := html.New()
+		p, _ := html.New(html.DefaultConfig())
 		defer p.Close()
 
 		// Contains combining characters
@@ -381,7 +381,7 @@ func TestUnicodeEdgeCases(t *testing.T) {
 			`<p>\u0041\u030A</p>` + // Å with combining ring
 			`</body></html>`
 
-		result, err := p.Extract([]byte(htmlContent), html.DefaultExtractConfig())
+		result, err := p.Extract([]byte(htmlContent))
 		if err != nil {
 			t.Fatalf("Extract() failed: %v", err)
 		}
@@ -396,7 +396,7 @@ func TestUnicodeEdgeCases(t *testing.T) {
 	})
 
 	t.Run("bidirectional text", func(t *testing.T) {
-		p, _ := html.New()
+		p, _ := html.New(html.DefaultConfig())
 		defer p.Close()
 
 		// Mixed LTR and RTL text
@@ -406,7 +406,7 @@ func TestUnicodeEdgeCases(t *testing.T) {
 			`<p>English و Arabic مختلط mixed</p>` +
 			`</body></html>`
 
-		result, err := p.Extract([]byte(htmlContent), html.DefaultExtractConfig())
+		result, err := p.Extract([]byte(htmlContent))
 		if err != nil {
 			t.Fatalf("Extract() failed: %v", err)
 		}
@@ -421,7 +421,7 @@ func TestUnicodeEdgeCases(t *testing.T) {
 	})
 
 	t.Run("surrogate pairs (emoji)", func(t *testing.T) {
-		p, _ := html.New()
+		p, _ := html.New(html.DefaultConfig())
 		defer p.Close()
 
 		// Various emoji including multi-codepoint ones
@@ -432,7 +432,7 @@ func TestUnicodeEdgeCases(t *testing.T) {
 			`<p>ZWJ sequences: 👨‍⚕️ 👩‍💻</p>` +
 			`</body></html>`
 
-		result, err := p.Extract([]byte(htmlContent), html.DefaultExtractConfig())
+		result, err := p.Extract([]byte(htmlContent))
 		if err != nil {
 			t.Fatalf("Extract() failed: %v", err)
 		}
@@ -444,7 +444,7 @@ func TestUnicodeEdgeCases(t *testing.T) {
 	})
 
 	t.Run("null character in content", func(t *testing.T) {
-		p, _ := html.New()
+		p, _ := html.New(html.DefaultConfig())
 		defer p.Close()
 
 		// HTML with null character
@@ -453,7 +453,7 @@ func TestUnicodeEdgeCases(t *testing.T) {
 			`<p>Multi\x00null\x00chars</p>` +
 			`</body></html>`
 
-		result, err := p.Extract([]byte(htmlContent), html.DefaultExtractConfig())
+		result, err := p.Extract([]byte(htmlContent))
 		if err != nil {
 			t.Fatalf("Extract() failed: %v", err)
 		}
@@ -465,7 +465,7 @@ func TestUnicodeEdgeCases(t *testing.T) {
 	})
 
 	t.Run("maximum valid unicode", func(t *testing.T) {
-		p, _ := html.New()
+		p, _ := html.New(html.DefaultConfig())
 		defer p.Close()
 
 		// Test with maximum valid Unicode code point (U+10FFFF)
@@ -474,7 +474,7 @@ func TestUnicodeEdgeCases(t *testing.T) {
 			`<p>High codepoints: \U00010000 \U00020000</p>` +
 			`</body></html>`
 
-		result, err := p.Extract([]byte(htmlContent), html.DefaultExtractConfig())
+		result, err := p.Extract([]byte(htmlContent))
 		if err != nil {
 			t.Fatalf("Extract() failed: %v", err)
 		}
@@ -485,7 +485,7 @@ func TestUnicodeEdgeCases(t *testing.T) {
 	})
 
 	t.Run("invalid unicode sequences", func(t *testing.T) {
-		p, _ := html.New()
+		p, _ := html.New(html.DefaultConfig())
 		defer p.Close()
 
 		// Invalid UTF-8 sequences
@@ -500,7 +500,7 @@ func TestUnicodeEdgeCases(t *testing.T) {
 
 		for _, tc := range invalidCases {
 			t.Run(tc.name, func(t *testing.T) {
-				result, err := p.Extract(tc.html, html.DefaultExtractConfig())
+				result, err := p.Extract(tc.html)
 				// Should either handle gracefully or return an error
 				if err != nil {
 					return // Error is acceptable
@@ -541,7 +541,7 @@ func TestMaxDepthBoundaryConditions(t *testing.T) {
 		}
 		deepHTML += "</body></html>"
 
-		result, err := p.Extract([]byte(deepHTML), html.DefaultExtractConfig())
+		result, err := p.Extract([]byte(deepHTML))
 
 		// Should succeed - depth is exactly at limit
 		if err != nil {
@@ -573,7 +573,7 @@ func TestMaxDepthBoundaryConditions(t *testing.T) {
 		}
 		deepHTML += "</body></html>"
 
-		result, err := p.Extract([]byte(deepHTML), html.DefaultExtractConfig())
+		result, err := p.Extract([]byte(deepHTML))
 
 		// Behavior depends on implementation:
 		// - May return error (strict mode)
@@ -613,7 +613,7 @@ func TestMaxDepthBoundaryConditions(t *testing.T) {
 		// Even just <html> tag counts as depth 1
 		singleLevelHTML := `<html>Content</html>`
 
-		result, err := p.Extract([]byte(singleLevelHTML), html.DefaultExtractConfig())
+		result, err := p.Extract([]byte(singleLevelHTML))
 
 		// The library enforces depth strictly, so even html tag may exceed
 		if err != nil {
@@ -643,7 +643,7 @@ func TestMaxDepthBoundaryConditions(t *testing.T) {
 		}
 		deepHTML += "</body></html>"
 
-		result, err := p.Extract([]byte(deepHTML), html.DefaultExtractConfig())
+		result, err := p.Extract([]byte(deepHTML))
 
 		if err != nil {
 			t.Errorf("Deep nesting with high limit should succeed: %v", err)

@@ -7,23 +7,29 @@ import "context"
 // without requiring a real Processor instance.
 type Extractor interface {
 	// Extract extracts content from HTML bytes with automatic encoding detection.
-	Extract(htmlBytes []byte, configs ...ExtractConfig) (*Result, error)
+	Extract(htmlBytes []byte) (*Result, error)
 	// ExtractFromFile extracts content from an HTML file with automatic encoding detection.
-	ExtractFromFile(filePath string, configs ...ExtractConfig) (*Result, error)
+	ExtractFromFile(filePath string) (*Result, error)
 	// ExtractText extracts plain text from HTML bytes with automatic encoding detection.
-	ExtractText(htmlBytes []byte, configs ...ExtractConfig) (string, error)
+	ExtractText(htmlBytes []byte) (string, error)
+	// ExtractTextFromFile extracts plain text from an HTML file with automatic encoding detection.
+	ExtractTextFromFile(filePath string) (string, error)
 	// ExtractToMarkdown extracts content from HTML and returns it in Markdown format.
-	ExtractToMarkdown(htmlBytes []byte, configs ...ExtractConfig) (string, error)
+	ExtractToMarkdown(htmlBytes []byte) (string, error)
+	// ExtractToMarkdownFromFile extracts content from an HTML file and returns it in Markdown format.
+	ExtractToMarkdownFromFile(filePath string) (string, error)
 	// ExtractToJSON extracts content from HTML and returns it as JSON.
-	ExtractToJSON(htmlBytes []byte, configs ...ExtractConfig) ([]byte, error)
+	ExtractToJSON(htmlBytes []byte) ([]byte, error)
+	// ExtractToJSONFromFile extracts content from an HTML file and returns it as JSON.
+	ExtractToJSONFromFile(filePath string) ([]byte, error)
 	// ExtractBatch extracts content from multiple HTML byte slices concurrently.
-	ExtractBatch(htmlContents [][]byte, configs ...ExtractConfig) ([]*Result, error)
+	ExtractBatch(htmlContents [][]byte) ([]*Result, error)
 	// ExtractBatchWithContext extracts content from multiple HTML byte slices concurrently with context support.
-	ExtractBatchWithContext(ctx context.Context, htmlContents [][]byte, configs ...ExtractConfig) *BatchResult
+	ExtractBatchWithContext(ctx context.Context, htmlContents [][]byte) *BatchResult
 	// ExtractBatchFiles extracts content from multiple HTML files concurrently.
-	ExtractBatchFiles(filePaths []string, configs ...ExtractConfig) ([]*Result, error)
+	ExtractBatchFiles(filePaths []string) ([]*Result, error)
 	// ExtractBatchFilesWithContext extracts content from multiple HTML files concurrently with context support.
-	ExtractBatchFilesWithContext(ctx context.Context, filePaths []string, configs ...ExtractConfig) *BatchResult
+	ExtractBatchFilesWithContext(ctx context.Context, filePaths []string) *BatchResult
 	// Close releases resources used by the extractor.
 	Close() error
 }
@@ -31,7 +37,9 @@ type Extractor interface {
 // LinkExtractor defines the interface for link extraction from HTML content.
 type LinkExtractor interface {
 	// ExtractAllLinks extracts all links from HTML bytes with automatic encoding detection.
-	ExtractAllLinks(htmlBytes []byte, configs ...LinkExtractionConfig) ([]LinkResource, error)
+	ExtractAllLinks(htmlBytes []byte) ([]LinkResource, error)
+	// ExtractAllLinksFromFile extracts all links from an HTML file with automatic encoding detection.
+	ExtractAllLinksFromFile(filePath string) ([]LinkResource, error)
 }
 
 // StatsProvider defines the interface for statistics and cache management.

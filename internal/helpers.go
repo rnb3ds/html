@@ -5,26 +5,17 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-	"sync"
 	"unicode/utf8"
 
 	"golang.org/x/net/html"
 )
 
+// Pre-compiled regex patterns for text processing.
+// These are compile-time constants and will panic on initialization if invalid.
 var (
-	defaultWhitespaceRegex     *regexp.Regexp
-	defaultWhitespaceRegexOnce sync.Once
-	paddingLeftRegex           *regexp.Regexp
-	paddingLeftRegexOnce       sync.Once
-)
-
-func initDefaultWhitespaceRegex() {
 	defaultWhitespaceRegex = regexp.MustCompile(`\s+`)
-}
-
-func initPaddingLeftRegex() {
-	paddingLeftRegex = regexp.MustCompile(`padding-left:\s*(\d+(?:\.\d+)?)\s*pt`)
-}
+	paddingLeftRegex       = regexp.MustCompile(`padding-left:\s*(\d+(?:\.\d+)?)\s*pt`)
+)
 
 // Clean text and builder sizing constants are now in constants.go
 
@@ -149,7 +140,6 @@ func CleanText(text string, whitespaceRegex *regexp.Regexp) string {
 	}
 
 	if whitespaceRegex == nil {
-		defaultWhitespaceRegexOnce.Do(initDefaultWhitespaceRegex)
 		whitespaceRegex = defaultWhitespaceRegex
 	}
 	textLen := len(text)
@@ -704,16 +694,18 @@ func IsValidURL(url string) bool {
 		return true
 	}
 
+	// At this point, urlLen > 0 (checked at line 653)
 	// Accept relative URLs and paths (starting with / or .)
 	// But reject path traversal patterns
-	if url[0] == '/' {
+	firstChar := url[0]
+	if firstChar == '/' {
 		// Block path traversal attempts like /\/, /../
 		if urlLen > 1 && (url[1] == '\\' || (url[1] == '.' && (urlLen == 2 || url[2] == '.' || url[2] == '/'))) {
 			return false
 		}
 		return true
 	}
-	if url[0] == '.' {
+	if firstChar == '.' {
 		// Block directory traversal
 		if strings.HasPrefix(url, "./.") || strings.HasPrefix(url, "../") {
 			return false
@@ -723,13 +715,10 @@ func IsValidURL(url string) bool {
 
 	// Accept alphanumeric paths (legitimate filenames like img1.jpg, video.mp4)
 	// but reject paths starting with special characters that might be used in injection attacks
-	if urlLen > 0 {
-		firstChar := url[0]
-		if (firstChar >= 'a' && firstChar <= 'z') ||
-			(firstChar >= 'A' && firstChar <= 'Z') ||
-			(firstChar >= '0' && firstChar <= '9') {
-			return true
-		}
+	if (firstChar >= 'a' && firstChar <= 'z') ||
+		(firstChar >= 'A' && firstChar <= 'Z') ||
+		(firstChar >= '0' && firstChar <= '9') {
+		return true
 	}
 
 	return false
@@ -775,7 +764,6 @@ func extractPaddingLeft(node *html.Node) int {
 		return 0
 	}
 
-	paddingLeftRegexOnce.Do(initPaddingLeftRegex)
 	matches := paddingLeftRegex.FindStringSubmatch(styleAttr)
 	if len(matches) < 2 {
 		return 0

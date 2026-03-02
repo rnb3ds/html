@@ -17,7 +17,7 @@ import (
 func TestXSSPrevention(t *testing.T) {
 	t.Parallel()
 
-	p, err := html.New()
+	p, err := html.New(html.DefaultConfig())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,7 +71,7 @@ func TestXSSPrevention(t *testing.T) {
 
 	for _, tt := range xssPayloads {
 		t.Run(tt.name, func(t *testing.T) {
-			result, err := p.Extract([]byte(tt.html), html.DefaultExtractConfig())
+			result, err := p.Extract([]byte(tt.html))
 			if err != nil {
 				t.Fatalf("Extract() failed: %v", err)
 			}
@@ -99,7 +99,7 @@ func TestXSSPrevention(t *testing.T) {
 func TestPathTraversalPrevention(t *testing.T) {
 	t.Parallel()
 
-	p, err := html.New()
+	p, err := html.New(html.DefaultConfig())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -145,7 +145,7 @@ func TestLargeInputDoSPrevention(t *testing.T) {
 	// Create input larger than MaxInputSize
 	largeHTML := strings.Repeat("<div>test content</div>", 1000) // ~18KB
 
-	_, err = p.Extract([]byte(largeHTML), html.DefaultExtractConfig())
+	_, err = p.Extract([]byte(largeHTML))
 	if err == nil {
 		t.Error("Expected error for oversized input")
 	}
@@ -178,7 +178,7 @@ func TestDeepNestingDoSPrevention(t *testing.T) {
 	}
 	deepHTML += "</body></html>"
 
-	result, err := p.Extract([]byte(deepHTML), html.DefaultExtractConfig())
+	result, err := p.Extract([]byte(deepHTML))
 
 	// The library should either:
 	// 1. Process successfully (being tolerant of deep nesting), OR
@@ -214,7 +214,7 @@ func TestDeepNestingDoSPrevention(t *testing.T) {
 func TestMalformedHTMLHandling(t *testing.T) {
 	t.Parallel()
 
-	p, err := html.New()
+	p, err := html.New(html.DefaultConfig())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -261,7 +261,7 @@ func TestMalformedHTMLHandling(t *testing.T) {
 	for _, tt := range malformedCases {
 		t.Run(tt.name, func(t *testing.T) {
 			// Library should be tolerant and extract what it can
-			result, err := p.Extract([]byte(tt.html), html.DefaultExtractConfig())
+			result, err := p.Extract([]byte(tt.html))
 			if err != nil && err != html.ErrInvalidHTML {
 				t.Fatalf("Extract() failed for malformed HTML: %v", err)
 			}
@@ -276,7 +276,7 @@ func TestMalformedHTMLHandling(t *testing.T) {
 func TestDataURLInjection(t *testing.T) {
 	t.Parallel()
 
-	p, err := html.New()
+	p, err := html.New(html.DefaultConfig())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -311,7 +311,7 @@ func TestDataURLInjection(t *testing.T) {
 
 	for _, tt := range dataURLCases {
 		t.Run(tt.name, func(t *testing.T) {
-			result, err := p.Extract([]byte(tt.html), html.DefaultExtractConfig())
+			result, err := p.Extract([]byte(tt.html))
 			if err != nil {
 				t.Fatalf("Extract() failed: %v", err)
 			}
@@ -331,7 +331,7 @@ func TestDataURLInjection(t *testing.T) {
 func TestInvalidUTF8Handling(t *testing.T) {
 	t.Parallel()
 
-	p, err := html.New()
+	p, err := html.New(html.DefaultConfig())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -346,7 +346,7 @@ func TestInvalidUTF8Handling(t *testing.T) {
 		'<', '/', 'b', 'o', 'd', 'y', '>', '<', '/', 'h', 't', 'm', 'l', '>',
 	}
 
-	result, err := p.Extract(invalidUTF8, html.DefaultExtractConfig())
+	result, err := p.Extract(invalidUTF8)
 
 	// The library should handle invalid UTF-8 gracefully:
 	// 1. Either process it (sanitizing/replacing invalid sequences), OR
@@ -387,7 +387,7 @@ func TestInvalidUTF8Handling(t *testing.T) {
 func TestControlCharacterHandling(t *testing.T) {
 	t.Parallel()
 
-	p, err := html.New()
+	p, err := html.New(html.DefaultConfig())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -396,7 +396,7 @@ func TestControlCharacterHandling(t *testing.T) {
 	// Create HTML with various control characters
 	controlCharHTML := "<html><body>Content\x00\x01\x02\x1F\x7Fwith\x80\x81\x82control</body></html>"
 
-	result, err := p.Extract([]byte(controlCharHTML), html.DefaultExtractConfig())
+	result, err := p.Extract([]byte(controlCharHTML))
 	if err != nil {
 		t.Fatalf("Extract() failed: %v", err)
 	}
@@ -432,7 +432,7 @@ func TestControlCharacterHandling(t *testing.T) {
 func TestNullByteInjection(t *testing.T) {
 	t.Parallel()
 
-	p, err := html.New()
+	p, err := html.New(html.DefaultConfig())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -458,7 +458,7 @@ func TestNullByteInjection(t *testing.T) {
 
 	for _, tt := range nullByteCases {
 		t.Run(tt.name, func(t *testing.T) {
-			result, err := p.Extract([]byte(tt.html), html.DefaultExtractConfig())
+			result, err := p.Extract([]byte(tt.html))
 			if err != nil {
 				t.Fatalf("Extract() failed: %v", err)
 			}
@@ -482,7 +482,7 @@ func TestNullByteInjection(t *testing.T) {
 func TestProtocolRelativeURLSafety(t *testing.T) {
 	t.Parallel()
 
-	p, err := html.New()
+	p, err := html.New(html.DefaultConfig())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -497,7 +497,7 @@ func TestProtocolRelativeURLSafety(t *testing.T) {
 		</body>
 	</html>`)
 
-	result, err := p.Extract(htmlContent, html.DefaultExtractConfig())
+	result, err := p.Extract(htmlContent)
 	if err != nil {
 		t.Fatalf("Extract() failed: %v", err)
 	}
@@ -520,7 +520,7 @@ func BenchmarkDoSPreventionChecks(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, _ = p.Extract(htmlContent, html.DefaultExtractConfig())
+		_, _ = p.Extract(htmlContent)
 	}
 }
 
@@ -528,7 +528,7 @@ func BenchmarkDoSPreventionChecks(b *testing.B) {
 func TestSVGXSSPrevention(t *testing.T) {
 	t.Parallel()
 
-	p, err := html.New()
+	p, err := html.New(html.DefaultConfig())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -566,7 +566,7 @@ func TestSVGXSSPrevention(t *testing.T) {
 
 	for _, tt := range svgPayloads {
 		t.Run(tt.name, func(t *testing.T) {
-			result, err := p.Extract([]byte(tt.html), html.DefaultExtractConfig())
+			result, err := p.Extract([]byte(tt.html))
 			if err != nil {
 				t.Fatalf("Extract() failed: %v", err)
 			}
@@ -586,7 +586,7 @@ func TestSVGXSSPrevention(t *testing.T) {
 func TestMathMLXSSPrevention(t *testing.T) {
 	t.Parallel()
 
-	p, err := html.New()
+	p, err := html.New(html.DefaultConfig())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -608,7 +608,7 @@ func TestMathMLXSSPrevention(t *testing.T) {
 
 	for _, tt := range mathPayloads {
 		t.Run(tt.name, func(t *testing.T) {
-			result, err := p.Extract([]byte(tt.html), html.DefaultExtractConfig())
+			result, err := p.Extract([]byte(tt.html))
 			if err != nil {
 				t.Fatalf("Extract() failed: %v", err)
 			}
@@ -650,7 +650,7 @@ func TestHighSecurityConfig(t *testing.T) {
 
 	// Test with normal content
 	htmlContent := []byte(`<html><body><h1>Test</h1><p>Content</p></body></html>`)
-	result, err := p.Extract(htmlContent, html.DefaultExtractConfig())
+	result, err := p.Extract(htmlContent)
 	if err != nil {
 		t.Fatalf("Extract() failed: %v", err)
 	}
@@ -660,7 +660,7 @@ func TestHighSecurityConfig(t *testing.T) {
 
 	// Test that oversized input is rejected
 	largeHTML := make([]byte, 15*1024*1024) // 15MB, exceeds 10MB limit
-	_, err = p.Extract(largeHTML, html.DefaultExtractConfig())
+	_, err = p.Extract(largeHTML)
 	if err == nil {
 		t.Error("Expected error for oversized input in high-security mode")
 	}

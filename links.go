@@ -9,42 +9,10 @@ import (
 )
 
 // ExtractAllLinks extracts all links from HTML bytes with automatic encoding detection.
-// This is a convenience function that creates a temporary Processor with default settings.
-// For repeated extractions or custom configuration (cache, timeout, etc.), use
-// Processor.ExtractAllLinks instead.
-//
-// The method automatically detects the character encoding (Windows-1252, UTF-8, GBK, Shift_JIS, etc.)
-// from the HTML bytes and converts it to UTF-8 before extracting links.
-func ExtractAllLinks(htmlBytes []byte, configs ...LinkExtractionConfig) ([]LinkResource, error) {
-	processor, err := New()
-	if err != nil {
-		return nil, fmt.Errorf("create processor: %w", err)
-	}
-	defer processor.Close()
-	return processor.ExtractAllLinks(htmlBytes, configs...)
-}
-
-// ExtractAllLinksFromFile extracts all links from an HTML file with automatic encoding detection.
-// This is a convenience function that creates a temporary Processor with default settings.
-// For repeated extractions or custom configuration (cache, timeout, etc.), use
-// Processor.ExtractAllLinksFromFile instead.
-//
-// The method automatically detects the character encoding (Windows-1252, UTF-8, GBK, Shift_JIS, etc.)
-// from the HTML file and converts it to UTF-8 before extracting links.
-func ExtractAllLinksFromFile(filePath string, configs ...LinkExtractionConfig) ([]LinkResource, error) {
-	processor, err := New()
-	if err != nil {
-		return nil, fmt.Errorf("create processor: %w", err)
-	}
-	defer processor.Close()
-	return processor.ExtractAllLinksFromFile(filePath, configs...)
-}
-
-// ExtractAllLinks extracts all links from HTML bytes with automatic encoding detection.
 // The method automatically detects the character encoding (Windows-1252, UTF-8, GBK, Shift_JIS, etc.)
 // from the HTML bytes and converts it to UTF-8 before extracting links,
 // ensuring that link titles and text are properly decoded.
-func (p *Processor) ExtractAllLinks(htmlBytes []byte, configs ...LinkExtractionConfig) (links []LinkResource, err error) {
+func (p *Processor) ExtractAllLinks(htmlBytes []byte) (links []LinkResource, err error) {
 	// Defense-in-depth: recover from unexpected panics
 	defer func() {
 		if r := recover(); r != nil {
@@ -64,7 +32,7 @@ func (p *Processor) ExtractAllLinks(htmlBytes []byte, configs ...LinkExtractionC
 		return []LinkResource{}, nil
 	}
 
-	config := resolveLinkExtractionConfig(configs...)
+	config := p.getLinkExtractionConfig()
 
 	if len(htmlBytes) > p.config.MaxInputSize {
 		p.stats.errorCount.Add(1)
@@ -103,7 +71,7 @@ func (p *Processor) ExtractAllLinks(htmlBytes []byte, configs ...LinkExtractionC
 // The method automatically detects the character encoding (Windows-1252, UTF-8, GBK, Shift_JIS, etc.)
 // from the HTML file and converts it to UTF-8 before extracting links.
 // Use this when you have a file path instead of raw bytes.
-func (p *Processor) ExtractAllLinksFromFile(filePath string, configs ...LinkExtractionConfig) (links []LinkResource, err error) {
+func (p *Processor) ExtractAllLinksFromFile(filePath string) (links []LinkResource, err error) {
 	// Defense-in-depth: recover from unexpected panics
 	defer func() {
 		if r := recover(); r != nil {
@@ -141,7 +109,37 @@ func (p *Processor) ExtractAllLinksFromFile(filePath string, configs ...LinkExtr
 		return nil, fmt.Errorf("read file %q: %w", cleanPath, readErr)
 	}
 
-	return p.ExtractAllLinks(data, configs...)
+	return p.ExtractAllLinks(data)
+}
+
+// ============================================================================
+// Deprecated Package Functions (for backward compatibility)
+// ============================================================================
+
+// ExtractAllLinks extracts all links from HTML bytes with automatic encoding detection.
+// This is a convenience function that creates a temporary Processor with default settings.
+//
+// Deprecated: Use Processor.ExtractAllLinks instead for better performance with repeated calls.
+func ExtractAllLinks(htmlBytes []byte) ([]LinkResource, error) {
+	processor, err := New(DefaultConfig())
+	if err != nil {
+		return nil, err
+	}
+	defer processor.Close()
+	return processor.ExtractAllLinks(htmlBytes)
+}
+
+// ExtractAllLinksFromFile extracts all links from an HTML file with automatic encoding detection.
+// This is a convenience function that creates a temporary Processor with default settings.
+//
+// Deprecated: Use Processor.ExtractAllLinksFromFile instead for better performance with repeated calls.
+func ExtractAllLinksFromFile(filePath string) ([]LinkResource, error) {
+	processor, err := New(DefaultConfig())
+	if err != nil {
+		return nil, err
+	}
+	defer processor.Close()
+	return processor.ExtractAllLinksFromFile(filePath)
 }
 
 func (p *Processor) extractLinksWithTimeout(htmlContent string, config LinkExtractionConfig) ([]LinkResource, error) {

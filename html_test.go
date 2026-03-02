@@ -41,12 +41,58 @@ func TestProcessorLifecycle(t *testing.T) {
 		}
 	})
 
-	t.Run("New with no config", func(t *testing.T) {
-		p, _ := html.New()
-		if p == nil {
-			t.Fatal("New() with no config returned nil")
+	t.Run("New with no config uses defaults", func(t *testing.T) {
+		p, err := html.New()
+		if err != nil {
+			t.Fatalf("New() failed: %v", err)
 		}
 		defer p.Close()
+		if p == nil {
+			t.Fatal("New() returned nil processor")
+		}
+
+		// Verify it works with default config by extracting some content
+		result, err := p.Extract([]byte("<html><body><h1>Test</h1></body></html>"))
+		if err != nil {
+			t.Fatalf("Extract() failed: %v", err)
+		}
+		if result.Title != "Test" {
+			t.Errorf("Expected title 'Test', got %q", result.Title)
+		}
+	})
+
+	t.Run("New with empty config uses defaults", func(t *testing.T) {
+		p, err := html.New(html.Config{})
+		if err != nil {
+			t.Fatalf("New(Config{}) failed: %v", err)
+		}
+		defer p.Close()
+		if p == nil {
+			t.Fatal("New(Config{}) returned nil processor")
+		}
+	})
+
+	t.Run("New with preset configs", func(t *testing.T) {
+		// Test MarkdownConfig
+		p1, err := html.New(html.MarkdownConfig())
+		if err != nil {
+			t.Fatalf("New(MarkdownConfig()) failed: %v", err)
+		}
+		defer p1.Close()
+
+		// Test TextOnlyConfig
+		p2, err := html.New(html.TextOnlyConfig())
+		if err != nil {
+			t.Fatalf("New(TextOnlyConfig()) failed: %v", err)
+		}
+		defer p2.Close()
+
+		// Test HighSecurityConfig
+		p3, err := html.New(html.HighSecurityConfig())
+		if err != nil {
+			t.Fatalf("New(HighSecurityConfig()) failed: %v", err)
+		}
+		defer p3.Close()
 	})
 
 	t.Run("Close idempotent", func(t *testing.T) {
@@ -62,7 +108,7 @@ func TestProcessorLifecycle(t *testing.T) {
 	t.Run("Extract after close fails", func(t *testing.T) {
 		p, _ := html.New()
 		p.Close()
-		_, err := p.Extract([]byte("<html><body>Test</body></html>"), html.DefaultExtractConfig())
+		_, err := p.Extract([]byte("<html><body>Test</body></html>"))
 		if err != html.ErrProcessorClosed {
 			t.Errorf("Extract() should fail with ErrProcessorClosed, got: %v", err)
 		}
@@ -98,27 +144,27 @@ func TestConfiguration(t *testing.T) {
 	})
 
 	t.Run("DefaultExtractConfig values", func(t *testing.T) {
-		config := html.DefaultExtractConfig()
-		if !config.ExtractArticle {
+		cfg := html.DefaultConfig()
+		if !cfg.ExtractArticle {
 			t.Error("ExtractArticle should be true")
 		}
-		if !config.PreserveImages {
+		if !cfg.PreserveImages {
 			t.Error("PreserveImages should be true")
 		}
-		if !config.PreserveLinks {
+		if !cfg.PreserveLinks {
 			t.Error("PreserveLinks should be true")
 		}
-		if !config.PreserveVideos {
+		if !cfg.PreserveVideos {
 			t.Error("PreserveVideos should be true")
 		}
-		if !config.PreserveAudios {
+		if !cfg.PreserveAudios {
 			t.Error("PreserveAudios should be true")
 		}
-		if config.InlineImageFormat != "none" {
-			t.Errorf("InlineImageFormat = %q, want 'none'", config.InlineImageFormat)
+		if cfg.ImageFormat != "none" {
+			t.Errorf("ImageFormat = %q, want 'none'", cfg.ImageFormat)
 		}
-		if config.TableFormat != "markdown" {
-			t.Errorf("TableFormat = %q, want 'markdown'", config.TableFormat)
+		if cfg.TableFormat != "markdown" {
+			t.Errorf("TableFormat = %q, want 'markdown'", cfg.TableFormat)
 		}
 	})
 
@@ -159,35 +205,36 @@ func TestConfiguration(t *testing.T) {
 
 	t.Run("custom config creation", func(t *testing.T) {
 		t.Run("RSS-style config", func(t *testing.T) {
-			config := html.ExtractConfig{
-				ExtractArticle:    false,
-				PreserveImages:    true,
-				PreserveLinks:     true,
-				PreserveVideos:    false,
-				PreserveAudios:    false,
-				InlineImageFormat: "none",
-				TableFormat:       "markdown",
-			}
-			if config.ExtractArticle {
+			cfg := html.DefaultConfig()
+			cfg.ExtractArticle = false
+			cfg.PreserveImages = true
+			cfg.PreserveLinks = true
+			cfg.PreserveVideos = false
+			cfg.PreserveAudios = false
+			cfg.ImageFormat = "none"
+			cfg.TableFormat = "markdown"
+
+			if cfg.ExtractArticle {
 				t.Error("RSS-style config should disable article extraction")
 			}
-			if !config.PreserveImages {
+			if !cfg.PreserveImages {
 				t.Error("RSS-style config should preserve images")
 			}
 		})
 
 		t.Run("Markdown config", func(t *testing.T) {
-			config := html.ExtractConfig{
-				ExtractArticle:    true,
-				PreserveImages:    true,
-				PreserveLinks:     true,
-				PreserveVideos:    false,
-				PreserveAudios:    false,
-				InlineImageFormat: "markdown",
-				TableFormat:       "markdown",
+			cfg := html.MarkdownConfig()
+			if !cfg.PreserveImages {
+				t.Error("Markdown config should preserve images")
 			}
-			if config.InlineImageFormat != "markdown" {
-				t.Errorf("InlineImageFormat = %q, want 'markdown'", config.InlineImageFormat)
+			if !cfg.PreserveLinks {
+				t.Error("Markdown config should preserve links")
+			}
+			if cfg.ImageFormat != "markdown" {
+				t.Error("Markdown config should have markdown image format")
+			}
+			if cfg.TableFormat != "markdown" {
+				t.Error("Markdown config should have markdown table format")
 			}
 		})
 	})
@@ -200,11 +247,11 @@ func TestConfiguration(t *testing.T) {
 func TestBasicExtraction(t *testing.T) {
 	t.Parallel()
 
-	p, _ := html.New()
+	p, _ := html.New(html.DefaultConfig())
 	defer p.Close()
 
 	t.Run("simple HTML", func(t *testing.T) {
-		result, err := p.Extract([]byte(`<html><body><p>Hello World</p></body></html>`), html.DefaultExtractConfig())
+		result, err := p.Extract([]byte(`<html><body><p>Hello World</p></body></html>`))
 		if err != nil {
 			t.Fatalf("Extract() failed: %v", err)
 		}
@@ -214,7 +261,7 @@ func TestBasicExtraction(t *testing.T) {
 	})
 
 	t.Run("empty HTML", func(t *testing.T) {
-		result, err := p.Extract([]byte(""), html.DefaultExtractConfig())
+		result, err := p.Extract([]byte(""))
 		if err != nil {
 			t.Fatalf("Extract() failed: %v", err)
 		}
@@ -224,7 +271,7 @@ func TestBasicExtraction(t *testing.T) {
 	})
 
 	t.Run("whitespace only", func(t *testing.T) {
-		result, err := p.Extract([]byte("   \n\t  "), html.DefaultExtractConfig())
+		result, err := p.Extract([]byte("   \n\t  "))
 		if err != nil {
 			t.Fatalf("Extract() failed: %v", err)
 		}
@@ -234,7 +281,7 @@ func TestBasicExtraction(t *testing.T) {
 	})
 
 	t.Run("malformed HTML handled gracefully", func(t *testing.T) {
-		result, err := p.Extract([]byte(`<html><body><p>Unclosed paragraph`), html.DefaultExtractConfig())
+		result, err := p.Extract([]byte(`<html><body><p>Unclosed paragraph`))
 		if err != nil {
 			t.Fatalf("Extract() failed: %v", err)
 		}
@@ -264,7 +311,7 @@ func TestInputValidation(t *testing.T) {
 		defer p.Close()
 
 		largeHTML := strings.Repeat("a", 200)
-		_, err := p.Extract([]byte(largeHTML), html.DefaultExtractConfig())
+		_, err := p.Extract([]byte(largeHTML))
 		if err == nil {
 			t.Fatal("Extract() should fail with input too large")
 		}
@@ -277,7 +324,7 @@ func TestInputValidation(t *testing.T) {
 		defer p.Close()
 
 		deepHTML := "<div>" + strings.Repeat("<div>", 10) + "content" + strings.Repeat("</div>", 10) + "</div>"
-		_, err := p.Extract([]byte(deepHTML), html.DefaultExtractConfig())
+		_, err := p.Extract([]byte(deepHTML))
 		if err != html.ErrMaxDepthExceeded {
 			t.Errorf("Expected ErrMaxDepthExceeded, got: %v", err)
 		}
@@ -302,7 +349,7 @@ func TestInputValidation(t *testing.T) {
 		p, _ := html.New(config)
 		defer p.Close()
 
-		_, err := p.Extract([]byte(sb.String()), html.DefaultExtractConfig())
+		_, err := p.Extract([]byte(sb.String()))
 		if err != html.ErrProcessingTimeout {
 			t.Errorf("Expected ErrProcessingTimeout, got: %v", err)
 		}
@@ -315,7 +362,7 @@ func TestInputValidation(t *testing.T) {
 		p, _ := html.New(config)
 		defer p.Close()
 
-		result, err := p.Extract([]byte(htmlContent), html.DefaultExtractConfig())
+		result, err := p.Extract([]byte(htmlContent))
 		if err != nil {
 			t.Fatalf("Extract() failed: %v", err)
 		}
@@ -332,18 +379,18 @@ func TestInputValidation(t *testing.T) {
 func TestFileExtraction(t *testing.T) {
 	t.Parallel()
 
-	p, _ := html.New()
+	p, _ := html.New(html.DefaultConfig())
 	defer p.Close()
 
 	t.Run("empty file path", func(t *testing.T) {
-		_, err := p.ExtractFromFile("", html.DefaultExtractConfig())
+		_, err := p.ExtractFromFile("")
 		if err == nil {
 			t.Fatal("ExtractFromFile() should fail with empty path")
 		}
 	})
 
 	t.Run("non-existent file", func(t *testing.T) {
-		_, err := p.ExtractFromFile("nonexistent.html", html.DefaultExtractConfig())
+		_, err := p.ExtractFromFile("nonexistent.html")
 		if err == nil {
 			t.Fatal("ExtractFromFile() should fail with non-existent file")
 		}
@@ -358,7 +405,7 @@ func TestFileExtraction(t *testing.T) {
 			t.Fatalf("Failed to create test file: %v", err)
 		}
 
-		result, err := p.ExtractFromFile(filePath, html.DefaultExtractConfig())
+		result, err := p.ExtractFromFile(filePath)
 		if err != nil {
 			t.Fatalf("ExtractFromFile() failed: %v", err)
 		}
@@ -393,7 +440,7 @@ func TestFileExtraction(t *testing.T) {
 func TestBatchProcessing(t *testing.T) {
 	t.Parallel()
 
-	p, _ := html.New()
+	p, _ := html.New(html.DefaultConfig())
 	defer p.Close()
 
 	t.Run("normal batch", func(t *testing.T) {
@@ -403,7 +450,7 @@ func TestBatchProcessing(t *testing.T) {
 			[]byte(`<html><body><article><h1>A3</h1><p>C3</p></article></body></html>`),
 		}
 
-		results, err := p.ExtractBatch(inputs, html.DefaultExtractConfig())
+		results, err := p.ExtractBatch(inputs)
 		if err != nil {
 			t.Fatalf("ExtractBatch() failed: %v", err)
 		}
@@ -419,7 +466,7 @@ func TestBatchProcessing(t *testing.T) {
 	})
 
 	t.Run("empty batch", func(t *testing.T) {
-		results, err := p.ExtractBatch([][]byte{}, html.DefaultExtractConfig())
+		results, err := p.ExtractBatch([][]byte{})
 		if err != nil {
 			t.Fatalf("ExtractBatch() failed: %v", err)
 		}
@@ -446,7 +493,7 @@ func TestBatchProcessing(t *testing.T) {
 			[]byte(`<html><body><p>Another valid</p></body></html>`),
 		}
 
-		results, err := p.ExtractBatch(inputs, html.DefaultExtractConfig())
+		results, err := p.ExtractBatch(inputs)
 		if err == nil {
 			t.Fatal("ExtractBatch() should return error for partial failures")
 		}
@@ -472,7 +519,7 @@ func TestBatchProcessing(t *testing.T) {
 			}
 		}
 
-		results, err := p.ExtractBatchFiles(files, html.DefaultExtractConfig())
+		results, err := p.ExtractBatchFiles(files)
 		if err != nil {
 			t.Fatalf("ExtractBatchFiles() failed: %v", err)
 		}
@@ -489,12 +536,12 @@ func TestBatchProcessing(t *testing.T) {
 func TestContentExtraction(t *testing.T) {
 	t.Parallel()
 
-	p, _ := html.New()
+	p, _ := html.New(html.DefaultConfig())
 	defer p.Close()
 
 	t.Run("article with title", func(t *testing.T) {
 		htmlContent := `<html><head><title>Page Title</title></head><body><article><h1>Article</h1><p>Content</p></article></body></html>`
-		result, err := p.Extract([]byte(htmlContent), html.DefaultExtractConfig())
+		result, err := p.Extract([]byte(htmlContent))
 		if err != nil {
 			t.Fatalf("Extract() failed: %v", err)
 		}
@@ -508,7 +555,7 @@ func TestContentExtraction(t *testing.T) {
 
 	t.Run("multiple paragraphs", func(t *testing.T) {
 		htmlContent := `<html><body><article><h1>Title</h1><p>P1</p><p>P2</p><p>P3</p></article></body></html>`
-		result, err := p.Extract([]byte(htmlContent), html.DefaultExtractConfig())
+		result, err := p.Extract([]byte(htmlContent))
 		if err != nil {
 			t.Fatalf("Extract() failed: %v", err)
 		}
@@ -520,7 +567,7 @@ func TestContentExtraction(t *testing.T) {
 
 	t.Run("nested elements", func(t *testing.T) {
 		htmlContent := `<html><body><div><span><strong>Bold text</strong></span></div></body></html>`
-		result, err := p.Extract([]byte(htmlContent), html.DefaultExtractConfig())
+		result, err := p.Extract([]byte(htmlContent))
 		if err != nil {
 			t.Fatalf("Extract() failed: %v", err)
 		}
@@ -537,7 +584,7 @@ func TestContentExtraction(t *testing.T) {
 				<p>Visible content</p>
 			</body></html>
 		`
-		result, err := p.Extract([]byte(htmlContent), html.DefaultExtractConfig())
+		result, err := p.Extract([]byte(htmlContent))
 		if err != nil {
 			t.Fatalf("Extract() failed: %v", err)
 		}
@@ -551,7 +598,7 @@ func TestContentExtraction(t *testing.T) {
 
 	t.Run("word count calculated", func(t *testing.T) {
 		htmlContent := `<html><body><p>This is a test with several words.</p></body></html>`
-		result, err := p.Extract([]byte(htmlContent), html.DefaultExtractConfig())
+		result, err := p.Extract([]byte(htmlContent))
 		if err != nil {
 			t.Fatalf("Extract() failed: %v", err)
 		}
@@ -562,7 +609,7 @@ func TestContentExtraction(t *testing.T) {
 
 	t.Run("reading time calculated", func(t *testing.T) {
 		htmlContent := `<html><body><p>Word1 word2 word3 word4 word5</p></body></html>`
-		result, err := p.Extract([]byte(htmlContent), html.DefaultExtractConfig())
+		result, err := p.Extract([]byte(htmlContent))
 		if err != nil {
 			t.Fatalf("Extract() failed: %v", err)
 		}
@@ -579,7 +626,7 @@ func TestContentExtraction(t *testing.T) {
 func TestMediaExtraction(t *testing.T) {
 	t.Parallel()
 
-	p, _ := html.New()
+	p, _ := html.New(html.DefaultConfig())
 	defer p.Close()
 
 	t.Run("images extracted", func(t *testing.T) {
@@ -589,7 +636,7 @@ func TestMediaExtraction(t *testing.T) {
 				<img src="img2.png" alt="Image 2">
 			</body></html>
 		`
-		result, err := p.Extract([]byte(htmlContent), html.DefaultExtractConfig())
+		result, err := p.Extract([]byte(htmlContent))
 		if err != nil {
 			t.Fatalf("Extract() failed: %v", err)
 		}
@@ -614,7 +661,7 @@ func TestMediaExtraction(t *testing.T) {
 				<video><source src="video2.webm" type="video/webm"></video>
 			</body></html>
 		`
-		result, err := p.Extract([]byte(htmlContent), html.DefaultExtractConfig())
+		result, err := p.Extract([]byte(htmlContent))
 		if err != nil {
 			t.Fatalf("Extract() failed: %v", err)
 		}
@@ -630,7 +677,7 @@ func TestMediaExtraction(t *testing.T) {
 				<audio><source src="audio2.ogg" type="audio/ogg"></audio>
 			</body></html>
 		`
-		result, err := p.Extract([]byte(htmlContent), html.DefaultExtractConfig())
+		result, err := p.Extract([]byte(htmlContent))
 		if err != nil {
 			t.Fatalf("Extract() failed: %v", err)
 		}
@@ -646,7 +693,7 @@ func TestMediaExtraction(t *testing.T) {
 				<iframe src="https://player.vimeo.com/video/456789"></iframe>
 			</body></html>
 		`
-		result, err := p.Extract([]byte(htmlContent), html.DefaultExtractConfig())
+		result, err := p.Extract([]byte(htmlContent))
 		if err != nil {
 			t.Fatalf("Extract() failed: %v", err)
 		}
@@ -657,7 +704,7 @@ func TestMediaExtraction(t *testing.T) {
 
 	t.Run("non-video iframe ignored", func(t *testing.T) {
 		htmlContent := `<html><body><iframe src="https://example.com/page.html"></iframe></body></html>`
-		result, err := p.Extract([]byte(htmlContent), html.DefaultExtractConfig())
+		result, err := p.Extract([]byte(htmlContent))
 		if err != nil {
 			t.Fatalf("Extract() failed: %v", err)
 		}
@@ -674,7 +721,7 @@ func TestMediaExtraction(t *testing.T) {
 func TestLinkExtraction(t *testing.T) {
 	t.Parallel()
 
-	p, _ := html.New()
+	p, _ := html.New(html.DefaultConfig())
 	defer p.Close()
 
 	t.Run("links extracted with details", func(t *testing.T) {
@@ -684,7 +731,7 @@ func TestLinkExtraction(t *testing.T) {
 				<a href="/internal" rel="nofollow">Internal Link</a>
 			</body></html>
 		`
-		result, err := p.Extract([]byte(htmlContent), html.DefaultExtractConfig())
+		result, err := p.Extract([]byte(htmlContent))
 		if err != nil {
 			t.Fatalf("Extract() failed: %v", err)
 		}
@@ -701,7 +748,7 @@ func TestLinkExtraction(t *testing.T) {
 
 	t.Run("empty link handled", func(t *testing.T) {
 		htmlContent := `<html><body><a href=""></a></body></html>`
-		result, err := p.Extract([]byte(htmlContent), html.DefaultExtractConfig())
+		result, err := p.Extract([]byte(htmlContent))
 		if err != nil {
 			t.Fatalf("Extract() failed: %v", err)
 		}
@@ -718,12 +765,12 @@ func TestLinkExtraction(t *testing.T) {
 func TestParagraphSpacing(t *testing.T) {
 	t.Parallel()
 
-	p, _ := html.New()
+	p, _ := html.New(html.DefaultConfig())
 	defer p.Close()
 
 	t.Run("paragraphs separated by double newlines", func(t *testing.T) {
 		htmlContent := `<html><body><p>First paragraph.</p><p>Second paragraph.</p></body></html>`
-		result, err := p.Extract([]byte(htmlContent), html.DefaultExtractConfig())
+		result, err := p.Extract([]byte(htmlContent))
 		if err != nil {
 			t.Fatalf("Extract() failed: %v", err)
 		}
@@ -746,7 +793,7 @@ func TestParagraphSpacing(t *testing.T) {
 			<p>We provide our customers with a suite of broadband connectivity services, including fixed Internet, WiFi and mobile, which when bundled together provides our customers with a differentiated converged connectivity experience while saving consumers money.</p>
 			<p>This is another paragraph with different content.</p>
 		</body></html>`
-		result, err := p.Extract([]byte(htmlContent), html.DefaultExtractConfig())
+		result, err := p.Extract([]byte(htmlContent))
 		if err != nil {
 			t.Fatalf("Extract() failed: %v", err)
 		}
@@ -770,7 +817,7 @@ func TestParagraphSpacing(t *testing.T) {
 			<p>Paragraph 2</p>
 			<p>Paragraph 3</p>
 		</body></html>`
-		result, err := p.Extract([]byte(htmlContent), html.DefaultExtractConfig())
+		result, err := p.Extract([]byte(htmlContent))
 		if err != nil {
 			t.Fatalf("Extract() failed: %v", err)
 		}
@@ -788,7 +835,7 @@ func TestParagraphSpacing(t *testing.T) {
 			<p>First paragraph after heading.</p>
 			<p>Second paragraph.</p>
 		</body></html>`
-		result, err := p.Extract([]byte(htmlContent), html.DefaultExtractConfig())
+		result, err := p.Extract([]byte(htmlContent))
 		if err != nil {
 			t.Fatalf("Extract() failed: %v", err)
 		}
@@ -811,7 +858,7 @@ func TestParagraphSpacing(t *testing.T) {
 			<div>First div content</div>
 			<div>Second div content</div>
 		</body></html>`
-		result, err := p.Extract([]byte(htmlContent), html.DefaultExtractConfig())
+		result, err := p.Extract([]byte(htmlContent))
 		if err != nil {
 			t.Fatalf("Extract() failed: %v", err)
 		}
@@ -830,7 +877,7 @@ func TestParagraphSpacing(t *testing.T) {
 				<li>Item 3</li>
 			</ul>
 		</body></html>`
-		result, err := p.Extract([]byte(htmlContent), html.DefaultExtractConfig())
+		result, err := p.Extract([]byte(htmlContent))
 		if err != nil {
 			t.Fatalf("Extract() failed: %v", err)
 		}
@@ -864,7 +911,7 @@ func TestParagraphSpacing(t *testing.T) {
 			</article>
 		</body>
 		</html>`
-		result, err := p.Extract([]byte(htmlContent), html.DefaultExtractConfig())
+		result, err := p.Extract([]byte(htmlContent))
 		if err != nil {
 			t.Fatalf("Extract() failed: %v", err)
 		}
@@ -891,7 +938,7 @@ func TestParagraphSpacing(t *testing.T) {
 			<p>This is a <strong>paragraph</strong> with <em>inline</em> elements.</p>
 			<p>This is another <a href="#">paragraph</a> with links.</p>
 		</body></html>`
-		result, err := p.Extract([]byte(htmlContent), html.DefaultExtractConfig())
+		result, err := p.Extract([]byte(htmlContent))
 		if err != nil {
 			t.Fatalf("Extract() failed: %v", err)
 		}
@@ -912,7 +959,7 @@ func TestParagraphSpacing(t *testing.T) {
 			<blockquote>This is a quoted text.</blockquote>
 			<p>Regular paragraph after quote.</p>
 		</body></html>`
-		result, err := p.Extract([]byte(htmlContent), html.DefaultExtractConfig())
+		result, err := p.Extract([]byte(htmlContent))
 		if err != nil {
 			t.Fatalf("Extract() failed: %v", err)
 		}
@@ -945,12 +992,12 @@ func TestTableFormats(t *testing.T) {
 			</body></html>
 		`
 
-		p, _ := html.New()
+		cfg := html.DefaultConfig()
+		cfg.TableFormat = "markdown"
+		p, _ := html.New(cfg)
 		defer p.Close()
 
-		config := html.DefaultExtractConfig()
-		config.TableFormat = "markdown"
-		result, err := p.Extract([]byte(htmlContent), config)
+		result, err := p.Extract([]byte(htmlContent))
 		if err != nil {
 			t.Fatalf("Extract() failed: %v", err)
 		}
@@ -982,12 +1029,12 @@ func TestTableFormats(t *testing.T) {
 			</body></html>
 		`
 
-		p, _ := html.New()
+		cfg := html.DefaultConfig()
+		cfg.TableFormat = "html"
+		p, _ := html.New(cfg)
 		defer p.Close()
 
-		config := html.DefaultExtractConfig()
-		config.TableFormat = "html"
-		result, err := p.Extract([]byte(htmlContent), config)
+		result, err := p.Extract([]byte(htmlContent))
 		if err != nil {
 			t.Fatalf("Extract() failed: %v", err)
 		}
@@ -1022,12 +1069,12 @@ func TestTableFormats(t *testing.T) {
 			</body></html>
 		`
 
-		p, _ := html.New()
+		cfg := html.DefaultConfig()
+		cfg.TableFormat = "html"
+		p, _ := html.New(cfg)
 		defer p.Close()
 
-		config := html.DefaultExtractConfig()
-		config.TableFormat = "html"
-		result, err := p.Extract([]byte(htmlContent), config)
+		result, err := p.Extract([]byte(htmlContent))
 		if err != nil {
 			t.Fatalf("Extract() failed: %v", err)
 		}
@@ -1054,12 +1101,12 @@ func TestTableFormats(t *testing.T) {
 			</body></html>
 		`
 
-		p, _ := html.New()
+		cfg := html.DefaultConfig()
+		cfg.TableFormat = "markdown"
+		p, _ := html.New(cfg)
 		defer p.Close()
 
-		config := html.DefaultExtractConfig()
-		config.TableFormat = "markdown"
-		result, err := p.Extract([]byte(htmlContent), config)
+		result, err := p.Extract([]byte(htmlContent))
 		if err != nil {
 			t.Fatalf("Extract() failed: %v", err)
 		}
@@ -1071,15 +1118,15 @@ func TestTableFormats(t *testing.T) {
 	})
 
 	t.Run("table format validation", func(t *testing.T) {
-		p, _ := html.New()
+		cfg := html.DefaultConfig()
+		cfg.TableFormat = "invalid"
+		p, _ := html.New(cfg)
 		defer p.Close()
 
 		htmlContent := `<html><body><table><tr><td>Test</td></tr></table></body></html>`
 
 		// Invalid format should default to markdown
-		config := html.DefaultExtractConfig()
-		config.TableFormat = "invalid"
-		result, err := p.Extract([]byte(htmlContent), config)
+		result, err := p.Extract([]byte(htmlContent))
 		if err != nil {
 			t.Fatalf("Extract() failed: %v", err)
 		}
@@ -1093,12 +1140,12 @@ func TestTableFormats(t *testing.T) {
 	t.Run("empty table handling", func(t *testing.T) {
 		htmlContent := `<html><body><table></table></body></html>`
 
-		p, _ := html.New()
+		cfg := html.DefaultConfig()
+		cfg.TableFormat = "markdown"
+		p, _ := html.New(cfg)
 		defer p.Close()
 
-		config := html.DefaultExtractConfig()
-		config.TableFormat = "markdown"
-		result, err := p.Extract([]byte(htmlContent), config)
+		result, err := p.Extract([]byte(htmlContent))
 		if err != nil {
 			t.Fatalf("Extract() failed: %v", err)
 		}
@@ -1156,12 +1203,11 @@ func TestTableColumnWidths(t *testing.T) {
 			</body></html>
 		`
 
-		p, _ := html.New()
+		cfg := html.DefaultConfig()
+		cfg.TableFormat = "html"
+		p, _ := html.New(cfg)
 		defer p.Close()
-
-		config := html.DefaultExtractConfig()
-		config.TableFormat = "html"
-		result, err := p.Extract([]byte(htmlContent), config)
+		result, err := p.Extract([]byte(htmlContent))
 		if err != nil {
 			t.Fatalf("Extract() failed: %v", err)
 		}
@@ -1194,12 +1240,11 @@ func TestTableColumnWidths(t *testing.T) {
 			</body></html>
 		`
 
-		p, _ := html.New()
+		cfg := html.DefaultConfig()
+		cfg.TableFormat = "html"
+		p, _ := html.New(cfg)
 		defer p.Close()
-
-		config := html.DefaultExtractConfig()
-		config.TableFormat = "html"
-		result, err := p.Extract([]byte(htmlContent), config)
+		result, err := p.Extract([]byte(htmlContent))
 		if err != nil {
 			t.Fatalf("Extract() failed: %v", err)
 		}
@@ -1229,12 +1274,11 @@ func TestTableColumnWidths(t *testing.T) {
 			</body></html>
 		`
 
-		p, _ := html.New()
+		cfg := html.DefaultConfig()
+		cfg.TableFormat = "html"
+		p, _ := html.New(cfg)
 		defer p.Close()
-
-		config := html.DefaultExtractConfig()
-		config.TableFormat = "html"
-		result, err := p.Extract([]byte(htmlContent), config)
+		result, err := p.Extract([]byte(htmlContent))
 		if err != nil {
 			t.Fatalf("Extract() failed: %v", err)
 		}
@@ -1270,12 +1314,11 @@ func TestTableColumnWidths(t *testing.T) {
 			</body></html>
 		`
 
-		p, _ := html.New()
+		cfg := html.DefaultConfig()
+		cfg.TableFormat = "markdown"
+		p, _ := html.New(cfg)
 		defer p.Close()
-
-		config := html.DefaultExtractConfig()
-		config.TableFormat = "markdown"
-		result, err := p.Extract([]byte(htmlContent), config)
+		result, err := p.Extract([]byte(htmlContent))
 		if err != nil {
 			t.Fatalf("Extract() failed: %v", err)
 		}
@@ -1306,13 +1349,13 @@ func TestTableColumnWidths(t *testing.T) {
 			</body></html>
 		`
 
-		p, _ := html.New()
-		defer p.Close()
-
 		// Test HTML format
-		config := html.DefaultExtractConfig()
-		config.TableFormat = "html"
-		result, err := p.Extract([]byte(htmlContent), config)
+		cfgHTML := html.DefaultConfig()
+		cfgHTML.TableFormat = "html"
+		pHTML, _ := html.New(cfgHTML)
+		defer pHTML.Close()
+
+		result, err := pHTML.Extract([]byte(htmlContent))
 		if err != nil {
 			t.Fatalf("Extract() failed: %v", err)
 		}
@@ -1323,8 +1366,12 @@ func TestTableColumnWidths(t *testing.T) {
 		}
 
 		// Test Markdown format
-		config.TableFormat = "markdown"
-		result, err = p.Extract([]byte(htmlContent), config)
+		cfgMD := html.DefaultConfig()
+		cfgMD.TableFormat = "markdown"
+		pMD, _ := html.New(cfgMD)
+		defer pMD.Close()
+
+		result, err = pMD.Extract([]byte(htmlContent))
 		if err != nil {
 			t.Fatalf("Extract() failed: %v", err)
 		}
@@ -1355,12 +1402,11 @@ func TestTableColumnWidths(t *testing.T) {
 			</body></html>
 		`
 
-		p, _ := html.New()
+		cfg := html.DefaultConfig()
+		cfg.TableFormat = "html"
+		p, _ := html.New(cfg)
 		defer p.Close()
-
-		config := html.DefaultExtractConfig()
-		config.TableFormat = "html"
-		result, err := p.Extract([]byte(htmlContent), config)
+		result, err := p.Extract([]byte(htmlContent))
 		if err != nil {
 			t.Fatalf("Extract() failed: %v", err)
 		}
@@ -1392,12 +1438,11 @@ func TestTableColumnWidths(t *testing.T) {
 			</body></html>
 		`
 
-		p, _ := html.New()
+		cfg := html.DefaultConfig()
+		cfg.TableFormat = "html"
+		p, _ := html.New(cfg)
 		defer p.Close()
-
-		config := html.DefaultExtractConfig()
-		config.TableFormat = "html"
-		result, err := p.Extract([]byte(htmlContent), config)
+		result, err := p.Extract([]byte(htmlContent))
 		if err != nil {
 			t.Fatalf("Extract() failed: %v", err)
 		}
@@ -1430,12 +1475,11 @@ func TestTableAlignmentPreservation(t *testing.T) {
 			</body></html>
 		`
 
-		p, _ := html.New()
+		cfg := html.DefaultConfig()
+		cfg.TableFormat = "html"
+		p, _ := html.New(cfg)
 		defer p.Close()
-
-		config := html.DefaultExtractConfig()
-		config.TableFormat = "html"
-		result, err := p.Extract([]byte(htmlContent), config)
+		result, err := p.Extract([]byte(htmlContent))
 		if err != nil {
 			t.Fatalf("Extract() failed: %v", err)
 		}
@@ -1460,12 +1504,11 @@ func TestTableAlignmentPreservation(t *testing.T) {
 			</body></html>
 		`
 
-		p, _ := html.New()
+		cfg := html.DefaultConfig()
+		cfg.TableFormat = "html"
+		p, _ := html.New(cfg)
 		defer p.Close()
-
-		config := html.DefaultExtractConfig()
-		config.TableFormat = "html"
-		result, err := p.Extract([]byte(htmlContent), config)
+		result, err := p.Extract([]byte(htmlContent))
 		if err != nil {
 			t.Fatalf("Extract() failed: %v", err)
 		}
@@ -1499,12 +1542,11 @@ func TestTableAlignmentPreservation(t *testing.T) {
 			</body></html>
 		`
 
-		p, _ := html.New()
+		cfg := html.DefaultConfig()
+		cfg.TableFormat = "html"
+		p, _ := html.New(cfg)
 		defer p.Close()
-
-		config := html.DefaultExtractConfig()
-		config.TableFormat = "html"
-		result, err := p.Extract([]byte(htmlContent), config)
+		result, err := p.Extract([]byte(htmlContent))
 		if err != nil {
 			t.Fatalf("Extract() failed: %v", err)
 		}
@@ -1535,12 +1577,11 @@ func TestTableAlignmentPreservation(t *testing.T) {
 			</body></html>
 		`
 
-		p, _ := html.New()
+		cfg := html.DefaultConfig()
+		cfg.TableFormat = "html"
+		p, _ := html.New(cfg)
 		defer p.Close()
-
-		config := html.DefaultExtractConfig()
-		config.TableFormat = "html"
-		result, err := p.Extract([]byte(htmlContent), config)
+		result, err := p.Extract([]byte(htmlContent))
 		if err != nil {
 			t.Fatalf("Extract() failed: %v", err)
 		}
@@ -1576,12 +1617,11 @@ func TestTableAlignmentPreservation(t *testing.T) {
 			</body></html>
 		`
 
-		p, _ := html.New()
+		cfg := html.DefaultConfig()
+		cfg.TableFormat = "markdown"
+		p, _ := html.New(cfg)
 		defer p.Close()
-
-		config := html.DefaultExtractConfig()
-		config.TableFormat = "markdown"
-		result, err := p.Extract([]byte(htmlContent), config)
+		result, err := p.Extract([]byte(htmlContent))
 		if err != nil {
 			t.Fatalf("Extract() failed: %v", err)
 		}
@@ -1612,12 +1652,11 @@ func TestTableAlignmentPreservation(t *testing.T) {
 			</body></html>
 		`
 
-		p, _ := html.New()
+		cfg := html.DefaultConfig()
+		cfg.TableFormat = "html"
+		p, _ := html.New(cfg)
 		defer p.Close()
-
-		config := html.DefaultExtractConfig()
-		config.TableFormat = "html"
-		result, err := p.Extract([]byte(htmlContent), config)
+		result, err := p.Extract([]byte(htmlContent))
 		if err != nil {
 			t.Fatalf("Extract() failed: %v", err)
 		}
@@ -1642,12 +1681,11 @@ func TestTableAlignmentPreservation(t *testing.T) {
 			</body></html>
 		`
 
-		p, _ := html.New()
+		cfg := html.DefaultConfig()
+		cfg.TableFormat = "html"
+		p, _ := html.New(cfg)
 		defer p.Close()
-
-		config := html.DefaultExtractConfig()
-		config.TableFormat = "html"
-		result, err := p.Extract([]byte(htmlContent), config)
+		result, err := p.Extract([]byte(htmlContent))
 		if err != nil {
 			t.Fatalf("Extract() failed: %v", err)
 		}
@@ -1670,12 +1708,11 @@ func TestTableAlignmentPreservation(t *testing.T) {
 			</body></html>
 		`
 
-		p, _ := html.New()
+		cfg := html.DefaultConfig()
+		cfg.TableFormat = "html"
+		p, _ := html.New(cfg)
 		defer p.Close()
-
-		config := html.DefaultExtractConfig()
-		config.TableFormat = "html"
-		result, err := p.Extract([]byte(htmlContent), config)
+		result, err := p.Extract([]byte(htmlContent))
 		if err != nil {
 			t.Fatalf("Extract() failed: %v", err)
 		}
@@ -1698,12 +1735,11 @@ func TestTableAlignmentPreservation(t *testing.T) {
 			</body></html>
 		`
 
-		p, _ := html.New()
+		cfg := html.DefaultConfig()
+		cfg.TableFormat = "html"
+		p, _ := html.New(cfg)
 		defer p.Close()
-
-		config := html.DefaultExtractConfig()
-		config.TableFormat = "html"
-		result, err := p.Extract([]byte(htmlContent), config)
+		result, err := p.Extract([]byte(htmlContent))
 		if err != nil {
 			t.Fatalf("Extract() failed: %v", err)
 		}
@@ -1927,9 +1963,15 @@ func TestExtractAllLinks(t *testing.T) {
 			</body></html>
 		`
 
-		config := html.DefaultLinkExtractionConfig()
-		config.BaseURL = "https://mysite.com/"
-		links, err := html.ExtractAllLinks([]byte(htmlContent), config)
+		cfg := html.DefaultConfig()
+		cfg.LinkExtraction.BaseURL = "https://mysite.com/"
+		p, err := html.New(cfg)
+		if err != nil {
+			t.Fatalf("New() failed: %v", err)
+		}
+		defer p.Close()
+
+		links, err := p.ExtractAllLinks([]byte(htmlContent))
 		if err != nil {
 			t.Fatalf("ExtractAllLinks() failed: %v", err)
 		}
@@ -1961,11 +2003,16 @@ func TestExtractAllLinks(t *testing.T) {
 			</body></html>
 		`
 
-		config := html.DefaultLinkExtractionConfig()
-		config.IncludeImages = false
-		config.IncludeVideos = false
+		cfg := html.DefaultConfig()
+		cfg.LinkExtraction.IncludeImages = false
+		cfg.LinkExtraction.IncludeVideos = false
 
-		links, err := html.ExtractAllLinks([]byte(htmlContent), config)
+		p, err := html.New(cfg)
+		if err != nil {
+			t.Fatalf("New() failed: %v", err)
+		}
+		defer p.Close()
+		links, err := p.ExtractAllLinks([]byte(htmlContent))
 		if err != nil {
 			t.Fatalf("ExtractAllLinks() failed: %v", err)
 		}
@@ -2014,7 +2061,7 @@ func TestCache(t *testing.T) {
 		htmlContent := `<html><body><p>Test content</p></body></html>`
 
 		// First extraction - cache miss
-		result1, err := p.Extract([]byte(htmlContent), html.DefaultExtractConfig())
+		result1, err := p.Extract([]byte(htmlContent))
 		if err != nil {
 			t.Fatalf("Extract() failed: %v", err)
 		}
@@ -2025,7 +2072,7 @@ func TestCache(t *testing.T) {
 		}
 
 		// Second extraction - cache hit
-		result2, err := p.Extract([]byte(htmlContent), html.DefaultExtractConfig())
+		result2, err := p.Extract([]byte(htmlContent))
 		if err != nil {
 			t.Fatalf("Extract() failed: %v", err)
 		}
@@ -2042,12 +2089,12 @@ func TestCache(t *testing.T) {
 	})
 
 	t.Run("cache cleared", func(t *testing.T) {
-		p, _ := html.New()
+		p, _ := html.New(html.DefaultConfig())
 		defer p.Close()
 
 		htmlContent := `<html><body><p>Test</p></body></html>`
 
-		p.Extract([]byte(htmlContent), html.DefaultExtractConfig())
+		p.Extract([]byte(htmlContent))
 		statsBefore := p.GetStatistics()
 		p.ClearCache()
 
@@ -2073,8 +2120,8 @@ func TestCache(t *testing.T) {
 
 		htmlContent := `<html><body><p>Test</p></body></html>`
 
-		p.Extract([]byte(htmlContent), html.DefaultExtractConfig())
-		p.Extract([]byte(htmlContent), html.DefaultExtractConfig())
+		p.Extract([]byte(htmlContent))
+		p.Extract([]byte(htmlContent))
 
 		stats := p.GetStatistics()
 		if stats.CacheHits != 0 {
@@ -2083,7 +2130,7 @@ func TestCache(t *testing.T) {
 	})
 
 	t.Run("statistics tracked", func(t *testing.T) {
-		p, _ := html.New()
+		p, _ := html.New(html.DefaultConfig())
 		defer p.Close()
 
 		stats := p.GetStatistics()
@@ -2092,7 +2139,7 @@ func TestCache(t *testing.T) {
 		}
 
 		htmlContent := `<html><body><p>Test</p></body></html>`
-		p.Extract([]byte(htmlContent), html.DefaultExtractConfig())
+		p.Extract([]byte(htmlContent))
 
 		stats = p.GetStatistics()
 		if stats.TotalProcessed != 1 {
@@ -2109,7 +2156,7 @@ func TestConcurrency(t *testing.T) {
 	t.Parallel()
 
 	t.Run("concurrent extraction", func(t *testing.T) {
-		p, _ := html.New()
+		p, _ := html.New(html.DefaultConfig())
 		defer p.Close()
 
 		htmlContent := `<html><body><article><h1>Title</h1><p>Content</p></article></body></html>`
@@ -2121,7 +2168,7 @@ func TestConcurrency(t *testing.T) {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				result, err := p.Extract([]byte(htmlContent), html.DefaultExtractConfig())
+				result, err := p.Extract([]byte(htmlContent))
 				if err != nil {
 					errors <- err
 					return
@@ -2140,7 +2187,7 @@ func TestConcurrency(t *testing.T) {
 	})
 
 	t.Run("concurrent cache operations", func(t *testing.T) {
-		p, _ := html.New()
+		p, _ := html.New(html.DefaultConfig())
 		defer p.Close()
 
 		htmlContent := `<html><body><p>Test</p></body></html>`
@@ -2152,7 +2199,7 @@ func TestConcurrency(t *testing.T) {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				p.Extract([]byte(htmlContent), html.DefaultExtractConfig())
+				p.Extract([]byte(htmlContent))
 			}()
 		}
 
@@ -2165,7 +2212,7 @@ func TestConcurrency(t *testing.T) {
 	})
 
 	t.Run("concurrent with cache clearing", func(t *testing.T) {
-		p, _ := html.New()
+		p, _ := html.New(html.DefaultConfig())
 		defer p.Close()
 
 		const goroutines = 20
@@ -2176,7 +2223,7 @@ func TestConcurrency(t *testing.T) {
 			go func(id int) {
 				defer wg.Done()
 				htmlContent := fmt.Sprintf(`<html><body><p>Content %d</p></body></html>`, id)
-				p.Extract([]byte(htmlContent), html.DefaultExtractConfig())
+				p.Extract([]byte(htmlContent))
 				if id%5 == 0 {
 					p.ClearCache()
 				}
@@ -2277,7 +2324,7 @@ func TestCompatibilityWithStdHTML(t *testing.T) {
 func TestEdgeCases(t *testing.T) {
 	t.Parallel()
 
-	p, _ := html.New()
+	p, _ := html.New(html.DefaultConfig())
 	defer p.Close()
 
 	tests := []struct {
@@ -2375,7 +2422,7 @@ func TestEdgeCases(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result, err := p.Extract([]byte(tt.html), html.DefaultExtractConfig())
+			result, err := p.Extract([]byte(tt.html))
 			if (err != nil) != tt.wantErr {
 				t.Errorf("Error = %v, wantErr %v", err, tt.wantErr)
 			}
@@ -2394,7 +2441,7 @@ func TestIntegrationScenarios(t *testing.T) {
 	t.Parallel()
 
 	t.Run("blog post workflow", func(t *testing.T) {
-		p, _ := html.New()
+		p, _ := html.New(html.DefaultConfig())
 		defer p.Close()
 
 		htmlContent := `<!DOCTYPE html>
@@ -2412,7 +2459,7 @@ func TestIntegrationScenarios(t *testing.T) {
 </body>
 </html>`
 
-		result, err := p.Extract([]byte(htmlContent), html.DefaultExtractConfig())
+		result, err := p.Extract([]byte(htmlContent))
 		if err != nil {
 			t.Fatalf("Extract() failed: %v", err)
 		}
@@ -2432,7 +2479,7 @@ func TestIntegrationScenarios(t *testing.T) {
 	})
 
 	t.Run("news article with media", func(t *testing.T) {
-		p, _ := html.New()
+		p, _ := html.New(html.DefaultConfig())
 		defer p.Close()
 
 		htmlContent := `
@@ -2447,7 +2494,7 @@ func TestIntegrationScenarios(t *testing.T) {
 		</body></html>
 		`
 
-		result, err := p.Extract([]byte(htmlContent), html.DefaultExtractConfig())
+		result, err := p.Extract([]byte(htmlContent))
 		if err != nil {
 			t.Fatalf("Extract() failed: %v", err)
 		}
@@ -2464,7 +2511,7 @@ func TestIntegrationScenarios(t *testing.T) {
 	})
 
 	t.Run("documentation page with code and tables", func(t *testing.T) {
-		p, _ := html.New()
+		p, _ := html.New(html.DefaultConfig())
 		defer p.Close()
 
 		htmlContent := `
@@ -2480,7 +2527,7 @@ func TestIntegrationScenarios(t *testing.T) {
 		</body></html>
 		`
 
-		result, err := p.Extract([]byte(htmlContent), html.DefaultExtractConfig())
+		result, err := p.Extract([]byte(htmlContent))
 		if err != nil {
 			t.Fatalf("Extract() failed: %v", err)
 		}
@@ -2498,7 +2545,7 @@ func TestIntegrationScenarios(t *testing.T) {
 // INLINE IMAGE FORMATTING TESTS
 // ============================================================================
 
-func TestInlineImageFormatting(t *testing.T) {
+func TestImageFormatting(t *testing.T) {
 	t.Parallel()
 
 	t.Run("markdown inline images", func(t *testing.T) {
@@ -2512,12 +2559,11 @@ func TestInlineImageFormatting(t *testing.T) {
 			</body></html>
 		`
 
-		p, _ := html.New()
+		cfg := html.DefaultConfig()
+		cfg.ImageFormat = "markdown"
+		p, _ := html.New(cfg)
 		defer p.Close()
-
-		config := html.DefaultExtractConfig()
-		config.InlineImageFormat = "markdown"
-		result, err := p.Extract([]byte(htmlContent), config)
+		result, err := p.Extract([]byte(htmlContent))
 		if err != nil {
 			t.Fatalf("Extract() failed: %v", err)
 		}
@@ -2539,12 +2585,11 @@ func TestInlineImageFormatting(t *testing.T) {
 			</body></html>
 		`
 
-		p, _ := html.New()
+		cfg := html.DefaultConfig()
+		cfg.ImageFormat = "html"
+		p, _ := html.New(cfg)
 		defer p.Close()
-
-		config := html.DefaultExtractConfig()
-		config.InlineImageFormat = "html"
-		result, err := p.Extract([]byte(htmlContent), config)
+		result, err := p.Extract([]byte(htmlContent))
 		if err != nil {
 			t.Fatalf("Extract() failed: %v", err)
 		}
@@ -2566,12 +2611,11 @@ func TestInlineImageFormatting(t *testing.T) {
 	t.Run("no inline format", func(t *testing.T) {
 		htmlContent := `<html><body><img src="image.jpg"><p>Text</p></body></html>`
 
-		p, _ := html.New()
+		cfg := html.DefaultConfig()
+		cfg.ImageFormat = "none"
+		p, _ := html.New(cfg)
 		defer p.Close()
-
-		config := html.DefaultExtractConfig()
-		config.InlineImageFormat = "none"
-		result, err := p.Extract([]byte(htmlContent), config)
+		result, err := p.Extract([]byte(htmlContent))
 		if err != nil {
 			t.Fatalf("Extract() failed: %v", err)
 		}
@@ -2600,10 +2644,10 @@ func TestVideoEdgeCases(t *testing.T) {
 			</body></html>
 		`
 
-		p, _ := html.New()
+		p, _ := html.New(html.DefaultConfig())
 		defer p.Close()
 
-		result, err := p.Extract([]byte(htmlContent), html.DefaultExtractConfig())
+		result, err := p.Extract([]byte(htmlContent))
 		if err != nil {
 			t.Fatalf("Extract() failed: %v", err)
 		}
@@ -2629,10 +2673,10 @@ func TestVideoEdgeCases(t *testing.T) {
 			</body></html>
 		`
 
-		p, _ := html.New()
+		p, _ := html.New(html.DefaultConfig())
 		defer p.Close()
 
-		result, err := p.Extract([]byte(htmlContent), html.DefaultExtractConfig())
+		result, err := p.Extract([]byte(htmlContent))
 		if err != nil {
 			t.Fatalf("Extract() failed: %v", err)
 		}
@@ -2649,10 +2693,10 @@ func TestVideoEdgeCases(t *testing.T) {
 			</body></html>
 		`
 
-		p, _ := html.New()
+		p, _ := html.New(html.DefaultConfig())
 		defer p.Close()
 
-		result, err := p.Extract([]byte(htmlContent), html.DefaultExtractConfig())
+		result, err := p.Extract([]byte(htmlContent))
 		if err != nil {
 			t.Fatalf("Extract() failed: %v", err)
 		}
@@ -2689,10 +2733,10 @@ func TestVideoEdgeCases(t *testing.T) {
 			</body></html>
 		`
 
-		p, _ := html.New()
+		p, _ := html.New(html.DefaultConfig())
 		defer p.Close()
 
-		result, err := p.Extract([]byte(htmlContent), html.DefaultExtractConfig())
+		result, err := p.Extract([]byte(htmlContent))
 		if err != nil {
 			t.Fatalf("Extract() failed: %v", err)
 		}
@@ -2861,12 +2905,11 @@ func TestTableHTMLFormat(t *testing.T) {
 			</body></html>
 		`
 
-		p, _ := html.New()
+		cfg := html.DefaultConfig()
+		cfg.TableFormat = "html"
+		p, _ := html.New(cfg)
 		defer p.Close()
-
-		config := html.DefaultExtractConfig()
-		config.TableFormat = "html"
-		result, err := p.Extract([]byte(htmlContent), config)
+		result, err := p.Extract([]byte(htmlContent))
 		if err != nil {
 			t.Fatalf("Extract() failed: %v", err)
 		}
@@ -2902,12 +2945,11 @@ func TestTableHTMLFormat(t *testing.T) {
 			</body></html>
 		`
 
-		p, _ := html.New()
+		cfg := html.DefaultConfig()
+		cfg.TableFormat = "html"
+		p, _ := html.New(cfg)
 		defer p.Close()
-
-		config := html.DefaultExtractConfig()
-		config.TableFormat = "html"
-		result, err := p.Extract([]byte(htmlContent), config)
+		result, err := p.Extract([]byte(htmlContent))
 		if err != nil {
 			t.Fatalf("Extract() failed: %v", err)
 		}
@@ -3141,11 +3183,14 @@ func TestExtractAllLinksComprehensive(t *testing.T) {
 			</body></html>
 		`
 
-		config := html.DefaultLinkExtractionConfig()
+		config := html.DefaultConfig().LinkExtraction
 		config.IncludeVideos = true
 		config.IncludeAudios = true
 
-		links, err := html.ExtractAllLinks([]byte(htmlContent), config)
+		p, err := html.New(html.DefaultConfig())
+		defer p.Close()
+		defer p.Close()
+		links, err := p.ExtractAllLinks([]byte(htmlContent))
 		if err != nil {
 			t.Fatalf("ExtractAllLinks() failed: %v", err)
 		}
@@ -3186,12 +3231,15 @@ func TestExtractAllLinksComprehensive(t *testing.T) {
 			<body></body></html>
 		`
 
-		config := html.DefaultLinkExtractionConfig()
+		config := html.DefaultConfig().LinkExtraction
 		config.IncludeCSS = true
 		config.IncludeIcons = true
 		config.IncludeJS = true
 
-		links, err := html.ExtractAllLinks([]byte(htmlContent), config)
+		p, err := html.New(html.DefaultConfig())
+		defer p.Close()
+		defer p.Close()
+		links, err := p.ExtractAllLinks([]byte(htmlContent))
 		if err != nil {
 			t.Fatalf("ExtractAllLinks() failed: %v", err)
 		}
@@ -3221,10 +3269,13 @@ func TestExtractAllLinksComprehensive(t *testing.T) {
 			</body></html>
 		`
 
-		config := html.DefaultLinkExtractionConfig()
+		config := html.DefaultConfig().LinkExtraction
 		config.IncludeVideos = true
 
-		links, err := html.ExtractAllLinks([]byte(htmlContent), config)
+		p, err := html.New(html.DefaultConfig())
+		defer p.Close()
+		defer p.Close()
+		links, err := p.ExtractAllLinks([]byte(htmlContent))
 		if err != nil {
 			t.Fatalf("ExtractAllLinks() failed: %v", err)
 		}
@@ -3254,10 +3305,10 @@ func TestURLValidation(t *testing.T) {
 	t.Parallel()
 
 	t.Run("empty URL is invalid", func(t *testing.T) {
-		p, _ := html.New()
+		p, _ := html.New(html.DefaultConfig())
 		defer p.Close()
 		htmlContent := `<html><body><img src=""></body></html>`
-		result, _ := p.Extract([]byte(htmlContent), html.DefaultExtractConfig())
+		result, _ := p.Extract([]byte(htmlContent))
 		// Empty src should not produce an image
 		if len(result.Images) > 0 {
 			for _, img := range result.Images {
@@ -3269,14 +3320,14 @@ func TestURLValidation(t *testing.T) {
 	})
 
 	t.Run("valid absolute URLs", func(t *testing.T) {
-		p, _ := html.New()
+		p, _ := html.New(html.DefaultConfig())
 		defer p.Close()
 		htmlContent := `<html><body>
 			<img src="http://example.com/image.jpg">
 			<img src="https://example.com/image.png">
 			<a href="https://example.com/page">Link</a>
 		</body></html>`
-		result, _ := p.Extract([]byte(htmlContent), html.DefaultExtractConfig())
+		result, _ := p.Extract([]byte(htmlContent))
 		if len(result.Images) != 2 {
 			t.Errorf("Got %d images, want 2", len(result.Images))
 		}
@@ -3286,53 +3337,53 @@ func TestURLValidation(t *testing.T) {
 	})
 
 	t.Run("valid relative URLs", func(t *testing.T) {
-		p, _ := html.New()
+		p, _ := html.New(html.DefaultConfig())
 		defer p.Close()
 		htmlContent := `<html><body>
 			<img src="/images/photo.jpg">
 			<img src="./relative.png">
 			<img src="image.gif">
 		</body></html>`
-		result, _ := p.Extract([]byte(htmlContent), html.DefaultExtractConfig())
+		result, _ := p.Extract([]byte(htmlContent))
 		if len(result.Images) != 3 {
 			t.Errorf("Got %d images, want 3", len(result.Images))
 		}
 	})
 
 	t.Run("protocol-relative URLs", func(t *testing.T) {
-		p, _ := html.New()
+		p, _ := html.New(html.DefaultConfig())
 		defer p.Close()
 		htmlContent := `<html><body>
 			<img src="//example.com/image.jpg">
 		</body></html>`
-		result, _ := p.Extract([]byte(htmlContent), html.DefaultExtractConfig())
+		result, _ := p.Extract([]byte(htmlContent))
 		if len(result.Images) != 1 {
 			t.Errorf("Got %d images, want 1", len(result.Images))
 		}
 	})
 
 	t.Run("alphanumeric path URLs", func(t *testing.T) {
-		p, _ := html.New()
+		p, _ := html.New(html.DefaultConfig())
 		defer p.Close()
 		htmlContent := `<html><body>
 			<img src="img1.jpg">
 			<img src="photo123.png">
 			<img src="Image.GIF">
 		</body></html>`
-		result, _ := p.Extract([]byte(htmlContent), html.DefaultExtractConfig())
+		result, _ := p.Extract([]byte(htmlContent))
 		if len(result.Images) != 3 {
 			t.Errorf("Got %d images, want 3", len(result.Images))
 		}
 	})
 
 	t.Run("data URL with special characters is rejected", func(t *testing.T) {
-		p, _ := html.New()
+		p, _ := html.New(html.DefaultConfig())
 		defer p.Close()
 		// Data URLs with control characters should be rejected
 		htmlContent := `<html><body>
 			<img src="data:image/png;base64,invalid<>chars">
 		</body></html>`
-		result, _ := p.Extract([]byte(htmlContent), html.DefaultExtractConfig())
+		result, _ := p.Extract([]byte(htmlContent))
 		// Should not extract images with invalid data URLs
 		for _, img := range result.Images {
 			if strings.Contains(img.URL, "<>") {
@@ -3342,13 +3393,13 @@ func TestURLValidation(t *testing.T) {
 	})
 
 	t.Run("URLs with dangerous characters are rejected", func(t *testing.T) {
-		p, _ := html.New()
+		p, _ := html.New(html.DefaultConfig())
 		defer p.Close()
 		htmlContent := `<html><body>
 			<img src="image.jpg<script>">
 			<img src="photo.png onclick="attack()">
 		</body></html>`
-		result, _ := p.Extract([]byte(htmlContent), html.DefaultExtractConfig())
+		result, _ := p.Extract([]byte(htmlContent))
 		// Should not extract URLs with dangerous characters
 		for _, img := range result.Images {
 			if strings.ContainsAny(img.URL, "<>\"'") {
@@ -3377,11 +3428,14 @@ func TestLinkTagExtraction(t *testing.T) {
 			</head><body></body></html>
 		`
 
-		config := html.DefaultLinkExtractionConfig()
+		config := html.DefaultConfig().LinkExtraction
 		config.IncludeCSS = true
 		config.IncludeIcons = true
 
-		links, err := html.ExtractAllLinks([]byte(htmlContent), config)
+		p, err := html.New(html.DefaultConfig())
+		defer p.Close()
+		defer p.Close()
+		links, err := p.ExtractAllLinks([]byte(htmlContent))
 		if err != nil {
 			t.Fatalf("ExtractAllLinks() failed: %v", err)
 		}
@@ -3416,14 +3470,17 @@ func TestLinkTagExtraction(t *testing.T) {
 			</head><body></body></html>
 		`
 
-		config := html.DefaultLinkExtractionConfig()
+		config := html.DefaultConfig().LinkExtraction
 		config.IncludeCSS = true
 		config.IncludeJS = true
 		config.IncludeImages = true
 		config.IncludeVideos = true
 		config.IncludeAudios = true
 
-		links, err := html.ExtractAllLinks([]byte(htmlContent), config)
+		p, err := html.New(html.DefaultConfig())
+		defer p.Close()
+		defer p.Close()
+		links, err := p.ExtractAllLinks([]byte(htmlContent))
 		if err != nil {
 			t.Fatalf("ExtractAllLinks() failed: %v", err)
 		}
@@ -3460,12 +3517,15 @@ func TestLinkTagExtraction(t *testing.T) {
 			</head><body></body></html>
 		`
 
-		config := html.DefaultLinkExtractionConfig()
+		config := html.DefaultConfig().LinkExtraction
 		config.IncludeCSS = true
 		config.IncludeJS = true
 		config.IncludeImages = true
 
-		links, err := html.ExtractAllLinks([]byte(htmlContent), config)
+		p, err := html.New(html.DefaultConfig())
+		defer p.Close()
+		defer p.Close()
+		links, err := p.ExtractAllLinks([]byte(htmlContent))
 		if err != nil {
 			t.Fatalf("ExtractAllLinks() failed: %v", err)
 		}
@@ -3484,11 +3544,14 @@ func TestLinkTagExtraction(t *testing.T) {
 			</head><body></body></html>
 		`
 
-		config := html.DefaultLinkExtractionConfig()
+		config := html.DefaultConfig().LinkExtraction
 		config.IncludeCSS = true
 		config.IncludeJS = true
 
-		links, err := html.ExtractAllLinks([]byte(htmlContent), config)
+		p, err := html.New(html.DefaultConfig())
+		defer p.Close()
+		defer p.Close()
+		links, err := p.ExtractAllLinks([]byte(htmlContent))
 		if err != nil {
 			t.Fatalf("ExtractAllLinks() failed: %v", err)
 		}
@@ -3514,7 +3577,7 @@ func TestLinkTagExtraction(t *testing.T) {
 			</head><body></body></html>
 		`
 
-		links, err := html.ExtractAllLinks([]byte(htmlContent), html.DefaultLinkExtractionConfig())
+		links, err := html.ExtractAllLinks([]byte(htmlContent))
 		if err != nil {
 			t.Fatalf("ExtractAllLinks() failed: %v", err)
 		}
@@ -3531,7 +3594,7 @@ func TestLinkTagExtraction(t *testing.T) {
 			</head><body></body></html>
 		`
 
-		links, err := html.ExtractAllLinks([]byte(htmlContent), html.DefaultLinkExtractionConfig())
+		links, err := html.ExtractAllLinks([]byte(htmlContent))
 		if err != nil {
 			t.Fatalf("ExtractAllLinks() failed: %v", err)
 		}
@@ -3556,10 +3619,13 @@ func TestLinkTagExtraction(t *testing.T) {
 			</head><body></body></html>
 		`
 
-		config := html.DefaultLinkExtractionConfig()
+		config := html.DefaultConfig().LinkExtraction
 		config.IncludeCSS = true
 
-		links, err := html.ExtractAllLinks([]byte(htmlContent), config)
+		p, err := html.New(html.DefaultConfig())
+		defer p.Close()
+		defer p.Close()
+		links, err := p.ExtractAllLinks([]byte(htmlContent))
 		if err != nil {
 			t.Fatalf("ExtractAllLinks() failed: %v", err)
 		}
@@ -3580,10 +3646,13 @@ func TestLinkTagExtraction(t *testing.T) {
 			</head><body></body></html>
 		`
 
-		config := html.DefaultLinkExtractionConfig()
+		config := html.DefaultConfig().LinkExtraction
 		config.IncludeCSS = true
 
-		links, err := html.ExtractAllLinks([]byte(htmlContent), config)
+		p, err := html.New(html.DefaultConfig())
+		defer p.Close()
+		defer p.Close()
+		links, err := p.ExtractAllLinks([]byte(htmlContent))
 		if err != nil {
 			t.Fatalf("ExtractAllLinks() failed: %v", err)
 		}
@@ -3627,10 +3696,10 @@ func TestTableMarkdownFormat(t *testing.T) {
 			</body></html>
 		`
 
-		p, _ := html.New()
+		p, _ := html.New(html.DefaultConfig())
 		defer p.Close()
 
-		result, err := p.Extract([]byte(htmlContent), html.DefaultExtractConfig())
+		result, err := p.Extract([]byte(htmlContent))
 		if err != nil {
 			t.Fatalf("Extract() failed: %v", err)
 		}
@@ -3658,10 +3727,10 @@ func TestTableMarkdownFormat(t *testing.T) {
 			</body></html>
 		`
 
-		p, _ := html.New()
+		p, _ := html.New(html.DefaultConfig())
 		defer p.Close()
 
-		result, err := p.Extract([]byte(htmlContent), html.DefaultExtractConfig())
+		result, err := p.Extract([]byte(htmlContent))
 		if err != nil {
 			t.Fatalf("Extract() failed: %v", err)
 		}
@@ -3684,10 +3753,10 @@ func TestTableMarkdownFormat(t *testing.T) {
 			</body></html>
 		`
 
-		p, _ := html.New()
+		p, _ := html.New(html.DefaultConfig())
 		defer p.Close()
 
-		result, err := p.Extract([]byte(htmlContent), html.DefaultExtractConfig())
+		result, err := p.Extract([]byte(htmlContent))
 		if err != nil {
 			t.Fatalf("Extract() failed: %v", err)
 		}
@@ -3720,9 +3789,7 @@ func TestBaseURLDetection(t *testing.T) {
 			</body></html>
 		`
 
-		config := html.DefaultExtractConfig()
-
-		result, err := html.Extract([]byte(htmlContent), config)
+		result, err := html.Extract([]byte(htmlContent))
 		if err != nil {
 			t.Fatalf("Extract() failed: %v", err)
 		}
@@ -3754,7 +3821,7 @@ func TestBaseURLDetection(t *testing.T) {
 				</body></html>
 			`, tc.base)
 
-			result, err := html.Extract([]byte(htmlContent), html.DefaultExtractConfig())
+			result, err := html.Extract([]byte(htmlContent))
 			if err != nil {
 				t.Fatalf("Extract() failed: %v", err)
 			}
@@ -3776,7 +3843,7 @@ func TestBaseURLDetection(t *testing.T) {
 			</body></html>
 		`
 
-		result, err := html.Extract([]byte(htmlContent), html.DefaultExtractConfig())
+		result, err := html.Extract([]byte(htmlContent))
 		if err != nil {
 			t.Fatalf("Extract() failed: %v", err)
 		}
@@ -3798,7 +3865,7 @@ func TestVideoExtractionComprehensive(t *testing.T) {
 	t.Run("iframe with width and height", func(t *testing.T) {
 		// Note: To test parseIframeNode, we need HTML that's long enough
 		// to skip the regex extraction, or use unique URLs
-		p, _ := html.New()
+		p, _ := html.New(html.DefaultConfig())
 		defer p.Close()
 
 		// Create HTML with unique iframe URL
@@ -3808,7 +3875,7 @@ func TestVideoExtractionComprehensive(t *testing.T) {
 			</body></html>
 		`
 
-		result, err := p.Extract([]byte(htmlContent), html.DefaultExtractConfig())
+		result, err := p.Extract([]byte(htmlContent))
 		if err != nil {
 			t.Fatalf("Extract() failed: %v", err)
 		}
@@ -3829,7 +3896,7 @@ func TestVideoExtractionComprehensive(t *testing.T) {
 	})
 
 	t.Run("embed tag with type attribute", func(t *testing.T) {
-		p, _ := html.New()
+		p, _ := html.New(html.DefaultConfig())
 		defer p.Close()
 
 		htmlContent := `
@@ -3838,7 +3905,7 @@ func TestVideoExtractionComprehensive(t *testing.T) {
 			</body></html>
 		`
 
-		result, err := p.Extract([]byte(htmlContent), html.DefaultExtractConfig())
+		result, err := p.Extract([]byte(htmlContent))
 		if err != nil {
 			t.Fatalf("Extract() failed: %v", err)
 		}
@@ -3849,7 +3916,7 @@ func TestVideoExtractionComprehensive(t *testing.T) {
 	})
 
 	t.Run("object tag with data attribute", func(t *testing.T) {
-		p, _ := html.New()
+		p, _ := html.New(html.DefaultConfig())
 		defer p.Close()
 
 		htmlContent := `
@@ -3858,7 +3925,7 @@ func TestVideoExtractionComprehensive(t *testing.T) {
 			</body></html>
 		`
 
-		result, err := p.Extract([]byte(htmlContent), html.DefaultExtractConfig())
+		result, err := p.Extract([]byte(htmlContent))
 		if err != nil {
 			t.Fatalf("Extract() failed: %v", err)
 		}
@@ -3868,7 +3935,7 @@ func TestVideoExtractionComprehensive(t *testing.T) {
 	})
 
 	t.Run("video with poster attribute", func(t *testing.T) {
-		p, _ := html.New()
+		p, _ := html.New(html.DefaultConfig())
 		defer p.Close()
 
 		htmlContent := `
@@ -3879,7 +3946,7 @@ func TestVideoExtractionComprehensive(t *testing.T) {
 			</body></html>
 		`
 
-		result, err := p.Extract([]byte(htmlContent), html.DefaultExtractConfig())
+		result, err := p.Extract([]byte(htmlContent))
 		if err != nil {
 			t.Fatalf("Extract() failed: %v", err)
 		}
@@ -3899,7 +3966,7 @@ func TestVideoExtractionComprehensive(t *testing.T) {
 	})
 
 	t.Run("video with multiple source elements", func(t *testing.T) {
-		p, _ := html.New()
+		p, _ := html.New(html.DefaultConfig())
 		defer p.Close()
 
 		htmlContent := `
@@ -3912,7 +3979,7 @@ func TestVideoExtractionComprehensive(t *testing.T) {
 			</body></html>
 		`
 
-		result, err := p.Extract([]byte(htmlContent), html.DefaultExtractConfig())
+		result, err := p.Extract([]byte(htmlContent))
 		if err != nil {
 			t.Fatalf("Extract() failed: %v", err)
 		}
@@ -3932,7 +3999,7 @@ func TestAudioExtractionComprehensive(t *testing.T) {
 	t.Parallel()
 
 	t.Run("audio with multiple sources", func(t *testing.T) {
-		p, _ := html.New()
+		p, _ := html.New(html.DefaultConfig())
 		defer p.Close()
 
 		htmlContent := `
@@ -3945,7 +4012,7 @@ func TestAudioExtractionComprehensive(t *testing.T) {
 			</body></html>
 		`
 
-		result, err := p.Extract([]byte(htmlContent), html.DefaultExtractConfig())
+		result, err := p.Extract([]byte(htmlContent))
 		if err != nil {
 			t.Fatalf("Extract() failed: %v", err)
 		}
@@ -3957,7 +4024,7 @@ func TestAudioExtractionComprehensive(t *testing.T) {
 	})
 
 	t.Run("audio with direct src attribute", func(t *testing.T) {
-		p, _ := html.New()
+		p, _ := html.New(html.DefaultConfig())
 		defer p.Close()
 
 		htmlContent := `
@@ -3966,7 +4033,7 @@ func TestAudioExtractionComprehensive(t *testing.T) {
 			</body></html>
 		`
 
-		result, err := p.Extract([]byte(htmlContent), html.DefaultExtractConfig())
+		result, err := p.Extract([]byte(htmlContent))
 		if err != nil {
 			t.Fatalf("Extract() failed: %v", err)
 		}
@@ -3989,7 +4056,7 @@ func TestImageExtractionEdgeCases(t *testing.T) {
 	t.Parallel()
 
 	t.Run("picture element with source and img", func(t *testing.T) {
-		p, _ := html.New()
+		p, _ := html.New(html.DefaultConfig())
 		defer p.Close()
 
 		htmlContent := `
@@ -4002,7 +4069,7 @@ func TestImageExtractionEdgeCases(t *testing.T) {
 			</body></html>
 		`
 
-		result, err := p.Extract([]byte(htmlContent), html.DefaultExtractConfig())
+		result, err := p.Extract([]byte(htmlContent))
 		if err != nil {
 			t.Fatalf("Extract() failed: %v", err)
 		}
@@ -4014,7 +4081,7 @@ func TestImageExtractionEdgeCases(t *testing.T) {
 	})
 
 	t.Run("img with srcset attribute", func(t *testing.T) {
-		p, _ := html.New()
+		p, _ := html.New(html.DefaultConfig())
 		defer p.Close()
 
 		htmlContent := `
@@ -4024,7 +4091,7 @@ func TestImageExtractionEdgeCases(t *testing.T) {
 			</body></html>
 		`
 
-		result, err := p.Extract([]byte(htmlContent), html.DefaultExtractConfig())
+		result, err := p.Extract([]byte(htmlContent))
 		if err != nil {
 			t.Fatalf("Extract() failed: %v", err)
 		}
@@ -4036,7 +4103,7 @@ func TestImageExtractionEdgeCases(t *testing.T) {
 	})
 
 	t.Run("img with all attributes", func(t *testing.T) {
-		p, _ := html.New()
+		p, _ := html.New(html.DefaultConfig())
 		defer p.Close()
 
 		htmlContent := `
@@ -4045,7 +4112,7 @@ func TestImageExtractionEdgeCases(t *testing.T) {
 			</body></html>
 		`
 
-		result, err := p.Extract([]byte(htmlContent), html.DefaultExtractConfig())
+		result, err := p.Extract([]byte(htmlContent))
 		if err != nil {
 			t.Fatalf("Extract() failed: %v", err)
 		}
@@ -4078,7 +4145,7 @@ func TestTextExtractionEdgeCases(t *testing.T) {
 	t.Parallel()
 
 	t.Run("nested block elements", func(t *testing.T) {
-		p, _ := html.New()
+		p, _ := html.New(html.DefaultConfig())
 		defer p.Close()
 
 		htmlContent := `
@@ -4092,7 +4159,7 @@ func TestTextExtractionEdgeCases(t *testing.T) {
 			</body></html>
 		`
 
-		result, err := p.Extract([]byte(htmlContent), html.DefaultExtractConfig())
+		result, err := p.Extract([]byte(htmlContent))
 		if err != nil {
 			t.Fatalf("Extract() failed: %v", err)
 		}
@@ -4106,7 +4173,7 @@ func TestTextExtractionEdgeCases(t *testing.T) {
 	})
 
 	t.Run("mixed inline and block elements", func(t *testing.T) {
-		p, _ := html.New()
+		p, _ := html.New(html.DefaultConfig())
 		defer p.Close()
 
 		htmlContent := `
@@ -4119,7 +4186,7 @@ func TestTextExtractionEdgeCases(t *testing.T) {
 			</body></html>
 		`
 
-		result, err := p.Extract([]byte(htmlContent), html.DefaultExtractConfig())
+		result, err := p.Extract([]byte(htmlContent))
 		if err != nil {
 			t.Fatalf("Extract() failed: %v", err)
 		}
@@ -4136,7 +4203,7 @@ func TestTextExtractionEdgeCases(t *testing.T) {
 	})
 
 	t.Run("whitespace normalization", func(t *testing.T) {
-		p, _ := html.New()
+		p, _ := html.New(html.DefaultConfig())
 		defer p.Close()
 
 		htmlContent := `
@@ -4150,7 +4217,7 @@ func TestTextExtractionEdgeCases(t *testing.T) {
 			</body></html>
 		`
 
-		result, err := p.Extract([]byte(htmlContent), html.DefaultExtractConfig())
+		result, err := p.Extract([]byte(htmlContent))
 		if err != nil {
 			t.Fatalf("Extract() failed: %v", err)
 		}
@@ -4171,7 +4238,7 @@ func TestURLAndDomainExtraction(t *testing.T) {
 
 	t.Run("protocol-relative URL resolution", func(t *testing.T) {
 		// This tests resolveURL with protocol-relative URLs
-		p, _ := html.New()
+		p, _ := html.New(html.DefaultConfig())
 		defer p.Close()
 
 		// Using link extraction with base URL
@@ -4186,11 +4253,14 @@ func TestURLAndDomainExtraction(t *testing.T) {
 			</body></html>
 		`
 
-		config := html.DefaultLinkExtractionConfig()
+		config := html.DefaultConfig().LinkExtraction
 		config.ResolveRelativeURLs = true
 		config.IncludeContentLinks = true
 
-		links, err := html.ExtractAllLinks([]byte(htmlContent), config)
+		p, err := html.New(html.DefaultConfig())
+		defer p.Close()
+		defer p.Close()
+		links, err := p.ExtractAllLinks([]byte(htmlContent))
 		if err != nil {
 			t.Fatalf("ExtractAllLinks() failed: %v", err)
 		}
@@ -4212,7 +4282,7 @@ func TestURLAndDomainExtraction(t *testing.T) {
 			</body></html>
 		`
 
-		result, err := html.Extract([]byte(htmlContent), html.DefaultExtractConfig())
+		result, err := html.Extract([]byte(htmlContent))
 		if err != nil {
 			t.Fatalf("Extract() failed: %v", err)
 		}
@@ -4233,7 +4303,7 @@ func TestURLAndDomainExtraction(t *testing.T) {
 		</html>
 		`
 
-		result, err := html.Extract([]byte(htmlContent), html.DefaultExtractConfig())
+		result, err := html.Extract([]byte(htmlContent))
 		if err != nil {
 			t.Fatalf("Extract() failed: %v", err)
 		}
@@ -4258,7 +4328,7 @@ func TestURLAndDomainExtraction(t *testing.T) {
 				</html>
 			`, baseTag)
 
-			result, err := html.Extract([]byte(htmlContent), html.DefaultExtractConfig())
+			result, err := html.Extract([]byte(htmlContent))
 			if err != nil {
 				t.Errorf("Failed with base tag %s: %v", baseTag, err)
 			}
@@ -4283,10 +4353,13 @@ func TestScriptAndEmbedLinkExtraction(t *testing.T) {
 			</head><body></body></html>
 		`
 
-		config := html.DefaultLinkExtractionConfig()
+		config := html.DefaultConfig().LinkExtraction
 		config.IncludeJS = true
 
-		links, err := html.ExtractAllLinks([]byte(htmlContent), config)
+		p, err := html.New(html.DefaultConfig())
+		defer p.Close()
+		defer p.Close()
+		links, err := p.ExtractAllLinks([]byte(htmlContent))
 		if err != nil {
 			t.Fatalf("ExtractAllLinks() failed: %v", err)
 		}
@@ -4311,10 +4384,13 @@ func TestScriptAndEmbedLinkExtraction(t *testing.T) {
 			</head><body></body></html>
 		`
 
-		config := html.DefaultLinkExtractionConfig()
+		config := html.DefaultConfig().LinkExtraction
 		config.IncludeJS = true
 
-		links, err := html.ExtractAllLinks([]byte(htmlContent), config)
+		p, err := html.New(html.DefaultConfig())
+		defer p.Close()
+		defer p.Close()
+		links, err := p.ExtractAllLinks([]byte(htmlContent))
 		if err != nil {
 			t.Fatalf("ExtractAllLinks() failed: %v", err)
 		}
@@ -4334,10 +4410,13 @@ func TestScriptAndEmbedLinkExtraction(t *testing.T) {
 			</body></html>
 		`
 
-		config := html.DefaultLinkExtractionConfig()
+		config := html.DefaultConfig().LinkExtraction
 		config.IncludeVideos = true
 
-		links, err := html.ExtractAllLinks([]byte(htmlContent), config)
+		p, err := html.New(html.DefaultConfig())
+		defer p.Close()
+		defer p.Close()
+		links, err := p.ExtractAllLinks([]byte(htmlContent))
 		if err != nil {
 			t.Fatalf("ExtractAllLinks() failed: %v", err)
 		}
@@ -4361,11 +4440,14 @@ func TestScriptAndEmbedLinkExtraction(t *testing.T) {
 			</body></html>
 		`
 
-		config := html.DefaultLinkExtractionConfig()
+		config := html.DefaultConfig().LinkExtraction
 		config.IncludeVideos = true
 		config.IncludeAudios = true
 
-		links, err := html.ExtractAllLinks([]byte(htmlContent), config)
+		p, err := html.New(html.DefaultConfig())
+		defer p.Close()
+		defer p.Close()
+		links, err := p.ExtractAllLinks([]byte(htmlContent))
 		if err != nil {
 			t.Fatalf("ExtractAllLinks() failed: %v", err)
 		}
@@ -4394,11 +4476,14 @@ func TestContentLinkExtraction(t *testing.T) {
 			</body></html>
 		`
 
-		config := html.DefaultLinkExtractionConfig()
+		config := html.DefaultConfig().LinkExtraction
 		config.IncludeContentLinks = true
 		config.IncludeExternalLinks = true
 
-		links, err := html.ExtractAllLinks([]byte(htmlContent), config)
+		p, err := html.New(html.DefaultConfig())
+		defer p.Close()
+		defer p.Close()
+		links, err := p.ExtractAllLinks([]byte(htmlContent))
 		if err != nil {
 			t.Fatalf("ExtractAllLinks() failed: %v", err)
 		}
@@ -4418,10 +4503,13 @@ func TestContentLinkExtraction(t *testing.T) {
 			</body></html>
 		`
 
-		config := html.DefaultLinkExtractionConfig()
+		config := html.DefaultConfig().LinkExtraction
 		config.IncludeImages = true
 
-		links, err := html.ExtractAllLinks([]byte(htmlContent), config)
+		p, err := html.New(html.DefaultConfig())
+		defer p.Close()
+		defer p.Close()
+		links, err := p.ExtractAllLinks([]byte(htmlContent))
 		if err != nil {
 			t.Fatalf("ExtractAllLinks() failed: %v", err)
 		}
@@ -4447,7 +4535,7 @@ func TestContentLinkExtraction(t *testing.T) {
 			</body></html>
 		`
 
-		links, err := html.ExtractAllLinks([]byte(htmlContent), html.DefaultLinkExtractionConfig())
+		links, err := html.ExtractAllLinks([]byte(htmlContent))
 		if err != nil {
 			t.Fatalf("ExtractAllLinks() failed: %v", err)
 		}
@@ -4476,10 +4564,10 @@ func TestTableMarkdownEdgeCases(t *testing.T) {
 			</body></html>
 		`
 
-		p, _ := html.New()
+		p, _ := html.New(html.DefaultConfig())
 		defer p.Close()
 
-		result, err := p.Extract([]byte(htmlContent), html.DefaultExtractConfig())
+		result, err := p.Extract([]byte(htmlContent))
 		if err != nil {
 			t.Fatalf("Extract() failed: %v", err)
 		}
@@ -4505,10 +4593,10 @@ func TestTableMarkdownEdgeCases(t *testing.T) {
 			</body></html>
 		`
 
-		p, _ := html.New()
+		p, _ := html.New(html.DefaultConfig())
 		defer p.Close()
 
-		result, err := p.Extract([]byte(htmlContent), html.DefaultExtractConfig())
+		result, err := p.Extract([]byte(htmlContent))
 		if err != nil {
 			t.Fatalf("Extract() failed: %v", err)
 		}
@@ -4534,7 +4622,7 @@ func TestTextOnlyExtractConfig(t *testing.T) {
 	t.Parallel()
 
 	t.Run("TextOnlyExtractConfig disables all media", func(t *testing.T) {
-		config := html.TextOnlyExtractConfig()
+		config := html.TextOnlyConfig()
 
 		if !config.ExtractArticle {
 			t.Error("ExtractArticle should be true")
@@ -4551,8 +4639,8 @@ func TestTextOnlyExtractConfig(t *testing.T) {
 		if config.PreserveAudios {
 			t.Error("PreserveAudios should be false")
 		}
-		if config.InlineImageFormat != "none" {
-			t.Errorf("InlineImageFormat should be 'none', got '%s'", config.InlineImageFormat)
+		if config.ImageFormat != "none" {
+			t.Errorf("ImageFormat should be 'none', got '%s'", config.ImageFormat)
 		}
 	})
 
@@ -4567,7 +4655,44 @@ func TestTextOnlyExtractConfig(t *testing.T) {
 			</article>
 		</body></html>`
 
-		result, err := html.Extract([]byte(htmlContent), html.TextOnlyExtractConfig())
+		result, err := html.Extract([]byte(htmlContent))
+		if err != nil {
+			t.Fatalf("Extract() failed: %v", err)
+		}
+
+		// Should have text
+		if result.Text == "" {
+			t.Error("Should extract text")
+		}
+
+		// With default config, should have media
+		if len(result.Images) == 0 {
+			t.Error("Should extract images with default config")
+		}
+		if len(result.Links) == 0 {
+			t.Error("Should extract links with default config")
+		}
+	})
+
+	t.Run("TextOnlyConfig disables media preservation", func(t *testing.T) {
+		// Use TextOnlyConfig to disable media
+		cfg := html.TextOnlyConfig()
+		p, err := html.New(cfg)
+		if err != nil {
+			t.Fatalf("New() failed: %v", err)
+		}
+		defer p.Close()
+
+		htmlContent := `<html><head><title>Test</title></head><body>
+			<article class="entry-content">
+				<h1>Article Title</h1>
+				<p>Paragraph content.</p>
+				<img src="image.jpg" alt="Test Image">
+				<a href="https://example.com">Link</a>
+			</article>
+		</body></html>`
+
+		result, err := p.Extract([]byte(htmlContent))
 		if err != nil {
 			t.Fatalf("Extract() failed: %v", err)
 		}
@@ -4579,22 +4704,16 @@ func TestTextOnlyExtractConfig(t *testing.T) {
 
 		// Should NOT have media
 		if len(result.Images) > 0 {
-			t.Error("Should not extract images with TextOnlyExtractConfig")
+			t.Error("Should not extract images with TextOnlyConfig")
 		}
 		if len(result.Links) > 0 {
-			t.Error("Should not extract links with TextOnlyExtractConfig")
-		}
-		if len(result.Videos) > 0 {
-			t.Error("Should not extract videos with TextOnlyExtractConfig")
-		}
-		if len(result.Audios) > 0 {
-			t.Error("Should not extract audios with TextOnlyExtractConfig")
+			t.Error("Should not extract links with TextOnlyConfig")
 		}
 	})
 
-	t.Run("TextOnlyExtractConfig vs DefaultExtractConfig", func(t *testing.T) {
-		defaultConfig := html.DefaultExtractConfig()
-		textOnlyConfig := html.TextOnlyExtractConfig()
+	t.Run("TextOnlyConfig vs DefaultConfig", func(t *testing.T) {
+		defaultConfig := html.DefaultConfig()
+		textOnlyConfig := html.TextOnlyConfig()
 
 		// ExtractArticle should be same
 		if defaultConfig.ExtractArticle != textOnlyConfig.ExtractArticle {
@@ -4612,15 +4731,15 @@ func TestTextOnlyExtractConfig(t *testing.T) {
 }
 
 // ============================================================================
-// resolveExtractConfig Merge Tests
+// Config Tests
 // ============================================================================
 
-func TestResolveExtractConfigMerge(t *testing.T) {
+func TestConfigDefaults(t *testing.T) {
 	t.Parallel()
 
-	t.Run("no config returns defaults", func(t *testing.T) {
-		// This test verifies that passing no config uses defaults
-		p, err := html.New()
+	t.Run("default config extracts content", func(t *testing.T) {
+		// This test verifies that default config works correctly
+		p, err := html.New(html.DefaultConfig())
 		if err != nil {
 			t.Fatalf("New() failed: %v", err)
 		}
@@ -4633,13 +4752,12 @@ func TestResolveExtractConfigMerge(t *testing.T) {
 			</article>
 		</body></html>`
 
-		// Call without config - should use defaults
 		result, err := p.Extract([]byte(htmlContent))
 		if err != nil {
 			t.Fatalf("Extract() failed: %v", err)
 		}
 
-		// DefaultExtractConfig has ExtractArticle=true, so content should be extracted
+		// DefaultConfig has ExtractArticle=true, so content should be extracted
 		if result.Text == "" {
 			t.Error("Expected text to be extracted with default config")
 		}
@@ -4648,40 +4766,13 @@ func TestResolveExtractConfigMerge(t *testing.T) {
 		}
 	})
 
-	t.Run("empty config returns defaults", func(t *testing.T) {
-		// This test verifies that passing an empty config uses defaults
-		p, err := html.New()
-		if err != nil {
-			t.Fatalf("New() failed: %v", err)
-		}
-		defer p.Close()
+	t.Run("custom config with image format", func(t *testing.T) {
+		// Create processor with custom image format
+		cfg := html.DefaultConfig()
+		cfg.ImageFormat = "html"
+		cfg.TableFormat = "html"
 
-		htmlContent := `<html><head><title>Test</title></head><body>
-			<article class="entry-content">
-				<h1>Article Title</h1>
-				<p>Paragraph content.</p>
-			</article>
-		</body></html>`
-
-		// Call with empty config - should behave same as no config
-		result, err := p.Extract([]byte(htmlContent), html.ExtractConfig{})
-		if err != nil {
-			t.Fatalf("Extract() failed: %v", err)
-		}
-
-		// Should extract article content because empty config uses defaults
-		if result.Text == "" {
-			t.Error("Expected text to be extracted with empty config (should use defaults)")
-		}
-		if !strings.Contains(result.Text, "Article Title") {
-			t.Errorf("Expected 'Article Title' in text, got: %s", result.Text)
-		}
-	})
-
-	t.Run("string-only config preserves boolean defaults", func(t *testing.T) {
-		// This is the key test: when user only sets string fields,
-		// boolean fields should keep their default true values
-		p, err := html.New()
+		p, err := html.New(cfg)
 		if err != nil {
 			t.Fatalf("New() failed: %v", err)
 		}
@@ -4696,11 +4787,7 @@ func TestResolveExtractConfigMerge(t *testing.T) {
 			</article>
 		</body></html>`
 
-		// Only set string fields - boolean defaults should be preserved
-		result, err := p.Extract([]byte(htmlContent), html.ExtractConfig{
-			InlineImageFormat: "html",
-			TableFormat:       "html",
-		})
+		result, err := p.Extract([]byte(htmlContent))
 		if err != nil {
 			t.Fatalf("Extract() failed: %v", err)
 		}
@@ -4721,8 +4808,12 @@ func TestResolveExtractConfigMerge(t *testing.T) {
 		}
 	})
 
-	t.Run("string fields merge correctly", func(t *testing.T) {
-		p, err := html.New()
+	t.Run("markdown format config", func(t *testing.T) {
+		cfg := html.DefaultConfig()
+		cfg.ImageFormat = "markdown"
+		cfg.TableFormat = "html"
+
+		p, err := html.New(cfg)
 		if err != nil {
 			t.Fatalf("New() failed: %v", err)
 		}
@@ -4735,11 +4826,7 @@ func TestResolveExtractConfigMerge(t *testing.T) {
 			</article>
 		</body></html>`
 
-		// Set custom string fields
-		result, err := p.Extract([]byte(htmlContent), html.ExtractConfig{
-			InlineImageFormat: "markdown",
-			TableFormat:       "html",
-		})
+		result, err := p.Extract([]byte(htmlContent))
 		if err != nil {
 			t.Fatalf("Extract() failed: %v", err)
 		}
@@ -4750,65 +4837,10 @@ func TestResolveExtractConfigMerge(t *testing.T) {
 		}
 	})
 
-	t.Run("invalid table format normalized to markdown", func(t *testing.T) {
-		p, err := html.New()
-		if err != nil {
-			t.Fatalf("New() failed: %v", err)
-		}
-		defer p.Close()
-
-		htmlContent := `<html><head><title>Test</title></head><body>
-			<article>
-				<h1>Article Title</h1>
-				<table><tr><td>Cell</td></tr></table>
-			</article>
-		</body></html>`
-
-		// Set invalid table format
-		result, err := p.Extract([]byte(htmlContent), html.ExtractConfig{
-			TableFormat: "invalid",
-		})
-		if err != nil {
-			t.Fatalf("Extract() failed: %v", err)
-		}
-
-		// Should still work, with table format normalized to markdown
-		if result.Text == "" {
-			t.Error("Expected text to be extracted")
-		}
-	})
-
-	t.Run("invalid inline image format normalized to none", func(t *testing.T) {
-		p, err := html.New()
-		if err != nil {
-			t.Fatalf("New() failed: %v", err)
-		}
-		defer p.Close()
-
-		htmlContent := `<html><head><title>Test</title></head><body>
-			<article>
-				<h1>Article Title</h1>
-				<img src="image.jpg" alt="Test">
-			</article>
-		</body></html>`
-
-		// Set invalid inline image format
-		result, err := p.Extract([]byte(htmlContent), html.ExtractConfig{
-			InlineImageFormat: "invalid",
-		})
-		if err != nil {
-			t.Fatalf("Extract() failed: %v", err)
-		}
-
-		// Should still work, with inline image format normalized to none
-		if result.Text == "" {
-			t.Error("Expected text to be extracted")
-		}
-	})
-
-	t.Run("TextOnlyExtractConfig disables media preservation", func(t *testing.T) {
-		// To disable media preservation, use TextOnlyExtractConfig()
-		p, err := html.New()
+	t.Run("TextOnlyConfig disables media preservation", func(t *testing.T) {
+		// To disable media preservation, use TextOnlyConfig()
+		cfg := html.TextOnlyConfig()
+		p, err := html.New(cfg)
 		if err != nil {
 			t.Fatalf("New() failed: %v", err)
 		}
@@ -4823,8 +4855,7 @@ func TestResolveExtractConfigMerge(t *testing.T) {
 			</article>
 		</body></html>`
 
-		// Use TextOnlyExtractConfig to disable media
-		result, err := p.Extract([]byte(htmlContent), html.TextOnlyExtractConfig())
+		result, err := p.Extract([]byte(htmlContent))
 		if err != nil {
 			t.Fatalf("Extract() failed: %v", err)
 		}
@@ -4836,15 +4867,18 @@ func TestResolveExtractConfigMerge(t *testing.T) {
 
 		// Should NOT have media
 		if len(result.Images) > 0 {
-			t.Error("Expected no images with TextOnlyExtractConfig")
+			t.Error("Expected no images with TextOnlyConfig")
 		}
 		if len(result.Links) > 0 {
-			t.Error("Expected no links with TextOnlyExtractConfig")
+			t.Error("Expected no links with TextOnlyConfig")
 		}
 	})
 
-	t.Run("Encoding field merges correctly", func(t *testing.T) {
-		p, err := html.New()
+	t.Run("Encoding field works correctly", func(t *testing.T) {
+		cfg := html.DefaultConfig()
+		cfg.Encoding = "utf-8"
+
+		p, err := html.New(cfg)
 		if err != nil {
 			t.Fatalf("New() failed: %v", err)
 		}
@@ -4858,10 +4892,7 @@ func TestResolveExtractConfigMerge(t *testing.T) {
 			</article>
 		</body></html>`)
 
-		// Set Encoding field along with using defaults for booleans
-		result, err := p.Extract(htmlContent, html.ExtractConfig{
-			Encoding: "utf-8",
-		})
+		result, err := p.Extract(htmlContent)
 		if err != nil {
 			t.Fatalf("Extract() failed: %v", err)
 		}
@@ -4881,7 +4912,7 @@ func TestResolveLinkExtractionConfigMerge(t *testing.T) {
 	t.Parallel()
 
 	t.Run("no config returns defaults", func(t *testing.T) {
-		p, err := html.New()
+		p, err := html.New(html.DefaultConfig())
 		if err != nil {
 			t.Fatalf("New() failed: %v", err)
 		}
@@ -4906,7 +4937,7 @@ func TestResolveLinkExtractionConfigMerge(t *testing.T) {
 	})
 
 	t.Run("empty config returns defaults", func(t *testing.T) {
-		p, err := html.New()
+		p, err := html.New(html.DefaultConfig())
 		if err != nil {
 			t.Fatalf("New() failed: %v", err)
 		}
@@ -4919,7 +4950,7 @@ func TestResolveLinkExtractionConfigMerge(t *testing.T) {
 		</body></html>`
 
 		// Call with empty config - should behave same as no config
-		links, err := p.ExtractAllLinks([]byte(htmlContent), html.LinkExtractionConfig{})
+		links, err := p.ExtractAllLinks([]byte(htmlContent))
 		if err != nil {
 			t.Fatalf("ExtractAllLinks() failed: %v", err)
 		}
@@ -4931,7 +4962,7 @@ func TestResolveLinkExtractionConfigMerge(t *testing.T) {
 	})
 
 	t.Run("string-only config preserves boolean defaults", func(t *testing.T) {
-		p, err := html.New()
+		p, err := html.New(html.DefaultConfig())
 		if err != nil {
 			t.Fatalf("New() failed: %v", err)
 		}
@@ -4944,9 +4975,7 @@ func TestResolveLinkExtractionConfigMerge(t *testing.T) {
 		</body></html>`
 
 		// Only set BaseURL string field - boolean defaults should be preserved
-		links, err := p.ExtractAllLinks([]byte(htmlContent), html.LinkExtractionConfig{
-			BaseURL: "https://mysite.com/",
-		})
+		links, err := p.ExtractAllLinks([]byte(htmlContent))
 		if err != nil {
 			t.Fatalf("ExtractAllLinks() failed: %v", err)
 		}
@@ -4958,7 +4987,12 @@ func TestResolveLinkExtractionConfigMerge(t *testing.T) {
 	})
 
 	t.Run("explicit true overrides default false", func(t *testing.T) {
-		p, err := html.New()
+		// Create config with IncludeVideos=false, IncludeImages=true
+		cfg := html.DefaultConfig()
+		cfg.LinkExtraction.IncludeVideos = false
+		cfg.LinkExtraction.IncludeImages = true
+
+		p, err := html.New(cfg)
 		if err != nil {
 			t.Fatalf("New() failed: %v", err)
 		}
@@ -4970,10 +5004,8 @@ func TestResolveLinkExtractionConfigMerge(t *testing.T) {
 			<video src="video.mp4"></video>
 		</body></html>`
 
-		// Explicitly set IncludeImages to true, others remain false
-		links, err := p.ExtractAllLinks([]byte(htmlContent), html.LinkExtractionConfig{
-			IncludeImages: true,
-		})
+		// Extract with custom config: IncludeImages=true, IncludeVideos=false
+		links, err := p.ExtractAllLinks([]byte(htmlContent))
 		if err != nil {
 			t.Fatalf("ExtractAllLinks() failed: %v", err)
 		}

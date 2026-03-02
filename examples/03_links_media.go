@@ -49,10 +49,7 @@ func main() {
 	fmt.Println("Part 1: Link Extraction")
 	fmt.Println("-----------------------")
 
-	config := html.DefaultLinkExtractionConfig()
-	config.ResolveRelativeURLs = true
-
-	links, err := html.ExtractAllLinks([]byte(htmlContent), config)
+	links, err := processor.ExtractAllLinks([]byte(htmlContent))
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -63,9 +60,9 @@ func main() {
 	for _, link := range links {
 		icon := "•"
 		switch link.Type {
-		case "stylesheet":
+		case "css":
 			icon = "🎨"
-		case "content":
+		case "link":
 			icon = "📄"
 		default:
 			if strings.HasPrefix(link.URL, "https://") && !strings.Contains(link.URL, "example.com") {
@@ -76,16 +73,19 @@ func main() {
 	}
 
 	// ============================================================
-	// PART 2: Filter links by type
+	// PART 2: Filter links by type using custom config
 	// ============================================================
 	fmt.Println("\nPart 2: Filter Links by Type")
 	fmt.Println("----------------------------")
 
-	filterConfig := html.DefaultLinkExtractionConfig()
-	filterConfig.IncludeCSS = false
-	filterConfig.IncludeJS = false
+	// Create processor with filtered link extraction
+	filterConfig := html.DefaultConfig()
+	filterConfig.LinkExtraction.IncludeCSS = false
+	filterConfig.LinkExtraction.IncludeJS = false
+	filterProcessor, _ := html.New(filterConfig)
+	defer filterProcessor.Close()
 
-	filteredLinks, _ := html.ExtractAllLinks([]byte(htmlContent), filterConfig)
+	filteredLinks, _ := filterProcessor.ExtractAllLinks([]byte(htmlContent))
 	fmt.Printf("Content links only (CSS/JS excluded): %d\n", len(filteredLinks))
 
 	// ============================================================
@@ -94,7 +94,7 @@ func main() {
 	fmt.Println("\nPart 3: Image Extraction")
 	fmt.Println("------------------------")
 
-	result, _ := processor.Extract([]byte(htmlContent), html.DefaultExtractConfig())
+	result, _ := processor.Extract([]byte(htmlContent))
 
 	fmt.Printf("Found %d images:\n", len(result.Images))
 	for i, img := range result.Images {
@@ -137,24 +137,26 @@ func main() {
 	fmt.Println("----------------------------------")
 
 	// Images only
-	imageOnlyConfig := html.ExtractConfig{
-		ExtractArticle: true,
-		PreserveImages: true,
-		PreserveVideos: false,
-		PreserveAudios: false,
-	}
-	imgResult, _ := processor.Extract([]byte(htmlContent), imageOnlyConfig)
+	imageOnlyConfig := html.DefaultConfig()
+	imageOnlyConfig.PreserveImages = true
+	imageOnlyConfig.PreserveVideos = false
+	imageOnlyConfig.PreserveAudios = false
+	imageProcessor, _ := html.New(imageOnlyConfig)
+	defer imageProcessor.Close()
+
+	imgResult, _ := imageProcessor.Extract([]byte(htmlContent))
 	fmt.Printf("Images only: %d images, %d videos, %d audio\n",
 		len(imgResult.Images), len(imgResult.Videos), len(imgResult.Audios))
 
 	// Videos and audio only
-	mediaOnlyConfig := html.ExtractConfig{
-		ExtractArticle: true,
-		PreserveImages: false,
-		PreserveVideos: true,
-		PreserveAudios: true,
-	}
-	mediaResult, _ := processor.Extract([]byte(htmlContent), mediaOnlyConfig)
+	mediaOnlyConfig := html.DefaultConfig()
+	mediaOnlyConfig.PreserveImages = false
+	mediaOnlyConfig.PreserveVideos = true
+	mediaOnlyConfig.PreserveAudios = true
+	mediaProcessor, _ := html.New(mediaOnlyConfig)
+	defer mediaProcessor.Close()
+
+	mediaResult, _ := mediaProcessor.Extract([]byte(htmlContent))
 	fmt.Printf("Media only: %d images, %d videos, %d audio\n",
 		len(mediaResult.Images), len(mediaResult.Videos), len(mediaResult.Audios))
 
@@ -162,7 +164,7 @@ func main() {
 	// Summary
 	// ============================================================
 	fmt.Println("\n=== Quick Reference ===")
-	fmt.Println("Link filtering:")
+	fmt.Println("Link filtering (in Config.LinkExtraction):")
 	fmt.Println("  IncludeCSS, IncludeJS, IncludeImages, IncludeVideos, IncludeAudios")
 	fmt.Println("  IncludeContentLinks, IncludeExternalLinks, IncludeIcons")
 	fmt.Println()

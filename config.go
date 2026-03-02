@@ -3,24 +3,25 @@ package html
 import (
 	"fmt"
 	"regexp"
-	"sync"
 	"time"
 )
 
 // Default configuration values.
 const (
-	DefaultMaxInputSize      = 50 * 1024 * 1024
+	DefaultMaxInputSize      = 50 * 1024 * 1024 // 50MB
 	DefaultMaxCacheEntries   = 2000
 	DefaultWorkerPoolSize    = 4
 	DefaultCacheTTL          = time.Hour
 	DefaultMaxDepth          = 500
 	DefaultProcessingTimeout = 30 * time.Second
+)
 
-	// Configuration limits
-	maxConfigInputSize    = 50 * 1024 * 1024
+// Configuration limits - reference Default* constants for consistency
+const (
+	maxConfigInputSize    = DefaultMaxInputSize // Match DefaultMaxInputSize
 	maxConfigWorkerSize   = 256
-	maxConfigDepth        = 500
-	maxConfigCacheEntries = 100000 // Maximum 100K cache entries to prevent memory exhaustion
+	maxConfigDepth        = DefaultMaxDepth // Match DefaultMaxDepth
+	maxConfigCacheEntries = 100000          // Maximum 100K cache entries
 
 	// Processing limits
 	maxHTMLForRegex = 1000000
@@ -48,7 +49,10 @@ var (
 )
 
 // Config holds the processor configuration.
+// It unifies processor settings, extraction options, and link extraction settings
+// into a single configuration struct for simpler API usage.
 type Config struct {
+	// Processor settings
 	MaxInputSize       int
 	MaxCacheEntries    int
 	CacheTTL           time.Duration
@@ -58,11 +62,39 @@ type Config struct {
 	ProcessingTimeout  time.Duration
 	Audit              AuditConfig
 	Scorer             Scorer `json:"-"` // Optional custom scorer for content extraction
+
+	// Extraction settings
+	ExtractArticle bool
+	PreserveImages bool
+	PreserveLinks  bool
+	PreserveVideos bool
+	PreserveAudios bool
+	ImageFormat    string // Format for inline images: "none", "markdown", "html", "placeholder"
+	TableFormat    string // Format for tables: "markdown", "html"
+	Encoding       string // Character encoding of input HTML (empty for auto-detection)
+
+	// Link extraction settings
+	LinkExtraction LinkExtractionOptions
+}
+
+// LinkExtractionOptions holds the link extraction configuration.
+type LinkExtractionOptions struct {
+	ResolveRelativeURLs  bool
+	BaseURL              string
+	IncludeImages        bool
+	IncludeVideos        bool
+	IncludeAudios        bool
+	IncludeCSS           bool
+	IncludeJS            bool
+	IncludeContentLinks  bool
+	IncludeExternalLinks bool
+	IncludeIcons         bool
 }
 
 // DefaultConfig returns the default processor configuration.
 func DefaultConfig() Config {
 	return Config{
+		// Processor settings
 		MaxInputSize:       DefaultMaxInputSize,
 		MaxCacheEntries:    DefaultMaxCacheEntries,
 		CacheTTL:           DefaultCacheTTL,
@@ -71,6 +103,28 @@ func DefaultConfig() Config {
 		MaxDepth:           DefaultMaxDepth,
 		ProcessingTimeout:  DefaultProcessingTimeout,
 		Audit:              DefaultAuditConfig(),
+
+		// Extraction settings
+		ExtractArticle: true,
+		PreserveImages: true,
+		PreserveLinks:  true,
+		PreserveVideos: true,
+		PreserveAudios: true,
+		ImageFormat:    "none",
+		TableFormat:    "markdown",
+
+		// Link extraction settings
+		LinkExtraction: LinkExtractionOptions{
+			ResolveRelativeURLs:  true,
+			IncludeImages:        true,
+			IncludeVideos:        true,
+			IncludeAudios:        true,
+			IncludeCSS:           true,
+			IncludeJS:            true,
+			IncludeContentLinks:  true,
+			IncludeExternalLinks: true,
+			IncludeIcons:         true,
+		},
 	}
 }
 
@@ -86,6 +140,7 @@ func DefaultConfig() Config {
 //   - Audit logging enabled for compliance requirements
 func HighSecurityConfig() Config {
 	return Config{
+		// Processor settings
 		MaxInputSize:       10 * 1024 * 1024, // 10MB - reduced for security
 		MaxCacheEntries:    500,              // Reduced cache size
 		CacheTTL:           30 * time.Minute, // Shorter TTL
@@ -94,7 +149,48 @@ func HighSecurityConfig() Config {
 		MaxDepth:           100,              // Reduced depth limit
 		ProcessingTimeout:  10 * time.Second, // Shorter timeout
 		Audit:              HighSecurityAuditConfig(),
+
+		// Extraction settings (same as DefaultConfig)
+		ExtractArticle: true,
+		PreserveImages: true,
+		PreserveLinks:  true,
+		PreserveVideos: true,
+		PreserveAudios: true,
+		ImageFormat:    "none",
+		TableFormat:    "markdown",
+
+		// Link extraction settings (same as DefaultConfig)
+		LinkExtraction: LinkExtractionOptions{
+			ResolveRelativeURLs:  true,
+			IncludeImages:        true,
+			IncludeVideos:        true,
+			IncludeAudios:        true,
+			IncludeCSS:           true,
+			IncludeJS:            true,
+			IncludeContentLinks:  true,
+			IncludeExternalLinks: true,
+			IncludeIcons:         true,
+		},
 	}
+}
+
+// TextOnlyConfig returns a configuration for extracting plain text only.
+// This disables all media preservation (images, links, videos, audios).
+func TextOnlyConfig() Config {
+	cfg := DefaultConfig()
+	cfg.PreserveImages = false
+	cfg.PreserveLinks = false
+	cfg.PreserveVideos = false
+	cfg.PreserveAudios = false
+	return cfg
+}
+
+// MarkdownConfig returns a configuration optimized for Markdown output.
+// This enables markdown format for inline images.
+func MarkdownConfig() Config {
+	cfg := DefaultConfig()
+	cfg.ImageFormat = "markdown"
+	return cfg
 }
 
 // Validate validates the configuration and returns an error if invalid.
@@ -125,6 +221,8 @@ func (c Config) Validate() error {
 }
 
 // ExtractConfig holds the extraction configuration.
+// Deprecated: Use Config struct instead. ExtractConfig is kept for internal use
+// and backward compatibility.
 type ExtractConfig struct {
 	ExtractArticle    bool
 	PreserveImages    bool
@@ -139,21 +237,26 @@ type ExtractConfig struct {
 	Encoding string
 }
 
+// defaultExtractConfig caches the default extraction configuration to avoid repeated allocations.
+var defaultExtractConfig = ExtractConfig{
+	ExtractArticle:    true,
+	PreserveImages:    true,
+	PreserveLinks:     true,
+	PreserveVideos:    true,
+	PreserveAudios:    true,
+	InlineImageFormat: "none",
+	TableFormat:       "markdown",
+}
+
 // DefaultExtractConfig returns the default extraction configuration.
+// Deprecated: Use DefaultConfig() instead.
 func DefaultExtractConfig() ExtractConfig {
-	return ExtractConfig{
-		ExtractArticle:    true,
-		PreserveImages:    true,
-		PreserveLinks:     true,
-		PreserveVideos:    true,
-		PreserveAudios:    true,
-		InlineImageFormat: "none",
-		TableFormat:       "markdown",
-	}
+	return defaultExtractConfig
 }
 
 // TextOnlyExtractConfig returns an ExtractConfig for extracting plain text only.
 // This disables all media preservation and uses no inline image format.
+// Deprecated: Use TextOnlyConfig() instead.
 func TextOnlyExtractConfig() ExtractConfig {
 	return ExtractConfig{
 		ExtractArticle:    true,
@@ -167,33 +270,28 @@ func TextOnlyExtractConfig() ExtractConfig {
 }
 
 // LinkExtractionConfig holds the link extraction configuration.
-type LinkExtractionConfig struct {
-	ResolveRelativeURLs  bool
-	BaseURL              string
-	IncludeImages        bool
-	IncludeVideos        bool
-	IncludeAudios        bool
-	IncludeCSS           bool
-	IncludeJS            bool
-	IncludeContentLinks  bool
-	IncludeExternalLinks bool
-	IncludeIcons         bool
+// Deprecated: Use LinkExtractionOptions in Config struct instead.
+// LinkExtractionConfig is kept for internal use and backward compatibility.
+type LinkExtractionConfig = LinkExtractionOptions
+
+// defaultLinkExtractionConfig caches the default link extraction configuration.
+var defaultLinkExtractionConfig = LinkExtractionConfig{
+	ResolveRelativeURLs:  true,
+	BaseURL:              "",
+	IncludeImages:        true,
+	IncludeVideos:        true,
+	IncludeAudios:        true,
+	IncludeCSS:           true,
+	IncludeJS:            true,
+	IncludeContentLinks:  true,
+	IncludeExternalLinks: true,
+	IncludeIcons:         true,
 }
 
 // DefaultLinkExtractionConfig returns the default link extraction configuration.
+// Deprecated: Use DefaultConfig().LinkExtraction instead.
 func DefaultLinkExtractionConfig() LinkExtractionConfig {
-	return LinkExtractionConfig{
-		ResolveRelativeURLs:  true,
-		BaseURL:              "",
-		IncludeImages:        true,
-		IncludeVideos:        true,
-		IncludeAudios:        true,
-		IncludeCSS:           true,
-		IncludeJS:            true,
-		IncludeContentLinks:  true,
-		IncludeExternalLinks: true,
-		IncludeIcons:         true,
-	}
+	return defaultLinkExtractionConfig
 }
 
 // Result holds the extraction result.
@@ -207,46 +305,6 @@ type Result struct {
 	ProcessingTime time.Duration `json:"processing_time_ms"`
 	WordCount      int           `json:"word_count"`
 	ReadingTime    time.Duration `json:"reading_time_ms"`
-}
-
-// resultPool is a sync.Pool for reusing Result structs in batch processing.
-// This reduces memory allocations for high-throughput scenarios.
-var resultPool = sync.Pool{
-	New: func() any {
-		return &Result{
-			Images: make([]ImageInfo, 0, 16),
-			Links:  make([]LinkInfo, 0, 16),
-			Videos: make([]VideoInfo, 0, 4),
-			Audios: make([]AudioInfo, 0, 4),
-		}
-	},
-}
-
-// getResult gets a Result from the pool.
-// The returned Result has pre-allocated slices ready for use.
-// Call putResult when done to return it to the pool.
-func getResult() *Result {
-	return resultPool.Get().(*Result)
-}
-
-// putResult returns a Result to the pool.
-// The Result is reset before being returned to the pool.
-// It is safe to call putResult with a nil pointer (no-op).
-func putResult(r *Result) {
-	if r == nil {
-		return
-	}
-	// Reset fields
-	r.Text = ""
-	r.Title = ""
-	r.Images = r.Images[:0]
-	r.Links = r.Links[:0]
-	r.Videos = r.Videos[:0]
-	r.Audios = r.Audios[:0]
-	r.WordCount = 0
-	r.ReadingTime = 0
-	r.ProcessingTime = 0
-	resultPool.Put(r)
 }
 
 // ImageInfo holds information about an extracted image.

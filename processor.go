@@ -52,30 +52,34 @@ type Processor struct {
 	}
 }
 
-// New creates a new HTML processor with the given configuration.
-// If no configuration is provided, it uses DefaultConfig().
+// New creates a new HTML processor with optional configuration.
+// If no configuration is provided or an empty config is given, DefaultConfig() is used.
 //
-// The function supports the following usage patterns:
+// Example usage:
 //
-//	processor, err := html.New()          // Uses DefaultConfig()
-//	processor, err := html.New(config)    // Uses custom Config struct
+//	// Simple usage with default configuration
+//	processor, err := html.New()
+//	if err != nil {
+//	    log.Fatal(err)
+//	}
+//	defer processor.Close()
+//
+//	// With custom configuration
+//	cfg := html.DefaultConfig()
+//	cfg.MaxInputSize = 10 * 1024 * 1024
+//	processor, err := html.New(cfg)
+//
+//	// Or use preset configurations
+//	processor, err := html.New(html.MarkdownConfig())
+//	processor, err := html.New(html.HighSecurityConfig())
 //
 // To use a custom Scorer, set the Scorer field on the Config:
 //
-//	config := html.DefaultConfig()
-//	config.Scorer = myScorer
-//	processor, err := html.New(config)
-//
-// The returned processor must be closed when no longer needed:
-//
-//	processor, err := html.New()
-//	defer processor.Close()
-func New(config ...Config) (*Processor, error) {
-	cfg := DefaultConfig()
-	if len(config) > 0 {
-		cfg = config[0]
-	}
-
+//	cfg := html.DefaultConfig()
+//	cfg.Scorer = myScorer
+//	processor, err := html.New(cfg)
+func New(cfgs ...Config) (*Processor, error) {
+	cfg := resolveConfig(cfgs...)
 	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
@@ -94,6 +98,54 @@ func New(config ...Config) (*Processor, error) {
 	}
 
 	return p, nil
+}
+
+// resolveConfig resolves the configuration with smart defaults.
+// It handles the following cases:
+//   - No config provided: returns DefaultConfig()
+//   - Empty config (all zero values): returns DefaultConfig()
+//   - Valid config provided: returns the provided config
+//
+// This design allows both simple usage (html.New()) and custom configuration
+// (html.New(cfg)) while maintaining backward compatibility.
+func resolveConfig(cfgs ...Config) Config {
+	// Fast path: no config provided
+	if len(cfgs) == 0 {
+		return DefaultConfig()
+	}
+
+	cfg := cfgs[0]
+
+	// Check if config is empty (all zero values)
+	// An empty config indicates the user wants default behavior
+	if cfg.isEmpty() {
+		return DefaultConfig()
+	}
+
+	return cfg
+}
+
+// isEmpty checks if the Config has all zero values.
+// This is used to detect when a user wants default behavior
+// but created an empty Config{} literal.
+func (c Config) isEmpty() bool {
+	return c.MaxInputSize == 0 &&
+		c.MaxCacheEntries == 0 &&
+		c.CacheTTL == 0 &&
+		c.WorkerPoolSize == 0 &&
+		c.MaxDepth == 0 &&
+		c.ProcessingTimeout == 0 &&
+		!c.EnableSanitization &&
+		!c.ExtractArticle &&
+		!c.PreserveImages &&
+		!c.PreserveLinks &&
+		!c.PreserveVideos &&
+		!c.PreserveAudios &&
+		c.ImageFormat == "" &&
+		c.TableFormat == "" &&
+		c.Encoding == "" &&
+		c.Scorer == nil &&
+		c.Audit.isEmpty()
 }
 
 // GetStatistics returns current processing statistics.
@@ -171,6 +223,25 @@ func (p *Processor) Close() error {
 	return nil
 }
 
+// getExtractConfig returns the ExtractConfig from the processor's unified Config.
+func (p *Processor) getExtractConfig() ExtractConfig {
+	return ExtractConfig{
+		ExtractArticle:    p.config.ExtractArticle,
+		PreserveImages:    p.config.PreserveImages,
+		PreserveLinks:     p.config.PreserveLinks,
+		PreserveVideos:    p.config.PreserveVideos,
+		PreserveAudios:    p.config.PreserveAudios,
+		InlineImageFormat: p.config.ImageFormat,
+		TableFormat:       p.config.TableFormat,
+		Encoding:          p.config.Encoding,
+	}
+}
+
+// getLinkExtractionConfig returns the LinkExtractionConfig from the processor's unified Config.
+func (p *Processor) getLinkExtractionConfig() LinkExtractionConfig {
+	return p.config.LinkExtraction
+}
+
 // resolveExtractConfig resolves extraction configuration with defaults.
 // It merges user-provided configuration with default values:
 //   - If no config is provided, returns DefaultExtractConfig()
@@ -182,83 +253,101 @@ func (p *Processor) Close() error {
 //   - Users can set individual string options without setting all booleans
 //   - TextOnlyExtractConfig() works correctly (all booleans explicitly false)
 //   - Empty config behaves the same as no config
-//
-// Example usage:
-//
-//	// This works - ExtractArticle defaults to true
-//	result, err := p.Extract(data, html.ExtractConfig{
-//	    InlineImageFormat: "html",
-//	})
-//
-//	// TextOnlyExtractConfig works - explicitly disables media
-//	result, err := p.Extract(data, html.TextOnlyExtractConfig())
 func resolveExtractConfig(configs ...ExtractConfig) ExtractConfig {
-	defaults := DefaultExtractConfig()
-
 	if len(configs) == 0 {
-		return defaults
+		return defaultExtractConfig
 	}
 
 	cfg := configs[0]
-
-	// Check if user passed an empty config (all zero values)
-	// In this case, treat it as "use defaults"
-	if cfg == (ExtractConfig{}) {
-		return defaults
+	if cfg.isEmpty() {
+		return defaultExtractConfig
 	}
 
-	// Check if any boolean field is explicitly set to true
-	// This indicates user intentionally modified the config
-	hasExplicitTrue := cfg.ExtractArticle || cfg.PreserveImages ||
-		cfg.PreserveLinks || cfg.PreserveVideos || cfg.PreserveAudios
-
-	// Start with defaults
-	result := defaults
-
-	if hasExplicitTrue {
-		// User explicitly set at least one boolean to true
-		// Use all their boolean values (true or false)
-		result.ExtractArticle = cfg.ExtractArticle
-		result.PreserveImages = cfg.PreserveImages
-		result.PreserveLinks = cfg.PreserveLinks
-		result.PreserveVideos = cfg.PreserveVideos
-		result.PreserveAudios = cfg.PreserveAudios
+	// Determine boolean override behavior
+	result := defaultExtractConfig
+	if cfg.hasExplicitBoolean() {
+		result.applyBooleanOverrides(cfg)
 	}
-	// else: all booleans are false, which means user only wanted to set string fields
-	// Keep default true values for booleans
+	result.applyStringOverrides(cfg)
+	return result
+}
 
-	// String fields - non-empty user value overrides defaults
+// isEmpty checks if config has all zero values
+func (r ExtractConfig) isEmpty() bool {
+	return !r.ExtractArticle && !r.PreserveImages && !r.PreserveLinks &&
+		!r.PreserveVideos && !r.PreserveAudios &&
+		r.InlineImageFormat == "" && r.TableFormat == "" && r.Encoding == ""
+}
+
+// hasExplicitBoolean checks if any boolean field is explicitly true
+func (r ExtractConfig) hasExplicitBoolean() bool {
+	return r.ExtractArticle || r.PreserveImages || r.PreserveLinks || r.PreserveVideos || r.PreserveAudios
+}
+
+// applyBooleanOverrides applies user's boolean values to result
+func (r *ExtractConfig) applyBooleanOverrides(cfg ExtractConfig) {
+	r.ExtractArticle = cfg.ExtractArticle
+	r.PreserveImages = cfg.PreserveImages
+	r.PreserveLinks = cfg.PreserveLinks
+	r.PreserveVideos = cfg.PreserveVideos
+	r.PreserveAudios = cfg.PreserveAudios
+}
+
+// applyStringOverrides applies user's string values to result
+func (r *ExtractConfig) applyStringOverrides(cfg ExtractConfig) {
 	if cfg.InlineImageFormat != "" {
-		result.InlineImageFormat = cfg.InlineImageFormat
+		r.InlineImageFormat = normalizeImageFormat(cfg.InlineImageFormat)
 	}
 	if cfg.TableFormat != "" {
-		result.TableFormat = cfg.TableFormat
+		r.TableFormat = normalizeTableFormat(cfg.TableFormat)
 	}
 	if cfg.Encoding != "" {
-		result.Encoding = cfg.Encoding
+		r.Encoding = cfg.Encoding
 	}
+}
 
-	// Validate and normalize TableFormat
-	format := strings.ToLower(strings.TrimSpace(result.TableFormat))
-	if format != "markdown" && format != "html" {
-		format = "markdown"
+// normalizeTableFormat validates and normalizes table format.
+// Uses inline comparison to avoid map allocations.
+func normalizeTableFormat(format string) string {
+	// Fast lowercase for common formats
+	switch format {
+	case "markdown", "Markdown", "MARKDOWN":
+		return "markdown"
+	case "html", "HTML", "Html":
+		return "html"
+	default:
+		// Slow path: full normalization
+		f := strings.ToLower(strings.TrimSpace(format))
+		if f == "html" {
+			return "html"
+		}
+		return "markdown"
 	}
-	result.TableFormat = format
+}
 
-	// Validate and normalize InlineImageFormat
-	imageFormat := strings.ToLower(strings.TrimSpace(result.InlineImageFormat))
-	validFormats := map[string]bool{
-		"none":        true,
-		"markdown":    true,
-		"html":        true,
-		"placeholder": true,
+// normalizeImageFormat validates and normalizes image format.
+// Uses inline comparison to avoid map allocations.
+func normalizeImageFormat(format string) string {
+	// Fast path for common formats
+	switch format {
+	case "none", "None", "NONE":
+		return "none"
+	case "markdown", "Markdown", "MARKDOWN":
+		return "markdown"
+	case "html", "HTML", "Html":
+		return "html"
+	case "placeholder", "Placeholder", "PLACEHOLDER":
+		return "placeholder"
+	default:
+		// Slow path: full normalization
+		f := strings.ToLower(strings.TrimSpace(format))
+		switch f {
+		case "markdown", "html", "placeholder":
+			return f
+		default:
+			return "none"
+		}
 	}
-	if !validFormats[imageFormat] {
-		imageFormat = "none"
-	}
-	result.InlineImageFormat = imageFormat
-
-	return result
 }
 
 // resolveLinkExtractionConfig resolves link extraction configuration with defaults.
@@ -268,17 +357,20 @@ func resolveExtractConfig(configs ...ExtractConfig) ExtractConfig {
 //   - If a config with only string fields set is provided, boolean fields use defaults
 //   - If a config with any boolean field set to true is provided, use user's boolean values
 func resolveLinkExtractionConfig(configs ...LinkExtractionConfig) LinkExtractionConfig {
-	defaults := DefaultLinkExtractionConfig()
-
+	// Fast path: no config provided
 	if len(configs) == 0 {
-		return defaults
+		return defaultLinkExtractionConfig
 	}
 
 	cfg := configs[0]
 
-	// Check if user passed an empty config (all zero values)
-	if cfg == (LinkExtractionConfig{}) {
-		return defaults
+	// Fast path: empty config (all zero values)
+	if cfg.ResolveRelativeURLs == false && cfg.IncludeImages == false &&
+		cfg.IncludeVideos == false && cfg.IncludeAudios == false &&
+		cfg.IncludeCSS == false && cfg.IncludeJS == false &&
+		cfg.IncludeContentLinks == false && cfg.IncludeExternalLinks == false &&
+		cfg.IncludeIcons == false && cfg.BaseURL == "" {
+		return defaultLinkExtractionConfig
 	}
 
 	// Check if any boolean field is explicitly set to true
@@ -288,11 +380,9 @@ func resolveLinkExtractionConfig(configs ...LinkExtractionConfig) LinkExtraction
 		cfg.IncludeIcons
 
 	// Start with defaults
-	result := defaults
+	result := defaultLinkExtractionConfig
 
 	if hasExplicitTrue {
-		// User explicitly set at least one boolean to true
-		// Use all their boolean values
 		result.ResolveRelativeURLs = cfg.ResolveRelativeURLs
 		result.IncludeImages = cfg.IncludeImages
 		result.IncludeVideos = cfg.IncludeVideos
@@ -303,8 +393,6 @@ func resolveLinkExtractionConfig(configs ...LinkExtractionConfig) LinkExtraction
 		result.IncludeExternalLinks = cfg.IncludeExternalLinks
 		result.IncludeIcons = cfg.IncludeIcons
 	}
-	// else: all booleans are false, which means user only wanted to set string fields
-	// Keep default true values for booleans
 
 	// String field - non-empty user value overrides
 	if cfg.BaseURL != "" {
@@ -317,7 +405,6 @@ func resolveLinkExtractionConfig(configs ...LinkExtractionConfig) LinkExtraction
 // collectResults collects batch processing results and returns the first error if any.
 func collectResults(results []*Result, errs []error, names []string) ([]*Result, error) {
 	var firstErr error
-	successCount := 0
 	failCount := 0
 
 	for i, err := range errs {
@@ -330,18 +417,16 @@ func collectResults(results []*Result, errs []error, names []string) ([]*Result,
 					firstErr = fmt.Errorf("item %d: %w", i, err)
 				}
 			}
-		} else {
-			successCount++
 		}
 	}
 
-	switch {
-	case successCount == 0:
-		return results, fmt.Errorf("all %d items failed: %w", len(results), firstErr)
-	case failCount > 0:
-		return results, fmt.Errorf("partial failure (%d/%d succeeded): %w", successCount, len(results), firstErr)
-	default:
+	switch failCount {
+	case 0:
 		return results, nil
+	case len(errs):
+		return results, fmt.Errorf("all %d items failed: %w", len(results), firstErr)
+	default:
+		return results, fmt.Errorf("partial failure (%d/%d failed): %w", failCount, len(results), firstErr)
 	}
 }
 

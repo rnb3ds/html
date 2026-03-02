@@ -29,7 +29,7 @@ func TestExtractFromFile(t *testing.T) {
 	})
 
 	t.Run("processor method with valid file", func(t *testing.T) {
-		p, err := html.New()
+		p, err := html.New(html.DefaultConfig())
 		testutil.AssertNoError(t, err, "New() failed")
 		defer p.Close()
 
@@ -48,7 +48,7 @@ func TestExtractFromFile(t *testing.T) {
 	})
 
 	t.Run("empty path returns error", func(t *testing.T) {
-		p, _ := html.New()
+		p, _ := html.New(html.DefaultConfig())
 		defer p.Close()
 
 		result, err := p.ExtractFromFile("")
@@ -57,7 +57,7 @@ func TestExtractFromFile(t *testing.T) {
 	})
 
 	t.Run("path traversal blocked", func(t *testing.T) {
-		p, _ := html.New()
+		p, _ := html.New(html.DefaultConfig())
 		defer p.Close()
 
 		result, err := p.ExtractFromFile("../../../etc/passwd")
@@ -68,22 +68,21 @@ func TestExtractFromFile(t *testing.T) {
 	})
 
 	t.Run("with custom config", func(t *testing.T) {
-		p, _ := html.New()
+		cfg := html.DefaultConfig()
+		cfg.PreserveImages = true
+		p, _ := html.New(cfg)
 		defer p.Close()
 
 		htmlContent := testutil.CommonHTMLSnippets.ArticleWithImages
 		tmpFile := testutil.CreateTempHTML(t, htmlContent)
 
-		config := html.DefaultExtractConfig()
-		config.PreserveImages = true
-
-		result, err := p.ExtractFromFile(tmpFile, config)
+		result, err := p.ExtractFromFile(tmpFile)
 		testutil.AssertNoError(t, err, "ExtractFromFile failed")
 		testutil.AssertTrue(t, len(result.Images) > 0, "Should extract images")
 	})
 
 	t.Run("processor closed returns error", func(t *testing.T) {
-		p, _ := html.New()
+		p, _ := html.New(html.DefaultConfig())
 		p.Close()
 
 		tmpFile := testutil.CreateTempHTML(t, "<html><body>Test</body></html>")
@@ -93,19 +92,31 @@ func TestExtractFromFile(t *testing.T) {
 	})
 
 	t.Run("relative path works", func(t *testing.T) {
-		p, _ := html.New()
+		p, _ := html.New(html.DefaultConfig())
 		defer p.Close()
 
-		// Create a temp file and get relative path
+		// Create a temp file in current working directory to ensure relative path works
 		htmlContent := `<html><body><p>Relative path test</p></body></html>`
-		tmpFile := testutil.CreateTempHTML(t, htmlContent)
 
-		// Use absolute path converted to relative
-		wd, _ := os.Getwd()
-		relPath, err := filepath.Rel(wd, tmpFile)
+		// Create temp directory in current working directory
+		wd, err := os.Getwd()
 		if err != nil {
-			t.Skip("Cannot create relative path")
+			t.Fatalf("Getwd() failed: %v", err)
 		}
+		tmpDir := filepath.Join(wd, "testdata_temp")
+		if err := os.MkdirAll(tmpDir, 0755); err != nil {
+			t.Fatalf("MkdirAll() failed: %v", err)
+		}
+		defer os.RemoveAll(tmpDir) // Clean up after test
+
+		// Create temp file in the temp directory
+		tmpFile := filepath.Join(tmpDir, "relative_test.html")
+		if err := os.WriteFile(tmpFile, []byte(htmlContent), 0644); err != nil {
+			t.Fatalf("WriteFile() failed: %v", err)
+		}
+
+		// Use relative path
+		relPath := filepath.Join("testdata_temp", "relative_test.html")
 
 		result, err := p.ExtractFromFile(relPath)
 		testutil.AssertNoError(t, err, "ExtractFromFile with relative path failed")
@@ -137,7 +148,7 @@ func TestExtractTextFromFile(t *testing.T) {
 	})
 
 	t.Run("processor method returns plain text", func(t *testing.T) {
-		p, _ := html.New()
+		p, _ := html.New(html.DefaultConfig())
 		defer p.Close()
 
 		htmlContent := testutil.CommonHTMLSnippets.SimpleArticle
@@ -155,7 +166,7 @@ func TestExtractTextFromFile(t *testing.T) {
 	})
 
 	t.Run("empty file returns empty result", func(t *testing.T) {
-		p, _ := html.New()
+		p, _ := html.New(html.DefaultConfig())
 		defer p.Close()
 
 		tmpFile := testutil.CreateTempHTML(t, "")
@@ -184,11 +195,14 @@ func TestExtractTextFromFile(t *testing.T) {
 func TestExtractAllLinksFromFile(t *testing.T) {
 	t.Parallel()
 
-	t.Run("convenience function extracts all links", func(t *testing.T) {
+	t.Run("processor method extracts all links", func(t *testing.T) {
+		p, _ := html.New(html.DefaultConfig())
+		defer p.Close()
+
 		htmlContent := testutil.CommonHTMLSnippets.ArticleWithLinks
 		tmpFile := testutil.CreateTempHTML(t, htmlContent)
 
-		links, err := html.ExtractAllLinksFromFile(tmpFile)
+		links, err := p.ExtractAllLinksFromFile(tmpFile)
 		testutil.AssertNoError(t, err, "ExtractAllLinksFromFile failed")
 		testutil.AssertTrue(t, len(links) > 0, "Should extract links")
 
@@ -203,8 +217,8 @@ func TestExtractAllLinksFromFile(t *testing.T) {
 		testutil.AssertTrue(t, foundExample, "Should find example.com link")
 	})
 
-	t.Run("processor method extracts links", func(t *testing.T) {
-		p, _ := html.New()
+	t.Run("processor method extracts links with default config", func(t *testing.T) {
+		p, _ := html.New(html.DefaultConfig())
 		defer p.Close()
 
 		htmlContent := `<html><body>
@@ -214,20 +228,22 @@ func TestExtractAllLinksFromFile(t *testing.T) {
 		</body></html>`
 		tmpFile := testutil.CreateTempHTML(t, htmlContent)
 
-		config := html.DefaultLinkExtractionConfig()
-		links, err := p.ExtractAllLinksFromFile(tmpFile, config)
+		links, err := p.ExtractAllLinksFromFile(tmpFile)
 		testutil.AssertNoError(t, err, "ExtractAllLinksFromFile failed")
 		testutil.AssertTrue(t, len(links) >= 2, "Should extract at least 2 links")
 	})
 
 	t.Run("non-existent file returns error", func(t *testing.T) {
-		links, err := html.ExtractAllLinksFromFile("/non/existent/file.html")
+		p, _ := html.New(html.DefaultConfig())
+		defer p.Close()
+
+		links, err := p.ExtractAllLinksFromFile("/non/existent/file.html")
 		testutil.AssertError(t, err, "Should return error")
 		testutil.AssertTrue(t, links == nil, "Links should be nil on error")
 	})
 
 	t.Run("empty file returns empty slice", func(t *testing.T) {
-		p, _ := html.New()
+		p, _ := html.New(html.DefaultConfig())
 		defer p.Close()
 
 		tmpFile := testutil.CreateTempHTML(t, "")
@@ -237,7 +253,14 @@ func TestExtractAllLinksFromFile(t *testing.T) {
 	})
 
 	t.Run("filters by config", func(t *testing.T) {
-		p, _ := html.New()
+		// Create processor with custom link extraction config
+		cfg := html.DefaultConfig()
+		cfg.LinkExtraction = html.LinkExtractionOptions{
+			IncludeContentLinks:  true,
+			IncludeExternalLinks: false,
+			IncludeImages:        false,
+		}
+		p, _ := html.New(cfg)
 		defer p.Close()
 
 		htmlContent := `<html><body>
@@ -247,13 +270,7 @@ func TestExtractAllLinksFromFile(t *testing.T) {
 		</body></html>`
 		tmpFile := testutil.CreateTempHTML(t, htmlContent)
 
-		// Only include content links
-		config := html.LinkExtractionConfig{
-			IncludeContentLinks:  true,
-			IncludeExternalLinks: false,
-			IncludeImages:        false,
-		}
-		links, err := p.ExtractAllLinksFromFile(tmpFile, config)
+		links, err := p.ExtractAllLinksFromFile(tmpFile)
 		testutil.AssertNoError(t, err, "ExtractAllLinksFromFile failed")
 
 		// Should only have internal link
@@ -264,7 +281,7 @@ func TestExtractAllLinksFromFile(t *testing.T) {
 	})
 
 	t.Run("path traversal blocked", func(t *testing.T) {
-		p, _ := html.New()
+		p, _ := html.New(html.DefaultConfig())
 		defer p.Close()
 
 		links, err := p.ExtractAllLinksFromFile("../../../etc/passwd")
@@ -280,7 +297,10 @@ func TestExtractAllLinksFromFile(t *testing.T) {
 func TestExtractToMarkdownFromFile(t *testing.T) {
 	t.Parallel()
 
-	t.Run("convenience function returns markdown", func(t *testing.T) {
+	t.Run("processor method returns markdown", func(t *testing.T) {
+		p, _ := html.New(html.MarkdownConfig())
+		defer p.Close()
+
 		htmlContent := `<html><body>
 			<h1>Title</h1>
 			<p>Paragraph with <strong>bold</strong> text.</p>
@@ -288,14 +308,14 @@ func TestExtractToMarkdownFromFile(t *testing.T) {
 		</body></html>`
 		tmpFile := testutil.CreateTempHTML(t, htmlContent)
 
-		markdown, err := html.ExtractToMarkdownFromFile(tmpFile)
+		markdown, err := p.ExtractToMarkdownFromFile(tmpFile)
 		testutil.AssertNoError(t, err, "ExtractToMarkdownFromFile failed")
 		testutil.AssertContains(t, markdown, "![Test Image](https://example.com/img.jpg)",
 			"Should contain markdown image")
 	})
 
-	t.Run("processor method returns markdown", func(t *testing.T) {
-		p, _ := html.New()
+	t.Run("processor method extracts markdown from article", func(t *testing.T) {
+		p, _ := html.New(html.MarkdownConfig())
 		defer p.Close()
 
 		htmlContent := `<html><body>
@@ -312,22 +332,24 @@ func TestExtractToMarkdownFromFile(t *testing.T) {
 	})
 
 	t.Run("non-existent file returns error", func(t *testing.T) {
-		markdown, err := html.ExtractToMarkdownFromFile("/non/existent/file.html")
+		p, _ := html.New(html.MarkdownConfig())
+		defer p.Close()
+
+		markdown, err := p.ExtractToMarkdownFromFile("/non/existent/file.html")
 		testutil.AssertError(t, err, "Should return error")
 		testutil.AssertEqual(t, markdown, "", "Markdown should be empty on error")
 	})
 
-	t.Run("with custom config", func(t *testing.T) {
-		p, _ := html.New()
+	t.Run("with custom config preserving images", func(t *testing.T) {
+		cfg := html.MarkdownConfig()
+		cfg.PreserveImages = true
+		p, _ := html.New(cfg)
 		defer p.Close()
 
 		htmlContent := testutil.CommonHTMLSnippets.ArticleWithImages
 		tmpFile := testutil.CreateTempHTML(t, htmlContent)
 
-		config := html.DefaultExtractConfig()
-		config.PreserveImages = true
-
-		markdown, err := p.ExtractToMarkdownFromFile(tmpFile, config)
+		markdown, err := p.ExtractToMarkdownFromFile(tmpFile)
 		testutil.AssertNoError(t, err, "ExtractToMarkdownFromFile failed")
 		testutil.AssertTrue(t, strings.Contains(markdown, "![") || strings.Contains(markdown, "Test Image"),
 			"Should process images")
@@ -341,11 +363,14 @@ func TestExtractToMarkdownFromFile(t *testing.T) {
 func TestExtractToJSONFromFile(t *testing.T) {
 	t.Parallel()
 
-	t.Run("convenience function returns valid JSON", func(t *testing.T) {
+	t.Run("processor method returns valid JSON", func(t *testing.T) {
+		p, _ := html.New(html.DefaultConfig())
+		defer p.Close()
+
 		htmlContent := testutil.CommonHTMLSnippets.SimpleArticle
 		tmpFile := testutil.CreateTempHTML(t, htmlContent)
 
-		jsonData, err := html.ExtractToJSONFromFile(tmpFile)
+		jsonData, err := p.ExtractToJSONFromFile(tmpFile)
 		testutil.AssertNoError(t, err, "ExtractToJSONFromFile failed")
 
 		// Verify it's valid JSON
@@ -356,8 +381,8 @@ func TestExtractToJSONFromFile(t *testing.T) {
 		testutil.AssertContains(t, string(jsonData), "Test Article", "JSON should contain title")
 	})
 
-	t.Run("processor method returns valid JSON", func(t *testing.T) {
-		p, _ := html.New()
+	t.Run("processor method with links", func(t *testing.T) {
+		p, _ := html.New(html.DefaultConfig())
 		defer p.Close()
 
 		htmlContent := testutil.CommonHTMLSnippets.ArticleWithLinks
@@ -374,12 +399,18 @@ func TestExtractToJSONFromFile(t *testing.T) {
 	})
 
 	t.Run("non-existent file returns error", func(t *testing.T) {
-		jsonData, err := html.ExtractToJSONFromFile("/non/existent/file.html")
+		p, _ := html.New(html.DefaultConfig())
+		defer p.Close()
+
+		jsonData, err := p.ExtractToJSONFromFile("/non/existent/file.html")
 		testutil.AssertError(t, err, "Should return error")
 		testutil.AssertTrue(t, jsonData == nil, "JSON should be nil on error")
 	})
 
 	t.Run("JSON contains all fields", func(t *testing.T) {
+		p, _ := html.New(html.DefaultConfig())
+		defer p.Close()
+
 		htmlContent := `<html><head><title>Full Test</title></head><body>
 			<article>
 				<h1>Article Title</h1>
@@ -390,7 +421,7 @@ func TestExtractToJSONFromFile(t *testing.T) {
 		</body></html>`
 		tmpFile := testutil.CreateTempHTML(t, htmlContent)
 
-		jsonData, err := html.ExtractToJSONFromFile(tmpFile)
+		jsonData, err := p.ExtractToJSONFromFile(tmpFile)
 		testutil.AssertNoError(t, err, "ExtractToJSONFromFile failed")
 
 		jsonStr := string(jsonData)
@@ -399,17 +430,16 @@ func TestExtractToJSONFromFile(t *testing.T) {
 		testutil.AssertContains(t, jsonStr, "word_count", "JSON should have word_count field")
 	})
 
-	t.Run("with custom config", func(t *testing.T) {
-		p, _ := html.New()
+	t.Run("with custom config preserving images", func(t *testing.T) {
+		cfg := html.DefaultConfig()
+		cfg.PreserveImages = true
+		p, _ := html.New(cfg)
 		defer p.Close()
 
 		htmlContent := testutil.CommonHTMLSnippets.ArticleWithImages
 		tmpFile := testutil.CreateTempHTML(t, htmlContent)
 
-		config := html.DefaultExtractConfig()
-		config.PreserveImages = true
-
-		jsonData, err := p.ExtractToJSONFromFile(tmpFile, config)
+		jsonData, err := p.ExtractToJSONFromFile(tmpFile)
 		testutil.AssertNoError(t, err, "ExtractToJSONFromFile failed")
 
 		var result html.Result
@@ -469,7 +499,7 @@ func TestFileIOEdgeCases(t *testing.T) {
 	t.Parallel()
 
 	t.Run("large file handled", func(t *testing.T) {
-		p, _ := html.New()
+		p, _ := html.New(html.DefaultConfig())
 		defer p.Close()
 
 		// Create a moderately large HTML file (1MB)
@@ -489,7 +519,7 @@ func TestFileIOEdgeCases(t *testing.T) {
 	})
 
 	t.Run("malformed HTML handled", func(t *testing.T) {
-		p, _ := html.New()
+		p, _ := html.New(html.DefaultConfig())
 		defer p.Close()
 
 		// Malformed but parseable HTML
@@ -502,7 +532,7 @@ func TestFileIOEdgeCases(t *testing.T) {
 	})
 
 	t.Run("empty HTML handled", func(t *testing.T) {
-		p, _ := html.New()
+		p, _ := html.New(html.DefaultConfig())
 		defer p.Close()
 
 		tmpFile := testutil.CreateTempHTML(t, "")
@@ -511,7 +541,7 @@ func TestFileIOEdgeCases(t *testing.T) {
 	})
 
 	t.Run("whitespace only HTML", func(t *testing.T) {
-		p, _ := html.New()
+		p, _ := html.New(html.DefaultConfig())
 		defer p.Close()
 
 		tmpFile := testutil.CreateTempHTML(t, "   \n\t  ")
@@ -521,7 +551,7 @@ func TestFileIOEdgeCases(t *testing.T) {
 	})
 
 	t.Run("special characters in path", func(t *testing.T) {
-		p, _ := html.New()
+		p, _ := html.New(html.DefaultConfig())
 		defer p.Close()
 
 		// Create file with space in name
@@ -571,7 +601,7 @@ func TestConcurrentFileOperations(t *testing.T) {
 	})
 
 	t.Run("concurrent reads with shared processor", func(t *testing.T) {
-		p, _ := html.New()
+		p, _ := html.New(html.DefaultConfig())
 		defer p.Close()
 
 		tmpFile := testutil.CreateTempHTML(t, testutil.CommonHTMLSnippets.ArticleWithLinks)

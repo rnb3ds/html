@@ -425,7 +425,7 @@ func TestOutputWithProcessor(t *testing.T) {
 	t.Parallel()
 
 	t.Run("processor ExtractToMarkdown", func(t *testing.T) {
-		p, _ := html.New()
+		p, _ := html.New(html.DefaultConfig())
 		defer p.Close()
 
 		htmlContent := `<html><body><h1>Title</h1><p>Content</p></body></html>`
@@ -439,7 +439,7 @@ func TestOutputWithProcessor(t *testing.T) {
 	})
 
 	t.Run("processor ExtractToJSON", func(t *testing.T) {
-		p, _ := html.New()
+		p, _ := html.New(html.DefaultConfig())
 		defer p.Close()
 
 		htmlContent := `<html><body><h1>Title</h1><p>Content</p></body></html>`
@@ -449,68 +449,6 @@ func TestOutputWithProcessor(t *testing.T) {
 		}
 		if len(jsonData) == 0 {
 			t.Error("JSON should not be empty")
-		}
-	})
-}
-
-func TestExtractBatchWithContext(t *testing.T) {
-	t.Parallel()
-
-	t.Run("batch extraction with context", func(t *testing.T) {
-		p, _ := html.New()
-		defer p.Close()
-
-		inputs := [][]byte{
-			[]byte(`<html><body><p>Content 1</p></body></html>`),
-			[]byte(`<html><body><p>Content 2</p></body></html>`),
-			[]byte(`<html><body><p>Content 3</p></body></html>`),
-		}
-
-		results, err := p.ExtractBatch(inputs, html.DefaultExtractConfig())
-		if err != nil {
-			t.Fatalf("ExtractBatch() failed: %v", err)
-		}
-
-		if len(results) != 3 {
-			t.Errorf("Got %d results, want 3", len(results))
-		}
-
-		for i, result := range results {
-			if result == nil {
-				t.Errorf("Result %d is nil", i)
-			}
-		}
-	})
-}
-
-func TestExtractBatchFilesWithContext(t *testing.T) {
-	t.Parallel()
-
-	t.Run("batch file extraction", func(t *testing.T) {
-		p, _ := html.New()
-		defer p.Close()
-
-		// Create temp files
-		tmpDir := t.TempDir()
-		files := []string{
-			tmpDir + "/file1.html",
-			tmpDir + "/file2.html",
-		}
-
-		for i, file := range files {
-			content := []byte(`<html><body><h1>Title ` + string(rune('A'+i)) + `</h1></body></html>`)
-			if err := writeFile(file, content); err != nil {
-				t.Fatalf("Failed to create test file: %v", err)
-			}
-		}
-
-		results, err := p.ExtractBatchFiles(files, html.DefaultExtractConfig())
-		if err != nil {
-			t.Fatalf("ExtractBatchFiles() failed: %v", err)
-		}
-
-		if len(results) != 2 {
-			t.Errorf("Got %d results, want 2", len(results))
 		}
 	})
 }

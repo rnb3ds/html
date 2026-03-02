@@ -383,7 +383,7 @@ func (discardWriter) Write(p []byte) (int, error) { return len(p), nil }
 
 // TestConcurrentProcessorClose tests concurrent Close calls.
 func TestConcurrentProcessorClose(t *testing.T) {
-	processor, err := New()
+	processor, err := New(DefaultConfig())
 	if err != nil {
 		t.Fatalf("Failed to create processor: %v", err)
 	}
@@ -457,7 +457,7 @@ func TestConcurrentPoolAccess(t *testing.T) {
 
 // TestConcurrentLinkExtraction tests concurrent link extraction.
 func TestConcurrentLinkExtraction(t *testing.T) {
-	processor, err := New()
+	processor, err := New(DefaultConfig())
 	if err != nil {
 		t.Fatalf("Failed to create processor: %v", err)
 	}
@@ -605,7 +605,7 @@ func BenchmarkConcurrentAuditCollector(b *testing.B) {
 
 // BenchmarkConcurrentProcessorExtraction benchmarks concurrent extraction.
 func BenchmarkConcurrentProcessorExtraction(b *testing.B) {
-	processor, _ := New()
+	processor, _ := New(DefaultConfig())
 	defer processor.Close()
 
 	html := []byte(`<html><body><p>Test content for benchmarking</p></body></html>`)
@@ -632,7 +632,7 @@ func TestConcurrentProcessorCreation(t *testing.T) {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
-			p, err := New()
+			p, err := New(DefaultConfig())
 			if err != nil {
 				errorCount.Add(1)
 				return

@@ -11,7 +11,7 @@ import (
 
 // TestPanicRecovery_NilProcessor tests that nil/closed processor is handled gracefully
 func TestPanicRecovery_NilProcessor(t *testing.T) {
-	processor, err := New()
+	processor, err := New(DefaultConfig())
 	if err != nil {
 		t.Fatalf("Failed to create processor: %v", err)
 	}
@@ -33,7 +33,7 @@ func TestPanicRecovery_NilProcessor(t *testing.T) {
 
 // TestPanicRecovery_LinksMethods tests that link extraction methods handle nil/closed processor
 func TestPanicRecovery_LinksMethods(t *testing.T) {
-	processor, err := New()
+	processor, err := New(DefaultConfig())
 	if err != nil {
 		t.Fatalf("Failed to create processor: %v", err)
 	}
@@ -55,7 +55,7 @@ func TestPanicRecovery_LinksMethods(t *testing.T) {
 
 // TestPanicRecovery_BatchMethods tests that batch methods handle nil/closed processor
 func TestPanicRecovery_BatchMethods(t *testing.T) {
-	processor, err := New()
+	processor, err := New(DefaultConfig())
 	if err != nil {
 		t.Fatalf("Failed to create processor: %v", err)
 	}
@@ -77,7 +77,7 @@ func TestPanicRecovery_BatchMethods(t *testing.T) {
 
 // TestPanicRecovery_ExtractFromFile tests that ExtractFromFile handles nil/closed processor
 func TestPanicRecovery_ExtractFromFile(t *testing.T) {
-	processor, err := New()
+	processor, err := New(DefaultConfig())
 	if err != nil {
 		t.Fatalf("Failed to create processor: %v", err)
 	}
@@ -106,7 +106,7 @@ func TestPanicRecovery_ExtractFromFile(t *testing.T) {
 
 // TestPanicRecovery_ConcurrentSafety tests that concurrent processing is safe
 func TestPanicRecovery_ConcurrentSafety(t *testing.T) {
-	processor, err := New()
+	processor, err := New(DefaultConfig())
 	if err != nil {
 		t.Fatalf("Failed to create processor: %v", err)
 	}
@@ -144,7 +144,7 @@ func TestPanicRecovery_ConcurrentSafety(t *testing.T) {
 
 // TestPanicRecovery_EmptyInput tests that empty input is handled gracefully
 func TestPanicRecovery_EmptyInput(t *testing.T) {
-	processor, err := New()
+	processor, err := New(DefaultConfig())
 	if err != nil {
 		t.Fatalf("Failed to create processor: %v", err)
 	}
@@ -220,7 +220,7 @@ func TestPanicRecovery_DeepNesting(t *testing.T) {
 
 // TestPanicRecovery_InvalidHTML tests that invalid HTML is handled gracefully
 func TestPanicRecovery_InvalidHTML(t *testing.T) {
-	processor, err := New()
+	processor, err := New(DefaultConfig())
 	if err != nil {
 		t.Fatalf("Failed to create processor: %v", err)
 	}
