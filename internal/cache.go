@@ -79,8 +79,9 @@ func (c *Cache) Get(key string) any {
 	}
 	now := time.Now().UnixNano()
 
-	// Use write lock for the entire operation to avoid TOCTOU race conditions
-	// The performance impact is minimal since cache hits are fast operations
+	// Use a single write lock to avoid TOCTOU race condition.
+	// The overhead of write lock vs read lock is minimal compared to
+	// the complexity and potential races of lock switching.
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -89,13 +90,14 @@ func (c *Cache) Get(key string) any {
 		return nil
 	}
 
+	// Check expiration
 	if entry.isExpired(now) {
 		c.removeNode(entry)
 		delete(c.entries, key)
 		return nil
 	}
 
-	// Update last used time and move to front
+	// Update LRU position
 	entry.lastUsed = now
 	c.moveToFront(entry)
 

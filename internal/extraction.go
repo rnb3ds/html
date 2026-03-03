@@ -13,7 +13,7 @@ import (
 
 // ExtractTextWithStructureAndImages extracts text content from an HTML node tree
 // while preserving document structure (headings, paragraphs, lists, tables).
-func ExtractTextWithStructureAndImages(node *html.Node, sb *strings.Builder, _ int, imageCounter *int, linkCounter *int, tableFormat string) {
+func ExtractTextWithStructureAndImages(node *html.Node, sb *strings.Builder, imageCounter *int, linkCounter *int, tableFormat string) {
 	if node == nil {
 		return
 	}
@@ -61,7 +61,7 @@ func extractTextWithStructure(node *html.Node, tb *table.TrackedBuilder, imageCo
 					if node.NextSibling != nil && node.NextSibling.Type == html.ElementNode {
 						// Check if next sibling is a namespace tag
 						nextTag := node.NextSibling.Data
-						if IsNamespaceTag(nextTag) || isKnownInlineNamespacePrefix(GetNamespacePrefix(nextTag)) {
+						if IsNamespaceTag(nextTag) || IsKnownInlineNamespacePrefix(GetNamespacePrefix(nextTag)) {
 							shouldPreserveSpace = false
 						}
 					}
@@ -177,11 +177,6 @@ func extractTextWithStructure(node *html.Node, tb *table.TrackedBuilder, imageCo
 			extractTextWithStructure(child, tb, imageCounter, linkCounter, tableFormat, parentBlock, depth+1)
 		}
 	}
-}
-
-// isKnownInlineNamespacePrefix checks if the prefix is a known inline namespace prefix.
-func isKnownInlineNamespacePrefix(prefix string) bool {
-	return knownInlineNamespacePrefixes[prefix]
 }
 
 // CleanContentNode removes non-content elements from the node tree.

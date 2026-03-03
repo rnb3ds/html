@@ -394,7 +394,7 @@ func TestExtractTextWithStructureHTMLEntities(t *testing.T) {
 			}
 
 			var sb strings.Builder
-			ExtractTextWithStructureAndImages(doc, &sb, 0, nil, nil, "markdown")
+			ExtractTextWithStructureAndImages(doc, &sb, nil, nil, "markdown")
 			result := CleanText(sb.String(), nil)
 
 			for _, mustContain := range tt.contains {

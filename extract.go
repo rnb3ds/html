@@ -9,11 +9,28 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/cybergodev/html/internal"
 	stdxhtml "golang.org/x/net/html"
 )
+
+// linkPlaceholderRegex matches [LINK:N]text[/LINK] pattern for inline link formatting.
+// Pre-compiled at package initialization for performance.
+var linkPlaceholderRegex = regexp.MustCompile(`\[LINK:(\d+)\]([^\[]*?)\[/LINK\]`)
+
+// Timeout goroutine management constants.
+// These prevent goroutine leaks when many timeout operations occur.
+const (
+	// maxTimeoutGoroutines is the maximum number of concurrent goroutines
+	// that can be spawned for timeout operations. This prevents resource
+	// exhaustion when processing many large documents with timeouts.
+	maxTimeoutGoroutines = 1000
+)
+
+// activeTimeoutGoroutines tracks the number of currently running timeout goroutines.
+var activeTimeoutGoroutines atomic.Int64
 
 // Extract extracts content from HTML bytes with automatic encoding detection.
 // This is a convenience function that creates a temporary Processor with default settings.
@@ -219,7 +236,17 @@ func (p *Processor) ExtractTextFromFile(filePath string) (string, error) {
 // Go does not support cooperative cancellation for arbitrary functions. The function fn()
 // should be designed to complete relatively quickly to avoid resource accumulation.
 // For long-running operations, consider using context-aware processing instead.
+//
+// Goroutine Safety: To prevent goroutine leaks under heavy load, this function limits the
+// maximum number of concurrent timeout goroutines. If the limit is exceeded, an error is returned.
 func withTimeout[T any](timeout time.Duration, fn func() (T, error)) (T, error) {
+	// Check if we've exceeded the maximum number of concurrent timeout goroutines.
+	// This prevents resource exhaustion when processing many documents with timeouts.
+	if active := activeTimeoutGoroutines.Load(); active >= maxTimeoutGoroutines {
+		var zero T
+		return zero, fmt.Errorf("%w: too many concurrent operations (%d active)", ErrProcessingTimeout, active)
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
@@ -230,8 +257,14 @@ func withTimeout[T any](timeout time.Duration, fn func() (T, error)) (T, error) 
 
 	resultChan := make(chan result, 1)
 
+	// Track active goroutines to prevent unbounded growth
+	activeTimeoutGoroutines.Add(1)
+
 	// Launch the operation in a goroutine
 	go func() {
+		// Ensure we decrement the counter when done
+		defer activeTimeoutGoroutines.Add(-1)
+
 		res, err := fn()
 		// Try to send the result. If context is done, the result is discarded.
 		// This is intentional - we don't want to block if nobody is listening.
@@ -251,6 +284,7 @@ func withTimeout[T any](timeout time.Duration, fn func() (T, error)) (T, error) 
 		// Note: The goroutine above continues running until fn() completes.
 		// This is a known limitation of non-cooperative cancellation in Go.
 		// The resultChan has buffer size 1, so the goroutine won't block forever.
+		// The activeTimeoutGoroutines counter ensures we don't spawn too many.
 		return zero, ErrProcessingTimeout
 	}
 }
@@ -363,7 +397,7 @@ func (p *Processor) extractFromDocument(doc *Node, htmlContent string, opts Extr
 		sb.Grow(initialTextSize)
 		imageCounter := 0
 		linkCounter := 0
-		internal.ExtractTextWithStructureAndImages(contentNode, sb, 0, &imageCounter, &linkCounter, opts.TableFormat)
+		internal.ExtractTextWithStructureAndImages(contentNode, sb, &imageCounter, &linkCounter, opts.TableFormat)
 		textWithPlaceholders := internal.CleanText(sb.String(), nil)
 		internal.PutBuilder(sb)
 
@@ -442,7 +476,7 @@ func (p *Processor) extractArticleNode(doc *Node) *Node {
 func (p *Processor) extractTextContent(node *Node, tableFormat string) string {
 	sb := internal.GetBuilder()
 	sb.Grow(initialTextSize)
-	internal.ExtractTextWithStructureAndImages(node, sb, 0, nil, nil, tableFormat)
+	internal.ExtractTextWithStructureAndImages(node, sb, nil, nil, tableFormat)
 	result := internal.CleanText(sb.String(), nil)
 	internal.PutBuilder(sb)
 	return result
@@ -521,12 +555,10 @@ func (p *Processor) formatInlineLinks(textWithPlaceholders string, links []LinkI
 		}
 	}
 
-	// Regex to match [LINK:N]text[/LINK] pattern
-	linkRegex := regexp.MustCompile(`\[LINK:(\d+)\]([^\[]*?)\[/LINK\]`)
-
-	result := linkRegex.ReplaceAllStringFunc(textWithPlaceholders, func(match string) string {
+	// Use pre-compiled regex for performance
+	result := linkPlaceholderRegex.ReplaceAllStringFunc(textWithPlaceholders, func(match string) string {
 		// Extract position and text from the match
-		submatches := linkRegex.FindStringSubmatch(match)
+		submatches := linkPlaceholderRegex.FindStringSubmatch(match)
 		if len(submatches) != 3 {
 			return match
 		}

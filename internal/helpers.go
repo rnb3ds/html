@@ -13,8 +13,7 @@ import (
 // Pre-compiled regex patterns for text processing.
 // These are compile-time constants and will panic on initialization if invalid.
 var (
-	defaultWhitespaceRegex = regexp.MustCompile(`\s+`)
-	paddingLeftRegex       = regexp.MustCompile(`padding-left:\s*(\d+(?:\.\d+)?)\s*pt`)
+	paddingLeftRegex = regexp.MustCompile(`padding-left:\s*(\d+(?:\.\d+)?)\s*pt`)
 )
 
 // Clean text and builder sizing constants are now in constants.go
@@ -268,12 +267,44 @@ func CleanText(text string, whitespaceRegex *regexp.Regexp) string {
 	return ReplaceHTMLEntities(unwantedCharReplacer.Replace(sb.String()))
 }
 
+// WalkNodes traverses the HTML node tree iteratively using an explicit stack
+// to avoid potential stack overflow on deeply nested documents.
+// The fn callback is called for each node. If fn returns false, traversal
+// stops for that branch (node's children are not visited).
 func WalkNodes(node *html.Node, fn func(*html.Node) bool) {
-	if node == nil || fn == nil || !fn(node) {
+	if node == nil || fn == nil {
 		return
 	}
-	for child := node.FirstChild; child != nil; child = child.NextSibling {
-		WalkNodes(child, fn)
+
+	// Use explicit stack to avoid recursion on deep DOM trees
+	stack := make([]*html.Node, 0, 64)
+	stack = append(stack, node)
+
+	// Pre-allocate children buffer for reuse across iterations.
+	// This avoids allocating a new slice on every loop iteration.
+	childrenBuf := make([]*html.Node, 0, 16)
+
+	for len(stack) > 0 {
+		n := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+
+		if !fn(n) {
+			continue
+		}
+
+		// Reset buffer for reuse
+		childrenBuf = childrenBuf[:0]
+
+		// Collect children
+		for child := n.FirstChild; child != nil; child = child.NextSibling {
+			childrenBuf = append(childrenBuf, child)
+		}
+
+		// Add children in reverse order for correct traversal order
+		// (first child processed first when popped from stack)
+		for i := len(childrenBuf) - 1; i >= 0; i-- {
+			stack = append(stack, childrenBuf[i])
+		}
 	}
 }
 
@@ -752,7 +783,7 @@ func IsValidURL(url string) bool {
 		return true
 	}
 
-	// At this point, urlLen > 0 (checked at line 653)
+	// At this point, urlLen > 0 (verified by the urlLen == 0 check at function start)
 	// Accept relative URLs and paths (starting with / or .)
 	// But reject path traversal patterns
 	firstChar := url[0]

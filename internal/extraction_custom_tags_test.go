@@ -44,7 +44,7 @@ PUBLIC DOCUMENT COUNT:		1
 	}
 
 	var sb strings.Builder
-	ExtractTextWithStructureAndImages(doc, &sb, 0, nil, nil, "markdown")
+	ExtractTextWithStructureAndImages(doc, &sb, nil, nil, "markdown")
 	result := sb.String()
 
 	// Verify that custom SEC tags result in proper spacing
@@ -136,7 +136,7 @@ func TestCustomTagFormatting(t *testing.T) {
 			}
 
 			var sb strings.Builder
-			ExtractTextWithStructureAndImages(doc, &sb, 0, nil, nil, "markdown")
+			ExtractTextWithStructureAndImages(doc, &sb, nil, nil, "markdown")
 			result := sb.String()
 
 			// Count paragraph separations (double newlines)
@@ -201,6 +201,6 @@ PUBLIC DOCUMENT COUNT:		1
 		}
 
 		var sb strings.Builder
-		ExtractTextWithStructureAndImages(doc, &sb, 0, nil, nil, "markdown")
+		ExtractTextWithStructureAndImages(doc, &sb, nil, nil, "markdown")
 	}
 }

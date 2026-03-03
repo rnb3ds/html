@@ -98,42 +98,15 @@ var charsetAliases = map[string]string{
 }
 
 // extractCharsetFromHTML extracts charset from HTML using fast string operations.
-// This is a faster alternative to regex-based extraction for common cases.
-// Optimized to avoid strings.ToLower allocation for ASCII-only content.
+// This is a convenience wrapper that delegates to extractCharsetFromBytes.
 // Returns empty string if not found.
 func extractCharsetFromHTML(html string) string {
-	// Limit search area to first 1024 bytes (charset is typically in the head)
-	maxSearch := 1024
-	if len(html) < maxSearch {
-		maxSearch = len(html)
+	if len(html) == 0 {
+		return ""
 	}
-	searchArea := html[:maxSearch]
-
-	// Look for <meta charset="..."> (case-insensitive using ASCII-only comparison)
-	if idx := asciiIndexIgnoreCase(searchArea, "<meta charset="); idx >= 0 {
-		rest := searchArea[idx+14:] // Skip '<meta charset='
-		if charset := extractAttributeValue(rest); charset != "" {
-			return charset
-		}
-	}
-
-	// Look for charset= in meta tags (alternative format)
-	// Find all occurrences of "charset=" and try to extract value
-	remaining := searchArea
-	for {
-		idx := asciiIndexIgnoreCase(remaining, "charset=")
-		if idx < 0 {
-			break
-		}
-		rest := remaining[idx+8:] // Position after "charset="
-		if charset := extractAttributeValue(rest); charset != "" {
-			return charset
-		}
-		// Move past this occurrence
-		remaining = remaining[idx+8:]
-	}
-
-	return ""
+	// Delegate to the byte-based implementation to avoid code duplication.
+	// Use StringToBytes for zero-allocation conversion.
+	return extractCharsetFromBytes(StringToBytes(html))
 }
 
 // extractCharsetFromBytes extracts charset from HTML bytes using fast byte operations.
@@ -260,182 +233,6 @@ func extractAttributeValueBytes(data []byte) string {
 		return ""
 	}
 	return string(data[:end])
-}
-
-// asciiIndexIgnoreCase performs case-insensitive substring search for ASCII strings.
-// This avoids the allocation of strings.ToLower for the entire search area.
-// Optimized with Boyer-Moore-Horspool style bad character shift for longer patterns.
-func asciiIndexIgnoreCase(s, substr string) int {
-	substrLen := len(substr)
-	if substrLen == 0 {
-		return 0
-	}
-	if len(s) < substrLen {
-		return -1
-	}
-
-	// For short patterns (<= 4 chars), use simple scanning (avoids overhead)
-	if substrLen <= 4 {
-		return asciiIndexSimple(s, substr)
-	}
-
-	// For longer patterns, use Boyer-Moore-Horspool style search
-	return asciiIndexBMH(s, substr)
-}
-
-// asciiIndexSimple performs simple case-insensitive search for short patterns.
-// Inline-friendly for short substrings.
-func asciiIndexSimple(s, substr string) int {
-	substrLen := len(substr)
-	maxIdx := len(s) - substrLen
-
-	// Pre-compute first and last char lowercase for early rejection
-	firstChar := substr[0]
-	if firstChar >= 'A' && firstChar <= 'Z' {
-		firstChar += 32
-	}
-
-	for i := 0; i <= maxIdx; i++ {
-		c := s[i]
-		if c >= 'A' && c <= 'Z' {
-			c += 32
-		}
-		if c != firstChar {
-			continue
-		}
-
-		// First char matches, check rest
-		match := true
-		for j := 1; j < substrLen; j++ {
-			sc := s[i+j]
-			if sc >= 'A' && sc <= 'Z' {
-				sc += 32
-			}
-			pc := substr[j]
-			if pc >= 'A' && pc <= 'Z' {
-				pc += 32
-			}
-			if sc != pc {
-				match = false
-				break
-			}
-		}
-		if match {
-			return i
-		}
-	}
-	return -1
-}
-
-// asciiIndexBMH implements Boyer-Moore-Horspool algorithm for longer patterns.
-// Uses bad character shift table for efficient skipping.
-func asciiIndexBMH(s, substr string) int {
-	substrLen := len(substr)
-	sLen := len(s)
-
-	// Build bad character shift table (256 entries for ASCII)
-	// Default shift is pattern length
-	var badChar [256]int
-	for i := range badChar {
-		badChar[i] = substrLen
-	}
-
-	// Fill shift table based on pattern characters (except last)
-	for i := 0; i < substrLen-1; i++ {
-		c := substr[i]
-		// Store shift for both cases
-		if c >= 'A' && c <= 'Z' {
-			badChar[c] = substrLen - 1 - i
-			badChar[c+32] = substrLen - 1 - i // lowercase
-		} else if c >= 'a' && c <= 'z' {
-			badChar[c] = substrLen - 1 - i
-			badChar[c-32] = substrLen - 1 - i // uppercase
-		} else {
-			badChar[c] = substrLen - 1 - i
-		}
-	}
-
-	// Pre-compute last character of pattern for comparison
-	lastPatChar := substr[substrLen-1]
-	if lastPatChar >= 'A' && lastPatChar <= 'Z' {
-		lastPatChar += 32
-	}
-
-	i := 0
-	for i <= sLen-substrLen {
-		// Compare from the end (BMH characteristic)
-		lastTextChar := s[i+substrLen-1]
-		if lastTextChar >= 'A' && lastTextChar <= 'Z' {
-			lastTextChar += 32
-		}
-
-		if lastTextChar == lastPatChar {
-			// Last character matches, verify the rest
-			match := true
-			for j := 0; j < substrLen-1; j++ {
-				tc := s[i+j]
-				if tc >= 'A' && tc <= 'Z' {
-					tc += 32
-				}
-				pc := substr[j]
-				if pc >= 'A' && pc <= 'Z' {
-					pc += 32
-				}
-				if tc != pc {
-					match = false
-					break
-				}
-			}
-			if match {
-				return i
-			}
-		}
-
-		// Shift based on bad character
-		shift := badChar[s[i+substrLen-1]]
-		if shift == 0 {
-			shift = 1
-		}
-		i += shift
-	}
-
-	return -1
-}
-
-// extractAttributeValue extracts an HTML attribute value from the start of a string.
-// Handles both quoted and unquoted values.
-func extractAttributeValue(s string) string {
-	s = strings.TrimSpace(s)
-	if len(s) == 0 {
-		return ""
-	}
-
-	// Handle quoted value
-	if s[0] == '"' || s[0] == '\'' {
-		quote := s[0]
-		end := strings.IndexByte(s[1:], quote)
-		if end >= 0 {
-			return strings.TrimSpace(s[1 : end+1])
-		}
-		// No closing quote, take until whitespace or >
-		for i, c := range s[1:] {
-			if c == ' ' || c == '\t' || c == '>' {
-				return strings.TrimSpace(s[1 : i+1])
-			}
-		}
-		return strings.TrimSpace(s[1:])
-	}
-
-	// Unquoted value - take until whitespace, >, or ;
-	for i, c := range s {
-		if c == ' ' || c == '\t' || c == '>' || c == ';' || c == '"' || c == '\'' {
-			if i == 0 {
-				return ""
-			}
-			return strings.TrimSpace(s[:i])
-		}
-	}
-	return strings.TrimSpace(s)
 }
 
 // EncodingDetector handles charset detection and conversion.
@@ -867,23 +664,46 @@ func DetectAndConvertToUTF8String(data []byte, forcedEncoding string) (string, s
 }
 
 // isPureASCII checks if data contains only ASCII bytes (0x00-0x7F)
-// Uses word-sized reads with loop unrolling for optimal performance.
-// Optimized to minimize function call overhead and improve cache utilization.
+// Uses 64-bit word reads with loop unrolling for optimal performance.
+// This approach processes 32 bytes per iteration, reducing loop overhead by 4x.
 func isPureASCII(data []byte) bool {
 	n := len(data)
 	if n == 0 {
 		return true
 	}
 
-	// Process 8 bytes at a time using simple loop
-	// This allows the compiler to optimize effectively while being cache-friendly
+	// Use 64-bit reads for maximum throughput
+	// Process data in 32-byte chunks (4 x 64-bit words) for better ILP
 	i := 0
 
-	// Process 8-byte chunks with early exit
+	// Process 32-byte chunks with 64-bit word reads
+	// Using OR mask to detect any byte with high bit set
+	const highBitMask uint64 = 0x8080808080808080
+
+	for i+32 <= n {
+		// Load 4 x 64-bit words using bounds-checked slicing
+		// The compiler optimizes this to efficient loads
+		w0 := uint64(data[i]) | uint64(data[i+1])<<8 | uint64(data[i+2])<<16 | uint64(data[i+3])<<24 |
+			uint64(data[i+4])<<32 | uint64(data[i+5])<<40 | uint64(data[i+6])<<48 | uint64(data[i+7])<<56
+		w1 := uint64(data[i+8]) | uint64(data[i+9])<<8 | uint64(data[i+10])<<16 | uint64(data[i+11])<<24 |
+			uint64(data[i+12])<<32 | uint64(data[i+13])<<40 | uint64(data[i+14])<<48 | uint64(data[i+15])<<56
+		w2 := uint64(data[i+16]) | uint64(data[i+17])<<8 | uint64(data[i+18])<<16 | uint64(data[i+19])<<24 |
+			uint64(data[i+20])<<32 | uint64(data[i+21])<<40 | uint64(data[i+22])<<48 | uint64(data[i+23])<<56
+		w3 := uint64(data[i+24]) | uint64(data[i+25])<<8 | uint64(data[i+26])<<16 | uint64(data[i+27])<<24 |
+			uint64(data[i+28])<<32 | uint64(data[i+29])<<40 | uint64(data[i+30])<<48 | uint64(data[i+31])<<56
+
+		// Check all 4 words in one expression for better branch prediction
+		if (w0|w1|w2|w3)&highBitMask != 0 {
+			return false
+		}
+		i += 32
+	}
+
+	// Process remaining 8-byte chunks
 	for i+8 <= n {
-		// Use simple OR accumulation in single expression for better optimization
-		if (data[i] | data[i+1] | data[i+2] | data[i+3] |
-			data[i+4] | data[i+5] | data[i+6] | data[i+7]) >= 0x80 {
+		w := uint64(data[i]) | uint64(data[i+1])<<8 | uint64(data[i+2])<<16 | uint64(data[i+3])<<24 |
+			uint64(data[i+4])<<32 | uint64(data[i+5])<<40 | uint64(data[i+6])<<48 | uint64(data[i+7])<<56
+		if w&highBitMask != 0 {
 			return false
 		}
 		i += 8

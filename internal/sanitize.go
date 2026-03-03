@@ -98,12 +98,13 @@ var dangerousAttributes = map[string]bool{
 }
 
 var uriAttributes = map[string]bool{
-	"href":       true,
-	"src":        true,
-	"cite":       true,
-	"action":     true,
-	"data":       true,
-	"formaction": true,
+	"href":   true,
+	"src":    true,
+	"cite":   true,
+	"action": true,
+	"data":   true,
+	// Note: "formaction" is not included here as it's already in dangerousAttributes
+	// which blocks it completely. Having it here would be redundant.
 	"poster":     true,
 	"background": true,
 	"longdesc":   true,

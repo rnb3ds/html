@@ -474,7 +474,7 @@ func TestCollectColumnWidths(t *testing.T) {
 
 			// Use the public API to extract table content
 			var sb strings.Builder
-			ExtractTextWithStructureAndImages(table, &sb, 0, nil, nil, "markdown")
+			ExtractTextWithStructureAndImages(table, &sb, nil, nil, "markdown")
 
 			// Verify content was extracted
 			result := sb.String()
@@ -538,7 +538,7 @@ func TestTableStructureRowDetection(t *testing.T) {
 
 			// Use the public API to extract table content
 			var sb strings.Builder
-			ExtractTextWithStructureAndImages(table, &sb, 0, nil, nil, "markdown")
+			ExtractTextWithStructureAndImages(table, &sb, nil, nil, "markdown")
 
 			// Count rows by counting lines with | characters
 			result := sb.String()
@@ -671,7 +671,7 @@ func TestTableColspanExpansion(t *testing.T) {
 
 			// Use the public API to extract table content
 			var sb strings.Builder
-			ExtractTextWithStructureAndImages(table, &sb, 0, nil, nil, "markdown")
+			ExtractTextWithStructureAndImages(table, &sb, nil, nil, "markdown")
 
 			// Verify the expected content is in the output
 			result := sb.String()

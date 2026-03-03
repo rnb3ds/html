@@ -228,8 +228,8 @@ func (c Config) Validate() error {
 }
 
 // ExtractConfig holds the extraction configuration.
-// Deprecated: Use Config struct instead. ExtractConfig is kept for internal use
-// and backward compatibility.
+// This is an internal type used to pass extraction options to processing functions.
+// For public API usage, prefer Config with DefaultConfig().
 type ExtractConfig struct {
 	ExtractArticle    bool
 	PreserveImages    bool
@@ -258,14 +258,14 @@ var defaultExtractConfig = ExtractConfig{
 }
 
 // DefaultExtractConfig returns the default extraction configuration.
-// Deprecated: Use DefaultConfig() instead.
+// For new code, prefer using Config with DefaultConfig().
 func DefaultExtractConfig() ExtractConfig {
 	return defaultExtractConfig
 }
 
 // TextOnlyExtractConfig returns an ExtractConfig for extracting plain text only.
 // This disables all media preservation and uses no inline image format.
-// Deprecated: Use TextOnlyConfig() instead.
+// For new code, prefer TextOnlyConfig().
 func TextOnlyExtractConfig() ExtractConfig {
 	return ExtractConfig{
 		ExtractArticle:    true,
@@ -280,8 +280,8 @@ func TextOnlyExtractConfig() ExtractConfig {
 }
 
 // LinkExtractionConfig holds the link extraction configuration.
-// Deprecated: Use LinkExtractionOptions in Config struct instead.
-// LinkExtractionConfig is kept for internal use and backward compatibility.
+// This is an alias for LinkExtractionOptions, used internally for link extraction.
+// For public API usage, prefer Config.LinkExtraction.
 type LinkExtractionConfig = LinkExtractionOptions
 
 // defaultLinkExtractionConfig caches the default link extraction configuration.
@@ -299,7 +299,7 @@ var defaultLinkExtractionConfig = LinkExtractionConfig{
 }
 
 // DefaultLinkExtractionConfig returns the default link extraction configuration.
-// Deprecated: Use DefaultConfig().LinkExtraction instead.
+// For new code, prefer using DefaultConfig().LinkExtraction.
 func DefaultLinkExtractionConfig() LinkExtractionConfig {
 	return defaultLinkExtractionConfig
 }
