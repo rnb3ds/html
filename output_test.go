@@ -5,7 +5,6 @@ package html_test
 
 import (
 	"encoding/json"
-	"os"
 	"strings"
 	"testing"
 	"time"
@@ -451,9 +450,4 @@ func TestOutputWithProcessor(t *testing.T) {
 			t.Error("JSON should not be empty")
 		}
 	})
-}
-
-// Helper function to write file (cross-platform)
-func writeFile(path string, content []byte) error {
-	return os.WriteFile(path, content, 0644)
 }

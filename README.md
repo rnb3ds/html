@@ -143,14 +143,14 @@ func main() {
     htmlBytes := []byte(`<html><body><h1>Title</h1><p>Content</p></body></html>`)
 
     // Extract with default configuration
-    result, _ := processor.Extract(htmlBytes, html.DefaultExtractConfig())
+    result, _ := processor.Extract(htmlBytes)
 
     // Extract from file
-    result, _ = processor.ExtractFromFile("page.html", html.DefaultExtractConfig())
+    result, _ = processor.ExtractFromFile("page.html")
 
     // Batch processing
     htmlContents := [][]byte{htmlBytes, htmlBytes, htmlBytes}
-    results, _ := processor.ExtractBatch(htmlContents, html.DefaultExtractConfig())
+    results, _ := processor.ExtractBatch(htmlContents)
 
     fmt.Printf("Processed %d documents\n", len(results))
 }
@@ -175,23 +175,48 @@ import (
 func main() {
     htmlBytes := []byte(`<html><body><h1>Title</h1><img src="img.jpg"><p>Content</p></body></html>`)
 
-    config := html.ExtractConfig{
+    config := html.Config{
+        // Extraction settings
         ExtractArticle:    true,       // Auto-detect main content
         PreserveImages:    true,       // Extract image metadata
         PreserveLinks:     true,       // Extract link metadata
         PreserveVideos:    false,      // Skip videos
         PreserveAudios:    false,      // Skip audio
-        InlineImageFormat: "none",     // Options: "none", "placeholder", "markdown", "html"
+        ImageFormat:       "none",     // Options: "none", "markdown", "html", "placeholder"
+        LinkFormat:        "none",     // Options: "none", "markdown", "html"
         TableFormat:       "markdown", // Options: "markdown", "html"
         Encoding:          "",         // Auto-detect from meta tags, or specify: "utf-8", "windows-1252", etc.
     }
 
-    result, _ := html.Extract(htmlBytes, config)
+    processor, _ := html.New(config)
+    defer processor.Close()
+
+    result, _ := processor.Extract(htmlBytes)
     fmt.Printf("Found %d images\n", len(result.Images))
 }
 ```
 
 **Best for:** Specific extraction needs, format conversion, custom output
+
+---
+
+### Using Preset Configurations
+
+The library provides convenient preset configurations:
+
+```go
+// Text only - no media preservation
+processor, _ := html.New(html.TextOnlyConfig())
+
+// Markdown output - images formatted as markdown
+processor, _ := html.New(html.MarkdownConfig())
+
+// Default - all features enabled
+processor, _ := html.New(html.DefaultConfig())
+
+// High security - stricter limits for untrusted input
+processor, _ := html.New(html.HighSecurityConfig())
+```
 
 ---
 
@@ -214,6 +239,7 @@ func main() {
         ProcessingTimeout:  30 * time.Second,
         MaxCacheEntries:    500,
         CacheTTL:           30 * time.Minute,
+        CacheCleanup:       5 * time.Minute,  // Background cleanup interval
         WorkerPoolSize:     8,
         EnableSanitization: true,  // Remove <script>, <style> tags
         MaxDepth:           50,    // Prevent deeply nested attacks
@@ -249,8 +275,11 @@ func main() {
         </html>
     `)
 
+    processor, _ := html.New()
+    defer processor.Close()
+
     // Extract all resource links
-    links, _ := html.ExtractAllLinks(htmlBytes)
+    links, _ := processor.ExtractAllLinks(htmlBytes)
 
     // Group by type
     byType := html.GroupLinksByType(links)
@@ -259,24 +288,6 @@ func main() {
     images := byType["image"]
 
     fmt.Printf("CSS: %d, JS: %d, Images: %d\n", len(cssLinks), len(jsLinks), len(images))
-
-    // Advanced configuration
-    processor, _ := html.New()
-    defer processor.Close()
-
-    linkConfig := html.LinkExtractionConfig{
-        BaseURL:              "https://example.com",
-        ResolveRelativeURLs:  true,
-        IncludeImages:        true,
-        IncludeVideos:        true,
-        IncludeAudios:        true,
-        IncludeCSS:           true,
-        IncludeJS:            true,
-        IncludeContentLinks:  true,
-        IncludeExternalLinks: true,
-        IncludeIcons:         true,
-    }
-    links, _ = processor.ExtractAllLinks(htmlBytes, linkConfig)
 }
 ```
 
@@ -297,8 +308,8 @@ func main() {
     htmlBytes := []byte(`<html><body><p>Content</p></body></html>`)
 
     // Caching is automatically enabled
-    processor.Extract(htmlBytes, html.DefaultExtractConfig())
-    processor.Extract(htmlBytes, html.DefaultExtractConfig()) // Cache hit!
+    processor.Extract(htmlBytes)
+    processor.Extract(htmlBytes) // Cache hit!
 
     // View performance statistics
     stats := processor.GetStatistics()
@@ -337,7 +348,8 @@ text, _ := html.ExtractTextFromFile("page.html")
 result, _ := html.ExtractFromFile("page.html")
 
 // Extract links from file
-links, _ := html.ExtractAllLinksFromFile("page.html")
+processor, _ := html.New()
+links, _ := processor.ExtractAllLinksFromFile("page.html")
 
 // Convert file to Markdown
 markdown, _ := html.ExtractToMarkdownFromFile("page.html")
@@ -365,7 +377,8 @@ markdown, _ := html.ExtractToMarkdown(htmlBytes)
 ### Extract All Links
 
 ```go
-links, _ := html.ExtractAllLinks(htmlBytes)
+processor, _ := html.New()
+links, _ := processor.ExtractAllLinks(htmlBytes)
 for _, link := range links {
     fmt.Printf("%s: %s\n", link.Type, link.URL)
 }
@@ -386,7 +399,7 @@ processor, _ := html.New()
 defer processor.Close()
 
 files := []string{"page1.html", "page2.html", "page3.html"}
-results, _ := processor.ExtractBatchFiles(files, html.DefaultExtractConfig())
+results, _ := processor.ExtractBatchFiles(files)
 ```
 
 ### Batch Processing with Context (Cancellable)
@@ -411,37 +424,23 @@ func main() {
     defer cancel()
 
     // Cancellable processing
-    result := processor.ExtractBatchFilesWithContext(ctx, files, html.DefaultExtractConfig())
+    result := processor.ExtractBatchFilesWithContext(ctx, files)
 
     fmt.Printf("Success: %d, Failed: %d, Cancelled: %d\n",
         result.Success, result.Failed, result.Cancelled)
 }
 ```
 
-### Using Preset Extraction Configurations
+### Using Preset Configurations
 
 ```go
 // Text only - create text-only configuration
-textConfig := html.ExtractConfig{
-    ExtractArticle:    true,
-    PreserveImages:    false,
-    PreserveLinks:     false,
-    PreserveVideos:    false,
-    PreserveAudios:    false,
-    InlineImageFormat: "none",
-}
-result, _ := html.Extract(htmlBytes, textConfig)
+processor, _ := html.New(html.TextOnlyConfig())
+result, _ := processor.Extract(htmlBytes)
 
-// Full content - all media, images in markdown format
-fullConfig := html.ExtractConfig{
-    ExtractArticle:    true,
-    PreserveImages:    true,
-    PreserveLinks:     true,
-    PreserveVideos:    true,
-    PreserveAudios:    true,
-    InlineImageFormat: "markdown",
-}
-result, _ = html.Extract(htmlBytes, fullConfig)
+// Full content with markdown images
+processor, _ = html.New(html.MarkdownConfig())
+result, _ = processor.Extract(htmlBytes)
 ```
 
 ---
@@ -452,33 +451,27 @@ result, _ = html.Extract(htmlBytes, fullConfig)
 
 ```go
 // Extract (from bytes)
-html.Extract(htmlBytes []byte, configs ...ExtractConfig) (*Result, error)
-html.ExtractText(htmlBytes []byte, configs ...ExtractConfig) (string, error)
+html.Extract(htmlBytes []byte) (*Result, error)
+html.ExtractText(htmlBytes []byte) (string, error)
 
 // Extract (from file)
-html.ExtractFromFile(filePath string, configs ...ExtractConfig) (*Result, error)
-html.ExtractTextFromFile(filePath string, configs ...ExtractConfig) (string, error)
+html.ExtractFromFile(filePath string) (*Result, error)
+html.ExtractTextFromFile(filePath string) (string, error)
 
 // Format conversion (from bytes)
-html.ExtractToMarkdown(htmlBytes []byte, configs ...ExtractConfig) (string, error)
-html.ExtractToJSON(htmlBytes []byte, configs ...ExtractConfig) ([]byte, error)
+html.ExtractToMarkdown(htmlBytes []byte) (string, error)
+html.ExtractToJSON(htmlBytes []byte) ([]byte, error)
 
 // Format conversion (from file)
-html.ExtractToMarkdownFromFile(filePath string, configs ...ExtractConfig) (string, error)
-html.ExtractToJSONFromFile(filePath string, configs ...ExtractConfig) ([]byte, error)
+html.ExtractToMarkdownFromFile(filePath string) (string, error)
+html.ExtractToJSONFromFile(filePath string) ([]byte, error)
 
 // Links (from bytes)
-html.ExtractAllLinks(htmlBytes []byte, configs ...LinkExtractionConfig) ([]LinkResource, error)
+html.ExtractAllLinks(htmlBytes []byte) ([]LinkResource, error)
 
 // Links (from file)
-html.ExtractAllLinksFromFile(filePath string, configs ...LinkExtractionConfig) ([]LinkResource, error)
+html.ExtractAllLinksFromFile(filePath string) ([]LinkResource, error)
 html.GroupLinksByType(links []LinkResource) map[string][]LinkResource
-
-// Batch processing
-html.ExtractBatch(htmlContents [][]byte, configs ...ExtractConfig) ([]*Result, error)
-html.ExtractBatchFiles(filePaths []string, configs ...ExtractConfig) ([]*Result, error)
-html.ExtractBatchWithContext(ctx context.Context, htmlContents [][]byte, configs ...ExtractConfig) *BatchResult
-html.ExtractBatchFilesWithContext(ctx context.Context, filePaths []string, configs ...ExtractConfig) *BatchResult
 ```
 
 ### Processor Methods
@@ -487,36 +480,37 @@ html.ExtractBatchFilesWithContext(ctx context.Context, filePaths []string, confi
 processor, err := html.New()
 processor, err := html.New(config)                    // Using Config struct
 processor, err := html.New(html.HighSecurityConfig()) // Using preset configuration
-processor, err := html.New(myScorer)                  // Using custom Scorer
+processor, err := html.New(html.TextOnlyConfig())     // Text-only preset
+processor, err := html.New(html.MarkdownConfig())     // Markdown preset
 defer processor.Close()
 
 // Extract (from bytes)
-processor.Extract(htmlBytes []byte, configs ...ExtractConfig) (*Result, error)
-processor.ExtractText(htmlBytes []byte, configs ...ExtractConfig) (string, error)
+processor.Extract(htmlBytes []byte) (*Result, error)
+processor.ExtractText(htmlBytes []byte) (string, error)
 
 // Extract (from file)
-processor.ExtractFromFile(filePath string, configs ...ExtractConfig) (*Result, error)
-processor.ExtractTextFromFile(filePath string, configs ...ExtractConfig) (string, error)
+processor.ExtractFromFile(filePath string) (*Result, error)
+processor.ExtractTextFromFile(filePath string) (string, error)
 
 // Format conversion (from bytes)
-processor.ExtractToMarkdown(htmlBytes []byte, configs ...ExtractConfig) (string, error)
-processor.ExtractToJSON(htmlBytes []byte, configs ...ExtractConfig) ([]byte, error)
+processor.ExtractToMarkdown(htmlBytes []byte) (string, error)
+processor.ExtractToJSON(htmlBytes []byte) ([]byte, error)
 
 // Format conversion (from file)
-processor.ExtractToMarkdownFromFile(filePath string, configs ...ExtractConfig) (string, error)
-processor.ExtractToJSONFromFile(filePath string, configs ...ExtractConfig) ([]byte, error)
+processor.ExtractToMarkdownFromFile(filePath string) (string, error)
+processor.ExtractToJSONFromFile(filePath string) ([]byte, error)
 
 // Links (from bytes)
-processor.ExtractAllLinks(htmlBytes []byte, configs ...LinkExtractionConfig) ([]LinkResource, error)
+processor.ExtractAllLinks(htmlBytes []byte) ([]LinkResource, error)
 
 // Links (from file)
-processor.ExtractAllLinksFromFile(filePath string, configs ...LinkExtractionConfig) ([]LinkResource, error)
+processor.ExtractAllLinksFromFile(filePath string) ([]LinkResource, error)
 
 // Batch processing
-processor.ExtractBatch(contents [][]byte, configs ...ExtractConfig) ([]*Result, error)
-processor.ExtractBatchFiles(paths []string, configs ...ExtractConfig) ([]*Result, error)
-processor.ExtractBatchWithContext(ctx context.Context, contents [][]byte, configs ...ExtractConfig) *BatchResult
-processor.ExtractBatchFilesWithContext(ctx context.Context, paths []string, configs ...ExtractConfig) *BatchResult
+processor.ExtractBatch(contents [][]byte) ([]*Result, error)
+processor.ExtractBatchFiles(paths []string) ([]*Result, error)
+processor.ExtractBatchWithContext(ctx context.Context, contents [][]byte) *BatchResult
+processor.ExtractBatchFilesWithContext(ctx context.Context, paths []string) *BatchResult
 
 // Monitoring
 processor.GetStatistics() Statistics
@@ -529,41 +523,11 @@ processor.ClearAuditLog()
 ### Configuration Functions
 
 ```go
-// Processor configuration
+// Processor configuration presets
 html.DefaultConfig() Config        // Standard configuration
 html.HighSecurityConfig() Config   // Security-optimized configuration
-
-// Extraction configuration
-html.DefaultExtractConfig() ExtractConfig
-
-// Link extraction configuration
-html.DefaultLinkExtractionConfig() LinkExtractionConfig
-
-// Audit configuration
-html.DefaultAuditConfig() AuditConfig
-html.HighSecurityAuditConfig() AuditConfig
-```
-
-### Configuration Functions
-
-```go
-// Processor configuration
-html.DefaultConfig() Config        // Standard configuration
-html.HighSecurityConfig() Config   // Security-optimized configuration
-
-// Extraction configuration
-html.DefaultExtractConfig() ExtractConfig
-html.TextOnlyExtractConfig() ExtractConfig  // Text-only preset
-// For full content with markdown images:
-// cfg := html.DefaultExtractConfig()
-// cfg.InlineImageFormat = "markdown"
-
-// Link extraction configuration
-html.DefaultLinkExtractionConfig() LinkExtractionConfig
-
-// Audit configuration
-html.DefaultAuditConfig() AuditConfig
-html.HighSecurityAuditConfig() AuditConfig
+html.TextOnlyConfig() Config       // Text-only (no media)
+html.MarkdownConfig() Config       // Markdown image format
 ```
 
 ### Default Configuration Values
@@ -574,10 +538,21 @@ Config{
     MaxInputSize:       50 * 1024 * 1024, // 50MB
     MaxCacheEntries:    2000,
     CacheTTL:           1 * time.Hour,
+    CacheCleanup:       5 * time.Minute,
     WorkerPoolSize:     4,
     EnableSanitization: true,
     MaxDepth:           500,
     ProcessingTimeout:  30 * time.Second,
+
+    // Extraction settings
+    ExtractArticle:     true,
+    PreserveImages:     true,
+    PreserveLinks:      true,
+    PreserveVideos:     true,
+    PreserveAudios:     true,
+    ImageFormat:        "none",
+    LinkFormat:         "none",
+    TableFormat:        "markdown",
 }
 ```
 
@@ -587,30 +562,46 @@ Config{
     MaxInputSize:       10 * 1024 * 1024, // 10MB - reduced for security
     MaxCacheEntries:    500,              // Reduced cache size
     CacheTTL:           30 * time.Minute, // Shorter TTL
+    CacheCleanup:       1 * time.Minute,  // More frequent cleanup
     WorkerPoolSize:     2,                // Fewer workers
     EnableSanitization: true,
     MaxDepth:           100,              // Reduced depth limit
     ProcessingTimeout:  10 * time.Second, // Shorter timeout
+
+    // Extraction settings (same as DefaultConfig)
+    ExtractArticle:     true,
+    PreserveImages:     true,
+    PreserveLinks:      true,
+    PreserveVideos:     true,
+    PreserveAudios:     true,
+    ImageFormat:        "none",
+    LinkFormat:         "none",
+    TableFormat:        "markdown",
 }
 ```
 
-**DefaultExtractConfig():**
+**TextOnlyConfig():**
 ```go
-ExtractConfig{
-    ExtractArticle:    true,
-    PreserveImages:    true,
-    PreserveLinks:     true,
-    PreserveVideos:    true,
-    PreserveAudios:    true,
-    InlineImageFormat: "none",
-    TableFormat:       "markdown",
-    Encoding:          "", // Auto-detect
+Config{
+    // Inherits all DefaultConfig settings, plus:
+    PreserveImages:     false,
+    PreserveLinks:      false,
+    PreserveVideos:     false,
+    PreserveAudios:     false,
 }
 ```
 
-**DefaultLinkExtractionConfig():**
+**MarkdownConfig():**
 ```go
-LinkExtractionConfig{
+Config{
+    // Inherits all DefaultConfig settings, plus:
+    ImageFormat:        "markdown",
+}
+```
+
+**LinkExtractionOptions (DefaultConfig().LinkExtraction):**
+```go
+LinkExtractionOptions{
     ResolveRelativeURLs:  true,
     BaseURL:              "",    // Auto-detect
     IncludeImages:        true,
@@ -657,6 +648,7 @@ type LinkInfo struct {
     Title      string `json:"title"`
     IsExternal bool   `json:"is_external"`
     IsNoFollow bool   `json:"is_nofollow"`
+    Position   int    `json:"position"`
 }
 
 type VideoInfo struct {
@@ -762,7 +754,7 @@ processor, _ := html.New(html.HighSecurityConfig())
 defer processor.Close()
 
 // Process content
-processor.Extract(htmlBytes, html.DefaultExtractConfig())
+processor.Extract(htmlBytes)
 
 // Get audit entries
 entries := processor.GetAuditLog()
@@ -835,15 +827,14 @@ For complete runnable examples, see the [examples/](examples) directory:
 
 | Example | Description |
 |---------|-------------|
-| [01_quick_start.go](examples/01_quick_start.go) | Quick start (get started in 3 steps) |
-| [02_content_extraction.go](examples/02_content_extraction.go) | Content extraction configuration (preset options, custom configuration) |
-| [03_links_media.go](examples/03_links_media.go) | Link and media extraction (URL resolution, images/video/audio) |
-| [04_output_formats.go](examples/04_output_formats.go) | Output formats (JSON, Markdown, table formats) |
-| [05_configuration.go](examples/05_configuration.go) | Configuration and performance (caching, batch processing, concurrency) |
-| [06_http_integration.go](examples/06_http_integration.go) | HTTP integration (fetching web pages, concurrent processing) |
-| [07_advanced_usage.go](examples/07_advanced_usage.go) | Advanced features (custom scorers, audit system, security configuration) |
-| [08_error_handling.go](examples/08_error_handling.go) | Error handling patterns |
-| [09_real_world.go](examples/09_real_world.go) | Real-world use cases (blogs, RSS, documentation) |
+| [01_quick_start.go](examples/01_quick_start.go) | Quick start guide |
+| [02_content_extraction.go](examples/02_content_extraction.go) | Content extraction options and output formats |
+| [03_links_media.go](examples/03_links_media.go) | Link and media extraction |
+| [04_configuration.go](examples/04_configuration.go) | Configuration and performance tuning |
+| [05_http_integration.go](examples/05_http_integration.go) | HTTP integration patterns |
+| [06_advanced_usage.go](examples/06_advanced_usage.go) | Custom scorers, audit logging, security |
+| [07_error_handling.go](examples/07_error_handling.go) | Error handling patterns |
+| [08_real_world.go](examples/08_real_world.go) | Real-world use cases |
 
 ---
 
@@ -882,7 +873,7 @@ for i := 0; i < 100; i++ {
     wg.Add(1)
     go func() {
         defer wg.Done()
-        processor.Extract(htmlBytes, html.DefaultExtractConfig())
+        processor.Extract(htmlBytes)
     }()
 }
 wg.Wait()

@@ -123,6 +123,67 @@ var unwantedCharReplacer = strings.NewReplacer(
 	"☑", "[X]",
 )
 
+// compressWhitespace compresses multiple whitespace characters to single space
+// without using regex. Returns the compressed string.
+// Optimized to avoid allocations when no compression is needed.
+func compressWhitespace(s string) string {
+	n := len(s)
+	if n == 0 {
+		return ""
+	}
+
+	// Check if compression is needed
+	needsCompression := false
+	for i := 0; i < n; i++ {
+		c := s[i]
+		if (c == ' ' || c == '\t') && i+1 < n && (s[i+1] == ' ' || s[i+1] == '\t') {
+			needsCompression = true
+			break
+		}
+	}
+
+	if !needsCompression {
+		// Also convert tabs to spaces if present
+		hasTabs := false
+		for i := 0; i < n; i++ {
+			if s[i] == '\t' {
+				hasTabs = true
+				break
+			}
+		}
+		if !hasTabs {
+			return s
+		}
+	}
+
+	// Perform compression
+	var result []byte
+	inSpace := false
+	for i := 0; i < n; i++ {
+		c := s[i]
+		if c == ' ' || c == '\t' {
+			if !inSpace {
+				if result == nil {
+					result = make([]byte, 0, n)
+					result = append(result, s[:i]...)
+				}
+				result = append(result, ' ')
+				inSpace = true
+			}
+		} else {
+			if result != nil {
+				result = append(result, c)
+			}
+			inSpace = false
+		}
+	}
+
+	if result == nil {
+		return s
+	}
+	return string(result)
+}
+
 func CleanText(text string, whitespaceRegex *regexp.Regexp) string {
 	if text == "" {
 		return ""
@@ -139,9 +200,6 @@ func CleanText(text string, whitespaceRegex *regexp.Regexp) string {
 		return ReplaceHTMLEntities(text)
 	}
 
-	if whitespaceRegex == nil {
-		whitespaceRegex = defaultWhitespaceRegex
-	}
 	textLen := len(text)
 
 	// Use pooled builder for better memory efficiency
@@ -171,8 +229,8 @@ func CleanText(text string, whitespaceRegex *regexp.Regexp) string {
 					indent := rawLine[:firstNonSpace]
 					content := rawLine[firstNonSpace:]
 
-					// Compress whitespace in the content only
-					content = whitespaceRegex.ReplaceAllString(content, " ")
+					// Use optimized whitespace compression instead of regex
+					content = compressWhitespace(content)
 					content = strings.TrimRight(content, " ")
 
 					if content != "" {
@@ -188,7 +246,7 @@ func CleanText(text string, whitespaceRegex *regexp.Regexp) string {
 					}
 				} else {
 					// No leading indentation, compress all whitespace
-					line := whitespaceRegex.ReplaceAllString(rawLine, " ")
+					line := compressWhitespace(rawLine)
 					line = strings.TrimRight(line, " ")
 					if line != "" {
 						isEmpty = false

@@ -454,7 +454,7 @@ func TestGetBuilderPoolCorruption(t *testing.T) {
 	t.Parallel()
 
 	// Put a wrong type in the pool to simulate corruption
-	BuilderPool.Put("not a builder")
+	BuilderPool.Put("not a builder") //lint:ignore SA6002 intentionally using non-pointer to test pool corruption handling
 
 	// GetBuilder should still return a valid builder (fallback to new)
 	sb := GetBuilder()
@@ -480,7 +480,7 @@ func TestGetBufferPoolCorruption(t *testing.T) {
 	t.Parallel()
 
 	// Put a wrong type in the pool to simulate corruption
-	BufferPool.Put("not a buffer")
+	BufferPool.Put("not a buffer") //lint:ignore SA6002 intentionally using non-pointer to test pool corruption handling
 
 	// GetBuffer should still return a valid buffer (fallback to new)
 	buf := GetBuffer()
@@ -506,7 +506,7 @@ func TestGetHash128PoolCorruption(t *testing.T) {
 	t.Parallel()
 
 	// Put a wrong type in the pool to simulate corruption
-	Hash128Pool.Put("not a hasher")
+	Hash128Pool.Put("not a hasher") //lint:ignore SA6002 intentionally using non-pointer to test pool corruption handling
 
 	// GetHash128 should still return a valid hasher (fallback to new)
 	h := GetHash128()
@@ -534,7 +534,7 @@ func TestGetTransformBufferPoolCorruption(t *testing.T) {
 	t.Parallel()
 
 	// Put a wrong type in the pool to simulate corruption
-	TransformBufferPool.Put("not a buffer")
+	TransformBufferPool.Put("not a buffer") //lint:ignore SA6002 intentionally using non-pointer to test pool corruption handling
 
 	// GetTransformBuffer should still return a valid buffer (fallback to new)
 	bufPtr := GetTransformBuffer()

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	htmlstd "html"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -110,13 +111,12 @@ func (p *Processor) Extract(htmlBytes []byte) (result *Result, err error) {
 	startTime := time.Now()
 
 	// Detect encoding and convert to UTF-8
-	utf8String, detectedEncoding, convErr := internal.DetectAndConvertToUTF8String(htmlBytes, config.Encoding)
+	utf8String, _, convErr := internal.DetectAndConvertToUTF8String(htmlBytes, config.Encoding)
 	if convErr != nil {
 		p.audit.RecordEncodingIssue(config.Encoding, convErr.Error())
 		p.stats.errorCount.Add(1)
 		return nil, fmt.Errorf("encoding detection failed: %w", convErr)
 	}
-	_ = detectedEncoding // Used for audit logging if needed
 
 	// Use the converted UTF-8 string for cache key
 	cacheKey := p.generateCacheKey(utf8String, config)
@@ -178,27 +178,9 @@ func (p *Processor) ExtractFromFile(filePath string) (result *Result, err error)
 		return nil, ErrProcessorClosed
 	}
 
-	// Validate file path
-	if filePath == "" {
-		return nil, fmt.Errorf("%w: empty file path", ErrInvalidFilePath)
-	}
-
-	// Clean the file path to resolve any "." or ".." components
-	cleanPath := filepathClean(filePath)
-
-	// After cleaning, check if the path contains parent directory references
-	// This catches path traversal attempts like "../file", "subdir/../../file", etc.
-	if stringsContains(cleanPath, "..") {
-		p.audit.RecordPathTraversal(filePath)
-		return nil, fmt.Errorf("%w: path traversal detected: %s", ErrInvalidFilePath, cleanPath)
-	}
-
-	data, readErr := readFile(cleanPath)
-	if readErr != nil {
-		if osIsNotExist(readErr) {
-			return nil, fmt.Errorf("%w: %s", ErrFileNotFound, cleanPath)
-		}
-		return nil, fmt.Errorf("read file %q: %w", cleanPath, readErr)
+	data, err := p.validateAndReadFile(filePath)
+	if err != nil {
+		return nil, err
 	}
 
 	return p.Extract(data)
@@ -356,39 +338,52 @@ func (p *Processor) extractFromDocument(doc *Node, htmlContent string, opts Extr
 	}
 	contentNode = internal.CleanContentNode(contentNode)
 
-	format := strings.ToLower(strings.TrimSpace(opts.InlineImageFormat))
-	if format == "" {
-		format = "none"
+	imageFormat := strings.ToLower(strings.TrimSpace(opts.InlineImageFormat))
+	if imageFormat == "" {
+		imageFormat = "none"
+	}
+	linkFormat := strings.ToLower(strings.TrimSpace(opts.InlineLinkFormat))
+	if linkFormat == "" {
+		linkFormat = "none"
 	}
 
-	if format != "none" {
+	// Use placeholder path if either image or link format is not "none"
+	if imageFormat != "none" || linkFormat != "none" {
 		images := p.extractImagesWithPosition(contentNode)
+		links := p.extractLinksWithPosition(contentNode)
 
 		if opts.PreserveImages {
 			result.Images = images
+		}
+		if opts.PreserveLinks {
+			result.Links = links
 		}
 
 		sb := internal.GetBuilder()
 		sb.Grow(initialTextSize)
 		imageCounter := 0
-		internal.ExtractTextWithStructureAndImages(contentNode, sb, 0, &imageCounter, opts.TableFormat)
+		linkCounter := 0
+		internal.ExtractTextWithStructureAndImages(contentNode, sb, 0, &imageCounter, &linkCounter, opts.TableFormat)
 		textWithPlaceholders := internal.CleanText(sb.String(), nil)
 		internal.PutBuilder(sb)
-		result.Text = p.formatInlineImages(textWithPlaceholders, images, format)
+
+		// Apply formatters in order: images first, then links
+		result.Text = p.formatInlineImages(textWithPlaceholders, images, imageFormat)
+		result.Text = p.formatInlineLinks(result.Text, links, linkFormat)
 	} else {
 		result.Text = p.extractTextContent(contentNode, opts.TableFormat)
 
 		if opts.PreserveImages {
 			result.Images = p.extractImages(contentNode)
 		}
+		if opts.PreserveLinks {
+			result.Links = p.extractLinks(contentNode)
+		}
 	}
 
 	result.WordCount = p.countWords(result.Text)
 	result.ReadingTime = p.calculateReadingTime(result.WordCount)
 
-	if opts.PreserveLinks {
-		result.Links = p.extractLinks(contentNode)
-	}
 	if opts.PreserveVideos {
 		result.Videos = p.extractVideos(doc, htmlContent)
 	}
@@ -447,7 +442,7 @@ func (p *Processor) extractArticleNode(doc *Node) *Node {
 func (p *Processor) extractTextContent(node *Node, tableFormat string) string {
 	sb := internal.GetBuilder()
 	sb.Grow(initialTextSize)
-	internal.ExtractTextWithStructureAndImages(node, sb, 0, nil, tableFormat)
+	internal.ExtractTextWithStructureAndImages(node, sb, 0, nil, nil, tableFormat)
 	result := internal.CleanText(sb.String(), nil)
 	internal.PutBuilder(sb)
 	return result
@@ -511,6 +506,63 @@ func (p *Processor) formatInlineImages(textWithPlaceholders string, images []Ima
 	}
 
 	return textWithPlaceholders
+}
+
+func (p *Processor) formatInlineLinks(textWithPlaceholders string, links []LinkInfo, format string) string {
+	if len(links) == 0 || format == "none" {
+		return textWithPlaceholders
+	}
+
+	// Create a map of link position to link info for fast lookup
+	linkMap := make(map[int]LinkInfo, len(links))
+	for _, link := range links {
+		if link.Position > 0 {
+			linkMap[link.Position] = link
+		}
+	}
+
+	// Regex to match [LINK:N]text[/LINK] pattern
+	linkRegex := regexp.MustCompile(`\[LINK:(\d+)\]([^\[]*?)\[/LINK\]`)
+
+	result := linkRegex.ReplaceAllStringFunc(textWithPlaceholders, func(match string) string {
+		// Extract position and text from the match
+		submatches := linkRegex.FindStringSubmatch(match)
+		if len(submatches) != 3 {
+			return match
+		}
+
+		position := 0
+		fmt.Sscanf(submatches[1], "%d", &position)
+		linkText := submatches[2]
+
+		link, ok := linkMap[position]
+		if !ok {
+			return linkText // Return just the text if link not found
+		}
+
+		if linkText == "" {
+			linkText = "Link " + strconv.Itoa(position)
+		}
+
+		switch format {
+		case "markdown":
+			return "[" + linkText + "](" + link.URL + ")"
+		case "html":
+			if link.Title != "" {
+				return fmt.Sprintf(`<a href="%s" title="%s">%s</a>`,
+					htmlstd.EscapeString(link.URL),
+					htmlstd.EscapeString(link.Title),
+					htmlstd.EscapeString(linkText))
+			}
+			return fmt.Sprintf(`<a href="%s">%s</a>`,
+				htmlstd.EscapeString(link.URL),
+				htmlstd.EscapeString(linkText))
+		default:
+			return linkText
+		}
+	})
+
+	return result
 }
 
 func (p *Processor) extractImages(node *Node) []ImageInfo {
@@ -582,6 +634,25 @@ func (p *Processor) extractLinks(node *Node) []LinkInfo {
 	internal.WalkNodes(node, func(n *Node) bool {
 		if n.Type == ElementNode && n.Data == "a" {
 			link := p.parseLinkNode(n)
+			if link.URL != "" {
+				links = append(links, link)
+			}
+		}
+		return true
+	})
+
+	return links
+}
+
+func (p *Processor) extractLinksWithPosition(node *Node) []LinkInfo {
+	links := make([]LinkInfo, 0, initialSliceCap)
+	position := 0
+
+	internal.WalkNodes(node, func(n *Node) bool {
+		if n.Type == ElementNode && n.Data == "a" {
+			position++
+			link := p.parseLinkNode(n)
+			link.Position = position
 			if link.URL != "" {
 				links = append(links, link)
 			}
@@ -670,6 +741,7 @@ func (p *Processor) generateCacheKey(content string, opts ExtractConfig) string 
 
 	// Mix string options with reduced operations
 	h = hashMixString(h, opts.InlineImageFormat)
+	h = hashMixString(h, opts.InlineLinkFormat)
 	h = hashMixString(h, opts.TableFormat)
 
 	contentLen := len(content)
@@ -719,9 +791,17 @@ func (p *Processor) generateCacheKey(content string, opts ExtractConfig) string 
 	h *= 0xFF51AFD7ED558CCD
 	h ^= h >> 33
 
-	// Return as 8-byte string (reduced from 16-byte for efficiency)
-	var buf [8]byte
-	binary.LittleEndian.PutUint64(buf[:], h)
+	// Generate 16-byte hash for better collision resistance
+	// First 8 bytes: primary hash
+	// Second 8 bytes: secondary hash using different mixing constant
+	var buf [16]byte
+	binary.LittleEndian.PutUint64(buf[:8], h)
+
+	// Secondary hash with different seed for additional entropy
+	h2 := h ^ 0x9E3779B185EBCA87 // XOR with golden ratio
+	h2 = hashMix(h2)
+	binary.LittleEndian.PutUint64(buf[8:], h2)
+
 	return string(buf[:])
 }
 
@@ -734,8 +814,8 @@ func hashMix(h uint64) uint64 {
 }
 
 // hashMixString hashes a string into the hash state
+// Optimized with batch processing to reduce hashMix calls
 func hashMixString(h uint64, s string) uint64 {
-	// Quick hash for short strings
 	n := len(s)
 	if n == 0 {
 		return h
@@ -745,9 +825,25 @@ func hashMixString(h uint64, s string) uint64 {
 	h ^= uint64(n)
 	h = hashMix(h)
 
-	// Process 8 bytes at a time
+	// Process 32 bytes at a time with batch accumulation
 	i := 0
-	for i+7 < n {
+	for i+32 <= n {
+		// Load 4 chunks of 8 bytes using direct string indexing (avoids slice allocation)
+		v0 := binary.LittleEndian.Uint64(internal.StringToBytes(s[i : i+8]))
+		v1 := binary.LittleEndian.Uint64(internal.StringToBytes(s[i+8 : i+16]))
+		v2 := binary.LittleEndian.Uint64(internal.StringToBytes(s[i+16 : i+24]))
+		v3 := binary.LittleEndian.Uint64(internal.StringToBytes(s[i+24 : i+32]))
+
+		// XOR combine before mixing
+		h ^= v0 ^ v2
+		h = hashMix(h)
+		h ^= v1 ^ v3
+		h = hashMix(h)
+		i += 32
+	}
+
+	// Process remaining 8-byte chunks
+	for i+8 <= n {
 		v := binary.LittleEndian.Uint64(internal.StringToBytes(s[i : i+8]))
 		h ^= v
 		h = hashMix(h)
@@ -770,15 +866,33 @@ func hashMixString(h uint64, s string) uint64 {
 }
 
 // hashMixBytes hashes a byte slice into the hash state
+// Optimized with batch processing to reduce hashMix calls
 func hashMixBytes(h uint64, data []byte) uint64 {
 	n := len(data)
 	if n == 0 {
 		return h
 	}
 
-	// Process 8 bytes at a time
+	// Process 32 bytes at a time with batch accumulation
+	// This reduces hashMix calls by 4x while maintaining good distribution
 	i := 0
-	for i+7 < n {
+	for i+32 <= n {
+		// Load 4 chunks of 8 bytes
+		v0 := binary.LittleEndian.Uint64(data[i : i+8])
+		v1 := binary.LittleEndian.Uint64(data[i+8 : i+16])
+		v2 := binary.LittleEndian.Uint64(data[i+16 : i+24])
+		v3 := binary.LittleEndian.Uint64(data[i+24 : i+32])
+
+		// XOR combine before mixing (reduces mixing operations)
+		h ^= v0 ^ v2
+		h = hashMix(h)
+		h ^= v1 ^ v3
+		h = hashMix(h)
+		i += 32
+	}
+
+	// Process remaining 8-byte chunks
+	for i+8 <= n {
 		v := binary.LittleEndian.Uint64(data[i : i+8])
 		h ^= v
 		h = hashMix(h)

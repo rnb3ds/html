@@ -4,6 +4,7 @@ package internal
 
 import (
 	"strings"
+	"sync"
 
 	"golang.org/x/net/html"
 )
@@ -140,18 +141,14 @@ func addPatternsToIndex(index map[byte][]patternScore, patterns map[string]int) 
 }
 
 // NewDefaultScorerWithConfig creates a new DefaultScorer with custom configuration.
-// If config is nil, nil is stored but the pattern prefix index is built from default config.
+// If config is nil, the default configuration is used.
 func NewDefaultScorerWithConfig(config *ScoringConfig) *DefaultScorer {
-	// Build pattern prefix index from config (use default if nil)
-	var prefixes map[byte][]patternScore
-	if config != nil {
-		prefixes = buildPatternPrefixIndex(config)
-	} else {
-		prefixes = buildPatternPrefixIndex(DefaultScoringConfig())
+	if config == nil {
+		config = DefaultScoringConfig()
 	}
 	return &DefaultScorer{
 		config:          config,
-		patternPrefixes: prefixes,
+		patternPrefixes: buildPatternPrefixIndex(config),
 	}
 }
 
@@ -223,6 +220,10 @@ func (s *DefaultScorer) ShouldRemove(node *html.Node) bool {
 		return false
 	}
 
+	if s == nil || s.config == nil {
+		return false
+	}
+
 	if IsNonContentElement(node.Data) {
 		return true
 	}
@@ -253,6 +254,9 @@ func (s *DefaultScorer) ShouldRemove(node *html.Node) bool {
 
 // getTagScore returns the base score for a tag name.
 func (s *DefaultScorer) getTagScore(tag string) int {
+	if s == nil || s.config == nil {
+		return 0
+	}
 	if score, ok := s.config.TagScores[tag]; ok {
 		return score
 	}
@@ -267,7 +271,7 @@ func (s *DefaultScorer) ScoreAttributes(n *html.Node) int {
 
 // scoreAttributes calculates a score based on element attributes.
 func (s *DefaultScorer) scoreAttributes(n *html.Node) int {
-	if n == nil {
+	if n == nil || s == nil || s.config == nil {
 		return 0
 	}
 
@@ -335,5 +339,16 @@ func (s *DefaultScorer) calculatePatternScore(value string, patterns map[string]
 	return score
 }
 
-// defaultScorer is the global default scorer instance.
-var defaultScorer = NewDefaultScorer()
+// defaultScorer variables for lazy initialization.
+var (
+	defaultScorerOnce sync.Once
+	defaultScorer     *DefaultScorer
+)
+
+// getDefaultScorer returns the global default scorer instance, initializing it lazily.
+func getDefaultScorer() *DefaultScorer {
+	defaultScorerOnce.Do(func() {
+		defaultScorer = NewDefaultScorer()
+	})
+	return defaultScorer
+}

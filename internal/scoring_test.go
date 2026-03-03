@@ -805,15 +805,19 @@ func TestNewDefaultScorerWithConfig(t *testing.T) {
 		}
 	})
 
-	t.Run("nil config stores nil", func(t *testing.T) {
+	t.Run("nil config uses default", func(t *testing.T) {
 		scorer := NewDefaultScorerWithConfig(nil)
 
 		if scorer == nil {
 			t.Fatal("NewDefaultScorerWithConfig(nil) returned nil")
 		}
-		// Note: nil config is stored as-is, not replaced with default
-		if scorer.config != nil {
-			t.Error("Config should be nil when nil is passed")
+		// nil config is replaced with default config for safety
+		if scorer.config == nil {
+			t.Error("Config should not be nil when nil is passed (should use default)")
+		}
+		// Verify default config is used by checking for expected patterns
+		if len(scorer.config.PositiveStrongPatterns) == 0 {
+			t.Error("Default config should have positive patterns")
 		}
 	})
 

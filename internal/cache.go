@@ -4,8 +4,15 @@
 package internal
 
 import (
+	"context"
+	"runtime"
 	"sync"
 	"time"
+)
+
+// Default cache cleanup configuration
+const (
+	DefaultCacheCleanupInterval = 5 * time.Minute
 )
 
 type cacheEntry struct {
@@ -37,6 +44,10 @@ type Cache struct {
 	maxEntries int
 	ttl        time.Duration
 	head, tail *cacheEntry // Sentinel nodes for doubly-linked list
+
+	// Cleanup management
+	cleanupCancel context.CancelFunc // Function to stop background cleanup
+	cleanupOnce   sync.Once          // Ensures cleanup goroutine starts only once
 }
 
 // NewCache creates a new LRU cache with the specified maximum entries and TTL.
@@ -199,4 +210,93 @@ func (c *Cache) Clear() {
 	// Reset linked list
 	c.head.next = c.tail
 	c.tail.prev = c.head
+}
+
+// StartCleanup starts a background goroutine that periodically cleans up expired entries.
+// This is useful when TTL is enabled and the cache receives many one-time accesses,
+// as expired entries would otherwise only be cleaned when accessed or during eviction.
+//
+// The cleanup goroutine runs at the specified interval until StopCleanup is called
+// or the cache is garbage collected. If interval is 0, DefaultCacheCleanupInterval is used.
+//
+// This method is idempotent - calling it multiple times has no additional effect.
+//
+// IMPORTANT: While runtime.SetFinalizer ensures cleanup when the Cache is garbage collected,
+// it is still recommended to call StopCleanup() explicitly for deterministic resource release,
+// especially in long-running applications.
+//
+// Usage:
+//
+//	cache := NewCache(1000, time.Hour)
+//	cache.StartCleanup(5 * time.Minute)
+//	defer cache.StopCleanup()
+func (c *Cache) StartCleanup(interval time.Duration) context.CancelFunc {
+	if interval <= 0 {
+		interval = DefaultCacheCleanupInterval
+	}
+
+	var cancel context.CancelFunc
+
+	c.cleanupOnce.Do(func() {
+		ctx, cancelFunc := context.WithCancel(context.Background())
+		cancel = cancelFunc
+		c.cleanupCancel = cancelFunc
+
+		// Set finalizer to ensure goroutine cleanup when Cache is garbage collected.
+		// This prevents goroutine leaks if StopCleanup() is not called explicitly.
+		runtime.SetFinalizer(c, func(cache *Cache) {
+			cache.StopCleanup()
+		})
+
+		go func() {
+			ticker := time.NewTicker(interval)
+			defer ticker.Stop()
+
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-ticker.C:
+					c.cleanupExpired()
+				}
+			}
+		}()
+	})
+
+	return cancel
+}
+
+// StopCleanup stops the background cleanup goroutine if it was started.
+// It is safe to call this method multiple times.
+// This method also clears the finalizer to prevent double cleanup.
+func (c *Cache) StopCleanup() {
+	if c.cleanupCancel != nil {
+		c.cleanupCancel()
+		c.cleanupCancel = nil
+		// Clear the finalizer since we've already cleaned up
+		runtime.SetFinalizer(c, nil)
+	}
+}
+
+// cleanupExpired removes all expired entries from the cache.
+// This is called periodically by the background cleanup goroutine.
+func (c *Cache) cleanupExpired() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	now := time.Now().UnixNano()
+	for key, entry := range c.entries {
+		if entry.isExpired(now) {
+			c.removeNode(entry)
+			delete(c.entries, key)
+		}
+	}
+}
+
+// Len returns the current number of entries in the cache.
+// This is useful for monitoring and debugging.
+func (c *Cache) Len() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return len(c.entries)
 }

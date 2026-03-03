@@ -12,6 +12,7 @@ const (
 	DefaultMaxCacheEntries   = 2000
 	DefaultWorkerPoolSize    = 4
 	DefaultCacheTTL          = time.Hour
+	DefaultCacheCleanup      = 5 * time.Minute // Background cleanup interval for expired cache entries
 	DefaultMaxDepth          = 500
 	DefaultProcessingTimeout = 30 * time.Second
 )
@@ -56,6 +57,7 @@ type Config struct {
 	MaxInputSize       int
 	MaxCacheEntries    int
 	CacheTTL           time.Duration
+	CacheCleanup       time.Duration // Interval for background cleanup of expired cache entries (0 = disabled)
 	WorkerPoolSize     int
 	EnableSanitization bool
 	MaxDepth           int
@@ -70,6 +72,7 @@ type Config struct {
 	PreserveVideos bool
 	PreserveAudios bool
 	ImageFormat    string // Format for inline images: "none", "markdown", "html", "placeholder"
+	LinkFormat     string // Format for inline links: "none", "markdown", "html"
 	TableFormat    string // Format for tables: "markdown", "html"
 	Encoding       string // Character encoding of input HTML (empty for auto-detection)
 
@@ -98,6 +101,7 @@ func DefaultConfig() Config {
 		MaxInputSize:       DefaultMaxInputSize,
 		MaxCacheEntries:    DefaultMaxCacheEntries,
 		CacheTTL:           DefaultCacheTTL,
+		CacheCleanup:       DefaultCacheCleanup,
 		WorkerPoolSize:     DefaultWorkerPoolSize,
 		EnableSanitization: true,
 		MaxDepth:           DefaultMaxDepth,
@@ -111,6 +115,7 @@ func DefaultConfig() Config {
 		PreserveVideos: true,
 		PreserveAudios: true,
 		ImageFormat:    "none",
+		LinkFormat:     "none",
 		TableFormat:    "markdown",
 
 		// Link extraction settings
@@ -137,6 +142,7 @@ func DefaultConfig() Config {
 //   - Lower MaxDepth (100 vs 500) to prevent deep nesting attacks
 //   - Shorter ProcessingTimeout (10s vs 30s) for faster attack detection
 //   - Fewer cache entries to reduce memory footprint
+//   - Shorter cache TTL and more frequent cleanup
 //   - Audit logging enabled for compliance requirements
 func HighSecurityConfig() Config {
 	return Config{
@@ -144,6 +150,7 @@ func HighSecurityConfig() Config {
 		MaxInputSize:       10 * 1024 * 1024, // 10MB - reduced for security
 		MaxCacheEntries:    500,              // Reduced cache size
 		CacheTTL:           30 * time.Minute, // Shorter TTL
+		CacheCleanup:       time.Minute,      // More frequent cleanup
 		WorkerPoolSize:     2,                // Fewer workers for controlled resource usage
 		EnableSanitization: true,             // Always enabled in high-security mode
 		MaxDepth:           100,              // Reduced depth limit
@@ -157,6 +164,7 @@ func HighSecurityConfig() Config {
 		PreserveVideos: true,
 		PreserveAudios: true,
 		ImageFormat:    "none",
+		LinkFormat:     "none",
 		TableFormat:    "markdown",
 
 		// Link extraction settings (same as DefaultConfig)
@@ -174,7 +182,6 @@ func HighSecurityConfig() Config {
 	}
 }
 
-// TextOnlyConfig returns a configuration for extracting plain text only.
 // This disables all media preservation (images, links, videos, audios).
 func TextOnlyConfig() Config {
 	cfg := DefaultConfig()
@@ -230,6 +237,7 @@ type ExtractConfig struct {
 	PreserveVideos    bool
 	PreserveAudios    bool
 	InlineImageFormat string
+	InlineLinkFormat  string
 	TableFormat       string
 	// Encoding specifies the character encoding of the input HTML.
 	// If empty, the encoding will be auto-detected from meta tags or BOM.
@@ -245,6 +253,7 @@ var defaultExtractConfig = ExtractConfig{
 	PreserveVideos:    true,
 	PreserveAudios:    true,
 	InlineImageFormat: "none",
+	InlineLinkFormat:  "none",
 	TableFormat:       "markdown",
 }
 
@@ -265,6 +274,7 @@ func TextOnlyExtractConfig() ExtractConfig {
 		PreserveVideos:    false,
 		PreserveAudios:    false,
 		InlineImageFormat: "none",
+		InlineLinkFormat:  "none",
 		TableFormat:       "markdown",
 	}
 }
@@ -325,6 +335,7 @@ type LinkInfo struct {
 	Title      string `json:"title"`
 	IsExternal bool   `json:"is_external"`
 	IsNoFollow bool   `json:"is_nofollow"`
+	Position   int    `json:"position"`
 }
 
 // VideoInfo holds information about an extracted video.

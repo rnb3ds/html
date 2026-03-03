@@ -67,7 +67,7 @@ func TestNamespaceTagInlineHandling(t *testing.T) {
 			}
 
 			var sb strings.Builder
-			ExtractTextWithStructureAndImages(doc, &sb, 0, nil, "markdown")
+			ExtractTextWithStructureAndImages(doc, &sb, 0, nil, nil, "markdown")
 			result := sb.String()
 
 			// Remove extra whitespace for comparison

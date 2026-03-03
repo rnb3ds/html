@@ -2,7 +2,6 @@ package html
 
 import (
 	"fmt"
-	"strings"
 	"sync/atomic"
 	"time"
 
@@ -97,6 +96,11 @@ func New(cfgs ...Config) (*Processor, error) {
 		p.scorer = internal.NewDefaultScorer()
 	}
 
+	// Start background cache cleanup if TTL and cleanup interval are configured
+	if cfg.CacheTTL > 0 && cfg.CacheCleanup > 0 {
+		p.cache.StartCleanup(cfg.CacheCleanup)
+	}
+
 	return p, nil
 }
 
@@ -132,6 +136,7 @@ func (c Config) isEmpty() bool {
 	return c.MaxInputSize == 0 &&
 		c.MaxCacheEntries == 0 &&
 		c.CacheTTL == 0 &&
+		c.CacheCleanup == 0 &&
 		c.WorkerPoolSize == 0 &&
 		c.MaxDepth == 0 &&
 		c.ProcessingTimeout == 0 &&
@@ -142,6 +147,7 @@ func (c Config) isEmpty() bool {
 		!c.PreserveVideos &&
 		!c.PreserveAudios &&
 		c.ImageFormat == "" &&
+		c.LinkFormat == "" &&
 		c.TableFormat == "" &&
 		c.Encoding == "" &&
 		c.Scorer == nil &&
@@ -216,6 +222,8 @@ func (p *Processor) Close() error {
 	if !p.closed.CompareAndSwap(false, true) {
 		return nil
 	}
+	// Stop background cleanup goroutine if running
+	p.cache.StopCleanup()
 	p.cache.Clear()
 	if p.audit != nil {
 		p.audit.Close()
@@ -232,6 +240,7 @@ func (p *Processor) getExtractConfig() ExtractConfig {
 		PreserveVideos:    p.config.PreserveVideos,
 		PreserveAudios:    p.config.PreserveAudios,
 		InlineImageFormat: p.config.ImageFormat,
+		InlineLinkFormat:  p.config.LinkFormat,
 		TableFormat:       p.config.TableFormat,
 		Encoding:          p.config.Encoding,
 	}
@@ -242,164 +251,36 @@ func (p *Processor) getLinkExtractionConfig() LinkExtractionConfig {
 	return p.config.LinkExtraction
 }
 
-// resolveExtractConfig resolves extraction configuration with defaults.
-// It merges user-provided configuration with default values:
-//   - If no config is provided, returns DefaultExtractConfig()
-//   - If an empty config (all zero values) is provided, returns DefaultExtractConfig()
-//   - If a config with only string fields set is provided, boolean fields use defaults
-//   - If a config with any boolean field set to true is provided, use user's boolean values
-//
-// This design ensures that:
-//   - Users can set individual string options without setting all booleans
-//   - TextOnlyExtractConfig() works correctly (all booleans explicitly false)
-//   - Empty config behaves the same as no config
-func resolveExtractConfig(configs ...ExtractConfig) ExtractConfig {
-	if len(configs) == 0 {
-		return defaultExtractConfig
+// validateAndReadFile validates the file path and reads the file contents.
+// It performs security checks including path traversal detection.
+// Returns the file contents or an appropriate error.
+func (p *Processor) validateAndReadFile(filePath string) ([]byte, error) {
+	// Validate file path
+	if filePath == "" {
+		return nil, fmt.Errorf("%w: empty file path", ErrInvalidFilePath)
 	}
 
-	cfg := configs[0]
-	if cfg.isEmpty() {
-		return defaultExtractConfig
-	}
+	// Clean the file path to resolve any "." or ".." components
+	cleanPath := filepathClean(filePath)
 
-	// Determine boolean override behavior
-	result := defaultExtractConfig
-	if cfg.hasExplicitBoolean() {
-		result.applyBooleanOverrides(cfg)
-	}
-	result.applyStringOverrides(cfg)
-	return result
-}
-
-// isEmpty checks if config has all zero values
-func (r ExtractConfig) isEmpty() bool {
-	return !r.ExtractArticle && !r.PreserveImages && !r.PreserveLinks &&
-		!r.PreserveVideos && !r.PreserveAudios &&
-		r.InlineImageFormat == "" && r.TableFormat == "" && r.Encoding == ""
-}
-
-// hasExplicitBoolean checks if any boolean field is explicitly true
-func (r ExtractConfig) hasExplicitBoolean() bool {
-	return r.ExtractArticle || r.PreserveImages || r.PreserveLinks || r.PreserveVideos || r.PreserveAudios
-}
-
-// applyBooleanOverrides applies user's boolean values to result
-func (r *ExtractConfig) applyBooleanOverrides(cfg ExtractConfig) {
-	r.ExtractArticle = cfg.ExtractArticle
-	r.PreserveImages = cfg.PreserveImages
-	r.PreserveLinks = cfg.PreserveLinks
-	r.PreserveVideos = cfg.PreserveVideos
-	r.PreserveAudios = cfg.PreserveAudios
-}
-
-// applyStringOverrides applies user's string values to result
-func (r *ExtractConfig) applyStringOverrides(cfg ExtractConfig) {
-	if cfg.InlineImageFormat != "" {
-		r.InlineImageFormat = normalizeImageFormat(cfg.InlineImageFormat)
-	}
-	if cfg.TableFormat != "" {
-		r.TableFormat = normalizeTableFormat(cfg.TableFormat)
-	}
-	if cfg.Encoding != "" {
-		r.Encoding = cfg.Encoding
-	}
-}
-
-// normalizeTableFormat validates and normalizes table format.
-// Uses inline comparison to avoid map allocations.
-func normalizeTableFormat(format string) string {
-	// Fast lowercase for common formats
-	switch format {
-	case "markdown", "Markdown", "MARKDOWN":
-		return "markdown"
-	case "html", "HTML", "Html":
-		return "html"
-	default:
-		// Slow path: full normalization
-		f := strings.ToLower(strings.TrimSpace(format))
-		if f == "html" {
-			return "html"
+	// After cleaning, check if the path contains parent directory references
+	// This catches path traversal attempts like "../file", "subdir/../../file", etc.
+	if stringsContains(cleanPath, "..") {
+		if p.audit != nil {
+			p.audit.RecordPathTraversal(filePath)
 		}
-		return "markdown"
+		return nil, fmt.Errorf("%w: path traversal detected: %s", ErrInvalidFilePath, cleanPath)
 	}
-}
 
-// normalizeImageFormat validates and normalizes image format.
-// Uses inline comparison to avoid map allocations.
-func normalizeImageFormat(format string) string {
-	// Fast path for common formats
-	switch format {
-	case "none", "None", "NONE":
-		return "none"
-	case "markdown", "Markdown", "MARKDOWN":
-		return "markdown"
-	case "html", "HTML", "Html":
-		return "html"
-	case "placeholder", "Placeholder", "PLACEHOLDER":
-		return "placeholder"
-	default:
-		// Slow path: full normalization
-		f := strings.ToLower(strings.TrimSpace(format))
-		switch f {
-		case "markdown", "html", "placeholder":
-			return f
-		default:
-			return "none"
+	data, err := readFile(cleanPath)
+	if err != nil {
+		if osIsNotExist(err) {
+			return nil, fmt.Errorf("%w: %s", ErrFileNotFound, cleanPath)
 		}
-	}
-}
-
-// resolveLinkExtractionConfig resolves link extraction configuration with defaults.
-// It uses the smart merge strategy similar to resolveExtractConfig:
-//   - If no config is provided, returns DefaultLinkExtractionConfig()
-//   - If an empty config (all zero values) is provided, returns DefaultLinkExtractionConfig()
-//   - If a config with only string fields set is provided, boolean fields use defaults
-//   - If a config with any boolean field set to true is provided, use user's boolean values
-func resolveLinkExtractionConfig(configs ...LinkExtractionConfig) LinkExtractionConfig {
-	// Fast path: no config provided
-	if len(configs) == 0 {
-		return defaultLinkExtractionConfig
+		return nil, fmt.Errorf("read file %q: %w", cleanPath, err)
 	}
 
-	cfg := configs[0]
-
-	// Fast path: empty config (all zero values)
-	if cfg.ResolveRelativeURLs == false && cfg.IncludeImages == false &&
-		cfg.IncludeVideos == false && cfg.IncludeAudios == false &&
-		cfg.IncludeCSS == false && cfg.IncludeJS == false &&
-		cfg.IncludeContentLinks == false && cfg.IncludeExternalLinks == false &&
-		cfg.IncludeIcons == false && cfg.BaseURL == "" {
-		return defaultLinkExtractionConfig
-	}
-
-	// Check if any boolean field is explicitly set to true
-	hasExplicitTrue := cfg.ResolveRelativeURLs || cfg.IncludeImages ||
-		cfg.IncludeVideos || cfg.IncludeAudios || cfg.IncludeCSS ||
-		cfg.IncludeJS || cfg.IncludeContentLinks || cfg.IncludeExternalLinks ||
-		cfg.IncludeIcons
-
-	// Start with defaults
-	result := defaultLinkExtractionConfig
-
-	if hasExplicitTrue {
-		result.ResolveRelativeURLs = cfg.ResolveRelativeURLs
-		result.IncludeImages = cfg.IncludeImages
-		result.IncludeVideos = cfg.IncludeVideos
-		result.IncludeAudios = cfg.IncludeAudios
-		result.IncludeCSS = cfg.IncludeCSS
-		result.IncludeJS = cfg.IncludeJS
-		result.IncludeContentLinks = cfg.IncludeContentLinks
-		result.IncludeExternalLinks = cfg.IncludeExternalLinks
-		result.IncludeIcons = cfg.IncludeIcons
-	}
-
-	// String field - non-empty user value overrides
-	if cfg.BaseURL != "" {
-		result.BaseURL = cfg.BaseURL
-	}
-
-	return result
+	return data, nil
 }
 
 // collectResults collects batch processing results and returns the first error if any.

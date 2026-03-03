@@ -5,9 +5,9 @@ package main
 import (
 	"fmt"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/cybergodev/html"
-	"github.com/cybergodev/html/examples/truncate"
 )
 
 // This example demonstrates real-world use cases.
@@ -22,7 +22,7 @@ func main() {
 	// Use Case 1: Blog Article Extraction
 	// ============================================================
 	fmt.Println("Use Case 1: Blog Article Extraction")
-	fmt.Println("----------------------------")
+	fmt.Println("------------------------------------")
 
 	blogHTML := `
 		<html>
@@ -42,7 +42,7 @@ func main() {
 
 	result, _ := processor.Extract([]byte(blogHTML))
 	fmt.Printf("Title: %s\n", result.Title)
-	fmt.Printf("Content: %s\n", truncate.Truncate(result.Text, 80))
+	fmt.Printf("Content: %s\n", truncateText(result.Text, 80))
 	fmt.Printf("Images: %d (noise removed)\n\n", len(result.Images))
 	for _, img := range result.Images {
 		fmt.Printf("  Image: %s (alt: %q)\n", img.URL, img.Alt)
@@ -72,7 +72,7 @@ func main() {
 
 	result, _ = processor.Extract([]byte(newsletterHTML))
 	fmt.Printf("Title: %s\n", result.Title)
-	fmt.Printf("Content: %s\n", truncate.Truncate(result.Text, 80))
+	fmt.Printf("Content: %s\n", truncateText(result.Text, 80))
 	fmt.Println("  - Ignored hidden content")
 	fmt.Println("  - Extracted main content from tables")
 	fmt.Println()
@@ -81,7 +81,7 @@ func main() {
 	// Use Case 3: RSS Feed Processing
 	// ============================================================
 	fmt.Println("\nUse Case 3: RSS Feed Items")
-	fmt.Println("------------------------------")
+	fmt.Println("--------------------------")
 
 	rssItems := []string{
 		`<item><title>Go 1.22 Released</title><description><p>New features.</p></description></item>`,
@@ -103,7 +103,7 @@ func main() {
 	// Use Case 4: Documentation Content
 	// ============================================================
 	fmt.Println("\nUse Case 4: Documentation Extraction")
-	fmt.Println("------------------------------")
+	fmt.Println("------------------------------------")
 
 	docsHTML := `
 		<html>
@@ -131,7 +131,7 @@ func main() {
 	// Use Case 5: File Extraction Pattern
 	// ============================================================
 	fmt.Println("\nUse Case 5: File Extraction Pattern")
-	fmt.Println("--------------------------------")
+	fmt.Println("-----------------------------------")
 
 	fmt.Println("Single file:")
 	fmt.Println("  result, err := processor.ExtractFromFile(\"article.html\")")
@@ -161,4 +161,16 @@ func extractDescription(item string) string {
 		return ""
 	}
 	return item[start+len("<description>") : end]
+}
+
+// truncateText shortens text for display, respecting multi-byte characters.
+func truncateText(s string, maxLen int) string {
+	if utf8.RuneCountInString(s) <= maxLen {
+		return s
+	}
+	runes := []rune(s)
+	if len(runes) > maxLen {
+		return string(runes[:maxLen]) + "..."
+	}
+	return s
 }

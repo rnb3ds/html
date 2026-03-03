@@ -65,7 +65,7 @@ func TestWhitespacePreservation(t *testing.T) {
 			}
 
 			var sb strings.Builder
-			ExtractTextWithStructureAndImages(doc, &sb, 0, nil, "markdown")
+			ExtractTextWithStructureAndImages(doc, &sb, 0, nil, nil, "markdown")
 			result := strings.TrimSpace(sb.String())
 
 			if result != tt.expected {
@@ -85,7 +85,7 @@ func TestOriginalSECCase(t *testing.T) {
 	}
 
 	var sb strings.Builder
-	ExtractTextWithStructureAndImages(doc, &sb, 0, nil, "markdown")
+	ExtractTextWithStructureAndImages(doc, &sb, 0, nil, nil, "markdown")
 	result := strings.TrimSpace(sb.String())
 
 	// Based on current logic: the span element adds spacing after itself

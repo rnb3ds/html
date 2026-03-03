@@ -13,7 +13,7 @@ import (
 
 // ExtractTextWithStructureAndImages extracts text content from an HTML node tree
 // while preserving document structure (headings, paragraphs, lists, tables).
-func ExtractTextWithStructureAndImages(node *html.Node, sb *strings.Builder, _ int, imageCounter *int, tableFormat string) {
+func ExtractTextWithStructureAndImages(node *html.Node, sb *strings.Builder, _ int, imageCounter *int, linkCounter *int, tableFormat string) {
 	if node == nil {
 		return
 	}
@@ -22,10 +22,10 @@ func ExtractTextWithStructureAndImages(node *html.Node, sb *strings.Builder, _ i
 	}
 
 	tb := table.NewTrackedBuilder(sb)
-	extractTextWithStructure(node, tb, imageCounter, tableFormat, nil, 0)
+	extractTextWithStructure(node, tb, imageCounter, linkCounter, tableFormat, nil, 0)
 }
 
-func extractTextWithStructure(node *html.Node, tb *table.TrackedBuilder, imageCounter *int, tableFormat string, parentBlock *html.Node, depth int) {
+func extractTextWithStructure(node *html.Node, tb *table.TrackedBuilder, imageCounter *int, linkCounter *int, tableFormat string, parentBlock *html.Node, depth int) {
 	if node == nil {
 		return
 	}
@@ -94,6 +94,13 @@ func extractTextWithStructure(node *html.Node, tb *table.TrackedBuilder, imageCo
 			tb.WriteString("]\n")
 			return
 		}
+		if node.Data == "a" && linkCounter != nil {
+			*linkCounter++
+			tb.WriteString("[LINK:")
+			tb.WriteString(strconv.Itoa(*linkCounter))
+			tb.WriteString("]")
+			// Continue processing children for link text
+		}
 		if node.Data == "br" {
 			// BR creates a single line break, not paragraph spacing
 			// Only add newline if we have content and don't already have one
@@ -146,7 +153,11 @@ func extractTextWithStructure(node *html.Node, tb *table.TrackedBuilder, imageCo
 		}
 
 		for child := node.FirstChild; child != nil; child = child.NextSibling {
-			extractTextWithStructure(child, tb, imageCounter, tableFormat, node, depth+1)
+			extractTextWithStructure(child, tb, imageCounter, linkCounter, tableFormat, node, depth+1)
+		}
+		// Add closing link tag after processing children
+		if node.Data == "a" && linkCounter != nil {
+			tb.WriteString("[/LINK]")
 		}
 		hasContent := tb.Builder.Len() > startLen
 		if isBlockElement && hasContent {
@@ -163,7 +174,7 @@ func extractTextWithStructure(node *html.Node, tb *table.TrackedBuilder, imageCo
 		}
 	} else {
 		for child := node.FirstChild; child != nil; child = child.NextSibling {
-			extractTextWithStructure(child, tb, imageCounter, tableFormat, parentBlock, depth+1)
+			extractTextWithStructure(child, tb, imageCounter, linkCounter, tableFormat, parentBlock, depth+1)
 		}
 	}
 }

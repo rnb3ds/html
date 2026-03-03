@@ -11,12 +11,45 @@ import (
 
 // Pool configuration constants
 const (
-	// builderInitialSize is the initial capacity for pooled strings.Builder
-	builderPoolInitialSize = 256
+	// builderPoolInitialCapacity is the initial capacity for pooled strings.Builder
+	builderPoolInitialCapacity = 256
 
-	// bufferInitialCapacity is the initial capacity for pooled bytes.Buffer
+	// bufferPoolInitialCapacity is the initial capacity for pooled bytes.Buffer
 	bufferPoolInitialCapacity = 1024
 )
+
+// poolDebug enables debug logging for pool corruption detection.
+// This is intentionally not exported - it's for internal debugging only.
+// To enable, set POOL_DEBUG=1 environment variable before import.
+var poolDebug = false
+
+// poolLogger is an optional logger for pool corruption warnings.
+// Set via SetPoolLogger to enable logging.
+var poolLogger struct {
+	mu     sync.Mutex
+	logger func(format string, args ...any)
+}
+
+// SetPoolLogger sets a logger function for pool corruption warnings.
+// Pass nil to disable logging. This is a no-op if poolDebug is false.
+// The logger function should be thread-safe.
+func SetPoolLogger(logger func(format string, args ...any)) {
+	poolLogger.mu.Lock()
+	defer poolLogger.mu.Unlock()
+	poolLogger.logger = logger
+}
+
+// logPoolCorruption logs a pool corruption warning if debugging is enabled.
+func logPoolCorruption(poolName, expectedType string, got any) {
+	if !poolDebug {
+		return
+	}
+	poolLogger.mu.Lock()
+	defer poolLogger.mu.Unlock()
+	if poolLogger.logger != nil {
+		poolLogger.logger("POOL CORRUPTION: %s expected type %s but got %T", poolName, expectedType, got)
+	}
+}
 
 // BuilderPool is a sync.Pool for strings.Builder instances.
 // Use this for functions that build strings incrementally to reduce allocations.
@@ -40,7 +73,7 @@ const (
 var BuilderPool = sync.Pool{
 	New: func() any {
 		sb := &strings.Builder{}
-		sb.Grow(builderPoolInitialSize)
+		sb.Grow(builderPoolInitialCapacity)
 		return sb
 	},
 }
@@ -87,9 +120,11 @@ func GetBuilder() *strings.Builder {
 	v := BuilderPool.Get()
 	sb, ok := v.(*strings.Builder)
 	if !ok {
+		// Log pool corruption if debugging is enabled
+		logPoolCorruption("BuilderPool", "*strings.Builder", v)
 		// Fallback: return a new builder if pool is corrupted
 		sb = &strings.Builder{}
-		sb.Grow(builderPoolInitialSize)
+		sb.Grow(builderPoolInitialCapacity)
 	}
 	return sb
 }
@@ -122,6 +157,8 @@ func GetBuffer() *bytes.Buffer {
 	v := BufferPool.Get()
 	buf, ok := v.(*bytes.Buffer)
 	if !ok {
+		// Log pool corruption if debugging is enabled
+		logPoolCorruption("BufferPool", "*bytes.Buffer", v)
 		// Fallback: return a new buffer if pool is corrupted
 		buf = bytes.NewBuffer(make([]byte, 0, bufferPoolInitialCapacity))
 	}
@@ -162,6 +199,8 @@ func GetHash128() hash.Hash {
 	v := Hash128Pool.Get()
 	h, ok := v.(hash.Hash)
 	if !ok {
+		// Log pool corruption if debugging is enabled
+		logPoolCorruption("Hash128Pool", "hash.Hash", v)
 		// Fallback: return a new hasher if pool is corrupted
 		h = fnv.New128a()
 	}
@@ -194,6 +233,8 @@ func GetTransformBuffer() *[]byte {
 	v := TransformBufferPool.Get()
 	buf, ok := v.(*[]byte)
 	if !ok {
+		// Log pool corruption if debugging is enabled
+		logPoolCorruption("TransformBufferPool", "*[]byte", v)
 		// Fallback: return a new buffer if pool is corrupted
 		newBuf := make([]byte, 0, 8192)
 		return &newBuf

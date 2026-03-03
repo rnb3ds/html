@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/cybergodev/html"
-	xhtml "golang.org/x/net/html"
 )
 
 // This example demonstrates advanced features: custom scorers, audit logging, and security configuration.
@@ -162,8 +161,8 @@ type ArticleScorer struct {
 }
 
 // Score calculates a relevance score for a content node.
-func (s *ArticleScorer) Score(node *xhtml.Node) int {
-	if node.Type != xhtml.ElementNode {
+func (s *ArticleScorer) Score(node *html.Node) int {
+	if node.Type != html.ElementNode {
 		return 0
 	}
 
@@ -207,8 +206,8 @@ func (s *ArticleScorer) Score(node *xhtml.Node) int {
 }
 
 // ShouldRemove determines if a node should be removed.
-func (s *ArticleScorer) ShouldRemove(node *xhtml.Node) bool {
-	if node.Type != xhtml.ElementNode {
+func (s *ArticleScorer) ShouldRemove(node *html.Node) bool {
+	if node.Type != html.ElementNode {
 		return false
 	}
 
@@ -233,8 +232,8 @@ func (s *ArticleScorer) ShouldRemove(node *xhtml.Node) bool {
 }
 
 // getTextContent extracts text content from a node.
-func getTextContent(n *xhtml.Node) string {
-	if n.Type == xhtml.TextNode {
+func getTextContent(n *html.Node) string {
+	if n.Type == html.TextNode {
 		return n.Data
 	}
 	var result string

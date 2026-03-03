@@ -86,40 +86,22 @@ func (p *Processor) ExtractAllLinksFromFile(filePath string) (links []LinkResour
 		return nil, ErrProcessorClosed
 	}
 
-	// Validate file path
-	if filePath == "" {
-		return nil, fmt.Errorf("%w: empty file path", ErrInvalidFilePath)
-	}
-
-	// Clean the file path to resolve any "." or ".." components
-	cleanPath := filepathClean(filePath)
-
-	// After cleaning, check if the path contains parent directory references
-	// This catches path traversal attempts like "../file", "subdir/../../file", etc.
-	if stringsContains(cleanPath, "..") {
-		p.audit.RecordPathTraversal(filePath)
-		return nil, fmt.Errorf("%w: path traversal detected: %s", ErrInvalidFilePath, cleanPath)
-	}
-
-	data, readErr := readFile(cleanPath)
-	if readErr != nil {
-		if osIsNotExist(readErr) {
-			return nil, fmt.Errorf("%w: %s", ErrFileNotFound, cleanPath)
-		}
-		return nil, fmt.Errorf("read file %q: %w", cleanPath, readErr)
+	data, err := p.validateAndReadFile(filePath)
+	if err != nil {
+		return nil, err
 	}
 
 	return p.ExtractAllLinks(data)
 }
 
 // ============================================================================
-// Deprecated Package Functions (for backward compatibility)
+// Package-level Convenience Functions
 // ============================================================================
 
 // ExtractAllLinks extracts all links from HTML bytes with automatic encoding detection.
 // This is a convenience function that creates a temporary Processor with default settings.
-//
-// Deprecated: Use Processor.ExtractAllLinks instead for better performance with repeated calls.
+// For repeated extractions or custom configuration (cache, timeout, etc.), use
+// Processor.ExtractAllLinks instead.
 func ExtractAllLinks(htmlBytes []byte) ([]LinkResource, error) {
 	processor, err := New(DefaultConfig())
 	if err != nil {
@@ -131,8 +113,8 @@ func ExtractAllLinks(htmlBytes []byte) ([]LinkResource, error) {
 
 // ExtractAllLinksFromFile extracts all links from an HTML file with automatic encoding detection.
 // This is a convenience function that creates a temporary Processor with default settings.
-//
-// Deprecated: Use Processor.ExtractAllLinksFromFile instead for better performance with repeated calls.
+// For repeated extractions or custom configuration (cache, timeout, etc.), use
+// Processor.ExtractAllLinksFromFile instead.
 func ExtractAllLinksFromFile(filePath string) ([]LinkResource, error) {
 	processor, err := New(DefaultConfig())
 	if err != nil {

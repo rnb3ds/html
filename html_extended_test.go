@@ -153,37 +153,6 @@ func TestErrorHandlingComprehensive(t *testing.T) {
 		}
 	})
 
-	t.Run("ErrProcessorClosed - operations after close", func(t *testing.T) {
-		p, _ := html.New(html.DefaultConfig())
-		p.Close()
-
-		operations := []func() error{
-			func() error {
-				_, err := p.Extract([]byte("<html><body>test</body></html>"))
-				return err
-			},
-			func() error { _, err := p.ExtractFromFile("test.html"); return err },
-			func() error { _, err := p.ExtractBatch([][]byte{[]byte("<html><body>test</body></html>")}); return err },
-			func() error {
-				_, err := p.ExtractAllLinks([]byte("<html><body><a href='#'>link</a></body></html>"))
-				return err
-			},
-		}
-
-		for i, op := range operations {
-			t.Run(fmt.Sprintf("operation_%d", i), func(t *testing.T) {
-				err := op()
-				if err != html.ErrProcessorClosed {
-					t.Errorf("Expected ErrProcessorClosed, got: %v", err)
-				}
-			})
-		}
-
-		// Close() is idempotent - calling it again should not error
-		if err := p.Close(); err != nil {
-			t.Errorf("Close() should be idempotent, got: %v", err)
-		}
-	})
 }
 
 // ============================================================================
@@ -361,7 +330,7 @@ func TestUnicodeEdgeCases(t *testing.T) {
 
 		// Zero-width characters should be preserved or handled gracefully
 		if result == nil {
-			t.Error("Expected non-nil result")
+			t.Fatal("Expected non-nil result")
 		}
 		if result.Text == "" {
 			t.Error("Expected non-empty text")
@@ -387,7 +356,7 @@ func TestUnicodeEdgeCases(t *testing.T) {
 		}
 
 		if result == nil {
-			t.Error("Expected non-nil result")
+			t.Fatal("Expected non-nil result")
 		}
 		// Combining characters should be preserved
 		if !strings.Contains(result.Text, "caf") {

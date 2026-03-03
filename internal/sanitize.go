@@ -1,7 +1,6 @@
 package internal
 
 import (
-	"bytes"
 	"strings"
 
 	"golang.org/x/net/html"
@@ -136,8 +135,10 @@ func SanitizeHTMLWithAudit(htmlContent string, audit AuditRecorder) string {
 	body := findBodyElement(doc)
 	if body == nil {
 		// No body element found, render the entire document (fragment case)
-		var buf bytes.Buffer
-		if err := html.Render(&buf, doc); err != nil {
+		buf := GetBuffer()
+		defer PutBuffer(buf)
+
+		if err := html.Render(buf, doc); err != nil {
 			return ""
 		}
 		result := buf.String()
@@ -147,9 +148,11 @@ func SanitizeHTMLWithAudit(htmlContent string, audit AuditRecorder) string {
 		return result
 	}
 
-	var buf bytes.Buffer
+	buf := GetBuffer()
+	defer PutBuffer(buf)
+
 	for child := body.FirstChild; child != nil; child = child.NextSibling {
-		if err := html.Render(&buf, child); err != nil {
+		if err := html.Render(buf, child); err != nil {
 			continue
 		}
 	}
@@ -180,21 +183,26 @@ func sanitizeNodeWithAudit(n *html.Node, audit AuditRecorder) {
 			}
 		}
 
-		var filteredAttrs []html.Attribute
-		for _, attr := range n.Attr {
-			attrKey := strings.ToLower(attr.Key)
-			if dangerousAttributes[attrKey] {
-				audit.RecordBlockedAttr(attr.Key, attr.Val)
-				continue
-			}
-			if uriAttributes[attrKey] {
-				if !isSafeURIWithAudit(attr.Val, audit) {
+		// Pre-allocate filtered attributes slice with capacity
+		// Use the original length as capacity to avoid reallocation in most cases
+		attrLen := len(n.Attr)
+		if attrLen > 0 {
+			filteredAttrs := make([]html.Attribute, 0, attrLen)
+			for _, attr := range n.Attr {
+				attrKey := strings.ToLower(attr.Key)
+				if dangerousAttributes[attrKey] {
+					audit.RecordBlockedAttr(attr.Key, attr.Val)
 					continue
 				}
+				if uriAttributes[attrKey] {
+					if !isSafeURIWithAudit(attr.Val, audit) {
+						continue
+					}
+				}
+				filteredAttrs = append(filteredAttrs, attr)
 			}
-			filteredAttrs = append(filteredAttrs, attr)
+			n.Attr = filteredAttrs
 		}
-		n.Attr = filteredAttrs
 	}
 
 	child := n.FirstChild

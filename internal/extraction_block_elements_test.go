@@ -194,7 +194,7 @@ func TestNewBlockElementsSpacing(t *testing.T) {
 
 			var sb strings.Builder
 			imageCounter := 0
-			ExtractTextWithStructureAndImages(doc, &sb, 0, &imageCounter, "markdown")
+			ExtractTextWithStructureAndImages(doc, &sb, 0, &imageCounter, nil, "markdown")
 			got := strings.TrimSpace(sb.String())
 
 			// Normalize newlines for comparison
@@ -224,7 +224,7 @@ func TestTableStructureElementsSpacing(t *testing.T) {
 	}
 
 	var sb strings.Builder
-	ExtractTextWithStructureAndImages(doc, &sb, 0, nil, "markdown")
+	ExtractTextWithStructureAndImages(doc, &sb, 0, nil, nil, "markdown")
 	result := sb.String()
 
 	// Verify table is rendered correctly with proper structure
@@ -275,7 +275,7 @@ func TestDefinitionListFormatting(t *testing.T) {
 			}
 
 			var sb strings.Builder
-			ExtractTextWithStructureAndImages(doc, &sb, 0, nil, "markdown")
+			ExtractTextWithStructureAndImages(doc, &sb, 0, nil, nil, "markdown")
 			got := strings.TrimSpace(sb.String())
 
 			if got != tt.want {
@@ -305,7 +305,7 @@ func TestInteractiveElementsSpacing(t *testing.T) {
 	}
 
 	var sb strings.Builder
-	ExtractTextWithStructureAndImages(doc, &sb, 0, nil, "markdown")
+	ExtractTextWithStructureAndImages(doc, &sb, 0, nil, nil, "markdown")
 	result := strings.TrimSpace(sb.String())
 
 	// Verify paragraph spacing between elements
@@ -371,7 +371,7 @@ func TestBRElementBehavior(t *testing.T) {
 			}
 
 			var sb strings.Builder
-			ExtractTextWithStructureAndImages(doc, &sb, 0, nil, "markdown")
+			ExtractTextWithStructureAndImages(doc, &sb, 0, nil, nil, "markdown")
 			got := strings.TrimSpace(sb.String())
 
 			if got != tt.want {
@@ -400,6 +400,6 @@ func BenchmarkNewBlockElementExtraction(b *testing.B) {
 		}
 
 		var sb strings.Builder
-		ExtractTextWithStructureAndImages(doc, &sb, 0, nil, "markdown")
+		ExtractTextWithStructureAndImages(doc, &sb, 0, nil, nil, "markdown")
 	}
 }

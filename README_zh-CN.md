@@ -143,14 +143,14 @@ func main() {
     htmlBytes := []byte(`<html><body><h1>标题</h1><p>内容</p></body></html>`)
 
     // 使用默认配置提取
-    result, _ := processor.Extract(htmlBytes, html.DefaultExtractConfig())
+    result, _ := processor.Extract(htmlBytes)
 
     // 从文件提取
-    result, _ = processor.ExtractFromFile("page.html", html.DefaultExtractConfig())
+    result, _ = processor.ExtractFromFile("page.html")
 
     // 批量处理
     htmlContents := [][]byte{htmlBytes, htmlBytes, htmlBytes}
-    results, _ := processor.ExtractBatch(htmlContents, html.DefaultExtractConfig())
+    results, _ := processor.ExtractBatch(htmlContents)
 
     fmt.Printf("已处理 %d 个文档\n", len(results))
 }
@@ -175,23 +175,48 @@ import (
 func main() {
     htmlBytes := []byte(`<html><body><h1>标题</h1><img src="img.jpg"><p>内容</p></body></html>`)
 
-    config := html.ExtractConfig{
+    config := html.Config{
+        // 提取设置
         ExtractArticle:    true,       // 自动检测主要内容
         PreserveImages:    true,       // 提取图片元数据
         PreserveLinks:     true,       // 提取链接元数据
         PreserveVideos:    false,      // 跳过视频
         PreserveAudios:    false,      // 跳过音频
-        InlineImageFormat: "none",     // 选项: "none", "placeholder", "markdown", "html"
+        ImageFormat:       "none",     // 选项: "none", "markdown", "html", "placeholder"
+        LinkFormat:        "none",     // 选项: "none", "markdown", "html"
         TableFormat:       "markdown", // 选项: "markdown", "html"
         Encoding:          "",         // 从 meta 标签自动检测，或指定: "utf-8", "windows-1252" 等
     }
 
-    result, _ := html.Extract(htmlBytes, config)
+    processor, _ := html.New(config)
+    defer processor.Close()
+
+    result, _ := processor.Extract(htmlBytes)
     fmt.Printf("找到 %d 张图片\n", len(result.Images))
 }
 ```
 
 **适用场景：** 特定提取需求、格式转换、自定义输出
+
+---
+
+### 使用预设配置
+
+库提供了便捷的预设配置：
+
+```go
+// 仅文本 - 不保留媒体
+processor, _ := html.New(html.TextOnlyConfig())
+
+// Markdown 输出 - 图片格式化为 markdown
+processor, _ := html.New(html.MarkdownConfig())
+
+// 默认 - 启用所有功能
+processor, _ := html.New(html.DefaultConfig())
+
+// 高安全 - 对不受信任的输入使用更严格的限制
+processor, _ := html.New(html.HighSecurityConfig())
+```
 
 ---
 
@@ -214,6 +239,7 @@ func main() {
         ProcessingTimeout:  30 * time.Second,
         MaxCacheEntries:    500,
         CacheTTL:           30 * time.Minute,
+        CacheCleanup:       5 * time.Minute,  // 后台清理间隔
         WorkerPoolSize:     8,
         EnableSanitization: true,  // 移除 <script>, <style> 标签
         MaxDepth:           50,    // 防止深度嵌套攻击
@@ -249,8 +275,11 @@ func main() {
         </html>
     `)
 
+    processor, _ := html.New()
+    defer processor.Close()
+
     // 提取所有资源链接
-    links, _ := html.ExtractAllLinks(htmlBytes)
+    links, _ := processor.ExtractAllLinks(htmlBytes)
 
     // 按类型分组
     byType := html.GroupLinksByType(links)
@@ -259,24 +288,6 @@ func main() {
     images := byType["image"]
 
     fmt.Printf("CSS: %d, JS: %d, 图片: %d\n", len(cssLinks), len(jsLinks), len(images))
-
-    // 高级配置
-    processor, _ := html.New()
-    defer processor.Close()
-
-    linkConfig := html.LinkExtractionConfig{
-        BaseURL:              "https://example.com",
-        ResolveRelativeURLs:  true,
-        IncludeImages:        true,
-        IncludeVideos:        true,
-        IncludeAudios:        true,
-        IncludeCSS:           true,
-        IncludeJS:            true,
-        IncludeContentLinks:  true,
-        IncludeExternalLinks: true,
-        IncludeIcons:         true,
-    }
-    links, _ = processor.ExtractAllLinks(htmlBytes, linkConfig)
 }
 ```
 
@@ -297,8 +308,8 @@ func main() {
     htmlBytes := []byte(`<html><body><p>内容</p></body></html>`)
 
     // 自动启用缓存
-    processor.Extract(htmlBytes, html.DefaultExtractConfig())
-    processor.Extract(htmlBytes, html.DefaultExtractConfig()) // 缓存命中！
+    processor.Extract(htmlBytes)
+    processor.Extract(htmlBytes) // 缓存命中！
 
     // 查看性能统计
     stats := processor.GetStatistics()
@@ -337,7 +348,8 @@ text, _ := html.ExtractTextFromFile("page.html")
 result, _ := html.ExtractFromFile("page.html")
 
 // 从文件提取链接
-links, _ := html.ExtractAllLinksFromFile("page.html")
+processor, _ := html.New()
+links, _ := processor.ExtractAllLinksFromFile("page.html")
 
 // 将文件转换为 Markdown
 markdown, _ := html.ExtractToMarkdownFromFile("page.html")
@@ -365,7 +377,8 @@ markdown, _ := html.ExtractToMarkdown(htmlBytes)
 ### 提取所有链接
 
 ```go
-links, _ := html.ExtractAllLinks(htmlBytes)
+processor, _ := html.New()
+links, _ := processor.ExtractAllLinks(htmlBytes)
 for _, link := range links {
     fmt.Printf("%s: %s\n", link.Type, link.URL)
 }
@@ -386,7 +399,7 @@ processor, _ := html.New()
 defer processor.Close()
 
 files := []string{"page1.html", "page2.html", "page3.html"}
-results, _ := processor.ExtractBatchFiles(files, html.DefaultExtractConfig())
+results, _ := processor.ExtractBatchFiles(files)
 ```
 
 ### 带 Context 的批处理（支持取消）
@@ -411,37 +424,23 @@ func main() {
     defer cancel()
 
     // 支持取消的处理
-    result := processor.ExtractBatchFilesWithContext(ctx, files, html.DefaultExtractConfig())
+    result := processor.ExtractBatchFilesWithContext(ctx, files)
 
     fmt.Printf("成功: %d, 失败: %d, 取消: %d\n",
         result.Success, result.Failed, result.Cancelled)
 }
 ```
 
-### 使用预设提取配置
+### 使用预设配置
 
 ```go
 // 仅文本 - 创建文本专用配置
-textConfig := html.ExtractConfig{
-    ExtractArticle:    true,
-    PreserveImages:    false,
-    PreserveLinks:     false,
-    PreserveVideos:    false,
-    PreserveAudios:    false,
-    InlineImageFormat: "none",
-}
-result, _ := html.Extract(htmlBytes, textConfig)
+processor, _ := html.New(html.TextOnlyConfig())
+result, _ := processor.Extract(htmlBytes)
 
-// 完整内容 - 所有媒体，图片使用 markdown 格式
-fullConfig := html.ExtractConfig{
-    ExtractArticle:    true,
-    PreserveImages:    true,
-    PreserveLinks:     true,
-    PreserveVideos:    true,
-    PreserveAudios:    true,
-    InlineImageFormat: "markdown",
-}
-result, _ = html.Extract(htmlBytes, fullConfig)
+// 完整内容含 Markdown 图片
+processor, _ = html.New(html.MarkdownConfig())
+result, _ = processor.Extract(htmlBytes)
 ```
 
 ---
@@ -452,33 +451,27 @@ result, _ = html.Extract(htmlBytes, fullConfig)
 
 ```go
 // 提取（从字节）
-html.Extract(htmlBytes []byte, configs ...ExtractConfig) (*Result, error)
-html.ExtractText(htmlBytes []byte, configs ...ExtractConfig) (string, error)
+html.Extract(htmlBytes []byte) (*Result, error)
+html.ExtractText(htmlBytes []byte) (string, error)
 
 // 提取（从文件）
-html.ExtractFromFile(filePath string, configs ...ExtractConfig) (*Result, error)
-html.ExtractTextFromFile(filePath string, configs ...ExtractConfig) (string, error)
+html.ExtractFromFile(filePath string) (*Result, error)
+html.ExtractTextFromFile(filePath string) (string, error)
 
 // 格式转换（从字节）
-html.ExtractToMarkdown(htmlBytes []byte, configs ...ExtractConfig) (string, error)
-html.ExtractToJSON(htmlBytes []byte, configs ...ExtractConfig) ([]byte, error)
+html.ExtractToMarkdown(htmlBytes []byte) (string, error)
+html.ExtractToJSON(htmlBytes []byte) ([]byte, error)
 
 // 格式转换（从文件）
-html.ExtractToMarkdownFromFile(filePath string, configs ...ExtractConfig) (string, error)
-html.ExtractToJSONFromFile(filePath string, configs ...ExtractConfig) ([]byte, error)
+html.ExtractToMarkdownFromFile(filePath string) (string, error)
+html.ExtractToJSONFromFile(filePath string) ([]byte, error)
 
 // 链接（从字节）
-html.ExtractAllLinks(htmlBytes []byte, configs ...LinkExtractionConfig) ([]LinkResource, error)
+html.ExtractAllLinks(htmlBytes []byte) ([]LinkResource, error)
 
 // 链接（从文件）
-html.ExtractAllLinksFromFile(filePath string, configs ...LinkExtractionConfig) ([]LinkResource, error)
+html.ExtractAllLinksFromFile(filePath string) ([]LinkResource, error)
 html.GroupLinksByType(links []LinkResource) map[string][]LinkResource
-
-// 批处理
-html.ExtractBatch(htmlContents [][]byte, configs ...ExtractConfig) ([]*Result, error)
-html.ExtractBatchFiles(filePaths []string, configs ...ExtractConfig) ([]*Result, error)
-html.ExtractBatchWithContext(ctx context.Context, htmlContents [][]byte, configs ...ExtractConfig) *BatchResult
-html.ExtractBatchFilesWithContext(ctx context.Context, filePaths []string, configs ...ExtractConfig) *BatchResult
 ```
 
 ### Processor 方法
@@ -487,36 +480,37 @@ html.ExtractBatchFilesWithContext(ctx context.Context, filePaths []string, confi
 processor, err := html.New()
 processor, err := html.New(config)                    // 使用 Config 结构体
 processor, err := html.New(html.HighSecurityConfig()) // 使用预设配置
-processor, err := html.New(myScorer)                  // 使用自定义 Scorer
+processor, err := html.New(html.TextOnlyConfig())     // 文本专用预设
+processor, err := html.New(html.MarkdownConfig())     // Markdown 预设
 defer processor.Close()
 
 // 提取（从字节）
-processor.Extract(htmlBytes []byte, configs ...ExtractConfig) (*Result, error)
-processor.ExtractText(htmlBytes []byte, configs ...ExtractConfig) (string, error)
+processor.Extract(htmlBytes []byte) (*Result, error)
+processor.ExtractText(htmlBytes []byte) (string, error)
 
 // 提取（从文件）
-processor.ExtractFromFile(filePath string, configs ...ExtractConfig) (*Result, error)
-processor.ExtractTextFromFile(filePath string, configs ...ExtractConfig) (string, error)
+processor.ExtractFromFile(filePath string) (*Result, error)
+processor.ExtractTextFromFile(filePath string) (string, error)
 
 // 格式转换（从字节）
-processor.ExtractToMarkdown(htmlBytes []byte, configs ...ExtractConfig) (string, error)
-processor.ExtractToJSON(htmlBytes []byte, configs ...ExtractConfig) ([]byte, error)
+processor.ExtractToMarkdown(htmlBytes []byte) (string, error)
+processor.ExtractToJSON(htmlBytes []byte) ([]byte, error)
 
 // 格式转换（从文件）
-processor.ExtractToMarkdownFromFile(filePath string, configs ...ExtractConfig) (string, error)
-processor.ExtractToJSONFromFile(filePath string, configs ...ExtractConfig) ([]byte, error)
+processor.ExtractToMarkdownFromFile(filePath string) (string, error)
+processor.ExtractToJSONFromFile(filePath string) ([]byte, error)
 
 // 链接（从字节）
-processor.ExtractAllLinks(htmlBytes []byte, configs ...LinkExtractionConfig) ([]LinkResource, error)
+processor.ExtractAllLinks(htmlBytes []byte) ([]LinkResource, error)
 
 // 链接（从文件）
-processor.ExtractAllLinksFromFile(filePath string, configs ...LinkExtractionConfig) ([]LinkResource, error)
+processor.ExtractAllLinksFromFile(filePath string) ([]LinkResource, error)
 
 // 批处理
-processor.ExtractBatch(contents [][]byte, configs ...ExtractConfig) ([]*Result, error)
-processor.ExtractBatchFiles(paths []string, configs ...ExtractConfig) ([]*Result, error)
-processor.ExtractBatchWithContext(ctx context.Context, contents [][]byte, configs ...ExtractConfig) *BatchResult
-processor.ExtractBatchFilesWithContext(ctx context.Context, paths []string, configs ...ExtractConfig) *BatchResult
+processor.ExtractBatch(contents [][]byte) ([]*Result, error)
+processor.ExtractBatchFiles(paths []string) ([]*Result, error)
+processor.ExtractBatchWithContext(ctx context.Context, contents [][]byte) *BatchResult
+processor.ExtractBatchFilesWithContext(ctx context.Context, paths []string) *BatchResult
 
 // 监控
 processor.GetStatistics() Statistics
@@ -529,41 +523,11 @@ processor.ClearAuditLog()
 ### 配置函数
 
 ```go
-// Processor 配置
+// Processor 配置预设
 html.DefaultConfig() Config        // 标准配置
 html.HighSecurityConfig() Config   // 安全优化配置
-
-// 提取配置
-html.DefaultExtractConfig() ExtractConfig
-
-// 链接提取配置
-html.DefaultLinkExtractionConfig() LinkExtractionConfig
-
-// 审计配置
-html.DefaultAuditConfig() AuditConfig
-html.HighSecurityAuditConfig() AuditConfig
-```
-
-### 配置函数
-
-```go
-// Processor 配置
-html.DefaultConfig() Config        // 标准配置
-html.HighSecurityConfig() Config   // 安全优化配置
-
-// 提取配置
-html.DefaultExtractConfig() ExtractConfig
-html.TextOnlyExtractConfig() ExtractConfig  // 文本专用预设
-// 如需完整内容含 Markdown 图片：
-// cfg := html.DefaultExtractConfig()
-// cfg.InlineImageFormat = "markdown"
-
-// 链接提取配置
-html.DefaultLinkExtractionConfig() LinkExtractionConfig
-
-// 审计配置
-html.DefaultAuditConfig() AuditConfig
-html.HighSecurityAuditConfig() AuditConfig
+html.TextOnlyConfig() Config       // 仅文本（无媒体）
+html.MarkdownConfig() Config       // Markdown 图片格式
 ```
 
 ### 默认配置值
@@ -574,10 +538,21 @@ Config{
     MaxInputSize:       50 * 1024 * 1024, // 50MB
     MaxCacheEntries:    2000,
     CacheTTL:           1 * time.Hour,
+    CacheCleanup:       5 * time.Minute,
     WorkerPoolSize:     4,
     EnableSanitization: true,
     MaxDepth:           500,
     ProcessingTimeout:  30 * time.Second,
+
+    // 提取设置
+    ExtractArticle:     true,
+    PreserveImages:     true,
+    PreserveLinks:      true,
+    PreserveVideos:     true,
+    PreserveAudios:     true,
+    ImageFormat:        "none",
+    LinkFormat:         "none",
+    TableFormat:        "markdown",
 }
 ```
 
@@ -587,30 +562,46 @@ Config{
     MaxInputSize:       10 * 1024 * 1024, // 10MB - 为安全而减小
     MaxCacheEntries:    500,              // 减小缓存大小
     CacheTTL:           30 * time.Minute, // 更短的 TTL
+    CacheCleanup:       1 * time.Minute,  // 更频繁的清理
     WorkerPoolSize:     2,                // 更少的 worker
     EnableSanitization: true,
     MaxDepth:           100,              // 减小深度限制
     ProcessingTimeout:  10 * time.Second, // 更短的超时
+
+    // 提取设置（与 DefaultConfig 相同）
+    ExtractArticle:     true,
+    PreserveImages:     true,
+    PreserveLinks:      true,
+    PreserveVideos:     true,
+    PreserveAudios:     true,
+    ImageFormat:        "none",
+    LinkFormat:         "none",
+    TableFormat:        "markdown",
 }
 ```
 
-**DefaultExtractConfig():**
+**TextOnlyConfig():**
 ```go
-ExtractConfig{
-    ExtractArticle:    true,
-    PreserveImages:    true,
-    PreserveLinks:     true,
-    PreserveVideos:    true,
-    PreserveAudios:    true,
-    InlineImageFormat: "none",
-    TableFormat:       "markdown",
-    Encoding:          "", // 自动检测
+Config{
+    // 继承所有 DefaultConfig 设置，另外：
+    PreserveImages:     false,
+    PreserveLinks:      false,
+    PreserveVideos:     false,
+    PreserveAudios:     false,
 }
 ```
 
-**DefaultLinkExtractionConfig():**
+**MarkdownConfig():**
 ```go
-LinkExtractionConfig{
+Config{
+    // 继承所有 DefaultConfig 设置，另外：
+    ImageFormat:        "markdown",
+}
+```
+
+**LinkExtractionOptions (DefaultConfig().LinkExtraction):**
+```go
+LinkExtractionOptions{
     ResolveRelativeURLs:  true,
     BaseURL:              "",    // 自动检测
     IncludeImages:        true,
@@ -657,6 +648,7 @@ type LinkInfo struct {
     Title      string `json:"title"`
     IsExternal bool   `json:"is_external"`
     IsNoFollow bool   `json:"is_nofollow"`
+    Position   int    `json:"position"`
 }
 
 type VideoInfo struct {
@@ -762,7 +754,7 @@ processor, _ := html.New(html.HighSecurityConfig())
 defer processor.Close()
 
 // 处理内容
-processor.Extract(htmlBytes, html.DefaultExtractConfig())
+processor.Extract(htmlBytes)
 
 // 获取审计条目
 entries := processor.GetAuditLog()
@@ -835,15 +827,14 @@ processor, _ := html.New(config)
 
 | 示例 | 描述 |
 |------|------|
-| [01_quick_start.go](examples/01_quick_start.go) | 快速入门（3 步上手） |
-| [02_content_extraction.go](examples/02_content_extraction.go) | 内容提取配置（预设选项、自定义配置） |
-| [03_links_media.go](examples/03_links_media.go) | 链接与媒体提取（URL 解析、图片/视频/音频） |
-| [04_output_formats.go](examples/04_output_formats.go) | 输出格式（JSON、Markdown、表格格式） |
-| [05_configuration.go](examples/05_configuration.go) | 配置与性能（缓存、批处理、并发） |
-| [06_http_integration.go](examples/06_http_integration.go) | HTTP 集成（获取网页、并发处理） |
-| [07_advanced_usage.go](examples/07_advanced_usage.go) | 高级功能（自定义评分器、审计系统、安全配置） |
-| [08_error_handling.go](examples/08_error_handling.go) | 错误处理模式 |
-| [09_real_world.go](examples/09_real_world.go) | 实际应用案例（博客、RSS、文档） |
+| [01_quick_start.go](examples/01_quick_start.go) | 快速入门指南 |
+| [02_content_extraction.go](examples/02_content_extraction.go) | 内容提取选项与输出格式 |
+| [03_links_media.go](examples/03_links_media.go) | 链接与媒体提取 |
+| [04_configuration.go](examples/04_configuration.go) | 配置与性能调优 |
+| [05_http_integration.go](examples/05_http_integration.go) | HTTP 集成模式 |
+| [06_advanced_usage.go](examples/06_advanced_usage.go) | 自定义评分器、审计日志、安全配置 |
+| [07_error_handling.go](examples/07_error_handling.go) | 错误处理模式 |
+| [08_real_world.go](examples/08_real_world.go) | 实际应用案例 |
 
 ---
 
@@ -882,7 +873,7 @@ for i := 0; i < 100; i++ {
     wg.Add(1)
     go func() {
         defer wg.Done()
-        processor.Extract(htmlBytes, html.DefaultExtractConfig())
+        processor.Extract(htmlBytes)
     }()
 }
 wg.Wait()

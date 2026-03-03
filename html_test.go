@@ -113,6 +113,34 @@ func TestProcessorLifecycle(t *testing.T) {
 			t.Errorf("Extract() should fail with ErrProcessorClosed, got: %v", err)
 		}
 	})
+
+	t.Run("ExtractAllLinks after close fails", func(t *testing.T) {
+		p, _ := html.New()
+		p.Close()
+		_, err := p.ExtractAllLinks([]byte("<html><body><a href='/test'>Link</a></body></html>"))
+		if err != html.ErrProcessorClosed {
+			t.Errorf("ExtractAllLinks() should fail with ErrProcessorClosed, got: %v", err)
+		}
+	})
+
+	t.Run("ExtractBatch after close fails", func(t *testing.T) {
+		p, _ := html.New()
+		p.Close()
+		contents := [][]byte{[]byte("<html><body>Test</body></html>")}
+		_, err := p.ExtractBatch(contents)
+		if err != html.ErrProcessorClosed {
+			t.Errorf("ExtractBatch() should fail with ErrProcessorClosed, got: %v", err)
+		}
+	})
+
+	t.Run("ExtractFromFile after close fails", func(t *testing.T) {
+		p, _ := html.New()
+		p.Close()
+		_, err := p.ExtractFromFile("test.html")
+		if err != html.ErrProcessorClosed {
+			t.Errorf("ExtractFromFile() should fail with ErrProcessorClosed, got: %v", err)
+		}
+	})
 }
 
 func TestConfiguration(t *testing.T) {
@@ -165,6 +193,38 @@ func TestConfiguration(t *testing.T) {
 		}
 		if cfg.TableFormat != "markdown" {
 			t.Errorf("TableFormat = %q, want 'markdown'", cfg.TableFormat)
+		}
+	})
+
+	t.Run("Deprecated config functions", func(t *testing.T) {
+		// Test DefaultExtractConfig (deprecated but still needs testing)
+		extractCfg := html.DefaultExtractConfig()
+		if !extractCfg.ExtractArticle {
+			t.Error("DefaultExtractConfig: ExtractArticle should be true")
+		}
+		if !extractCfg.PreserveImages {
+			t.Error("DefaultExtractConfig: PreserveImages should be true")
+		}
+
+		// Test TextOnlyExtractConfig (deprecated but still needs testing)
+		textOnlyCfg := html.TextOnlyExtractConfig()
+		if !textOnlyCfg.ExtractArticle {
+			t.Error("TextOnlyExtractConfig: ExtractArticle should be true")
+		}
+		if textOnlyCfg.PreserveImages {
+			t.Error("TextOnlyExtractConfig: PreserveImages should be false")
+		}
+		if textOnlyCfg.PreserveLinks {
+			t.Error("TextOnlyExtractConfig: PreserveLinks should be false")
+		}
+
+		// Test DefaultLinkExtractionConfig (deprecated but still needs testing)
+		linkCfg := html.DefaultLinkExtractionConfig()
+		if !linkCfg.IncludeImages {
+			t.Error("DefaultLinkExtractionConfig: IncludeImages should be true")
+		}
+		if !linkCfg.IncludeContentLinks {
+			t.Error("DefaultLinkExtractionConfig: IncludeContentLinks should be true")
 		}
 	})
 
@@ -2630,6 +2690,180 @@ func TestImageFormatting(t *testing.T) {
 }
 
 // ============================================================================
+// LINK FORMATTING TESTS
+// ============================================================================
+
+func TestLinkFormatting(t *testing.T) {
+	t.Parallel()
+
+	t.Run("markdown inline links", func(t *testing.T) {
+		htmlContent := `
+			<html><body>
+				<p>Text before</p>
+				<a href="https://go.dev/tour/">Go Tour</a>
+				<p>Text middle</p>
+				<a href="https://golang.org">Golang</a>
+				<p>Text after</p>
+			</body></html>
+		`
+
+		cfg := html.DefaultConfig()
+		cfg.LinkFormat = "markdown"
+		p, _ := html.New(cfg)
+		defer p.Close()
+		result, err := p.Extract([]byte(htmlContent))
+		if err != nil {
+			t.Fatalf("Extract() failed: %v", err)
+		}
+
+		if !strings.Contains(result.Text, "[Go Tour](https://go.dev/tour/)") {
+			t.Errorf("Should contain markdown inline link 1, got: %s", result.Text)
+		}
+		if !strings.Contains(result.Text, "[Golang](https://golang.org)") {
+			t.Errorf("Should contain markdown inline link 2, got: %s", result.Text)
+		}
+	})
+
+	t.Run("html inline links", func(t *testing.T) {
+		htmlContent := `
+			<html><body>
+				<p>Text before</p>
+				<a href="https://go.dev/tour/" title="Go Tour">Go Tour</a>
+				<p>Text after</p>
+			</body></html>
+		`
+
+		cfg := html.DefaultConfig()
+		cfg.LinkFormat = "html"
+		p, _ := html.New(cfg)
+		defer p.Close()
+		result, err := p.Extract([]byte(htmlContent))
+		if err != nil {
+			t.Fatalf("Extract() failed: %v", err)
+		}
+
+		if !strings.Contains(result.Text, `<a href="https://go.dev/tour/"`) {
+			t.Errorf("Should contain HTML anchor tag, got: %s", result.Text)
+		}
+		if !strings.Contains(result.Text, `title="Go Tour"`) {
+			t.Errorf("Should preserve title attribute, got: %s", result.Text)
+		}
+		if !strings.Contains(result.Text, `>Go Tour</a>`) {
+			t.Errorf("Should preserve link text, got: %s", result.Text)
+		}
+	})
+
+	t.Run("none format default", func(t *testing.T) {
+		htmlContent := `<html><body><a href="https://go.dev">Go</a><p>Text</p></body></html>`
+
+		cfg := html.DefaultConfig()
+		cfg.LinkFormat = "none"
+		p, _ := html.New(cfg)
+		defer p.Close()
+		result, err := p.Extract([]byte(htmlContent))
+		if err != nil {
+			t.Fatalf("Extract() failed: %v", err)
+		}
+
+		if strings.Contains(result.Text, "[LINK:") {
+			t.Error("Should not contain link placeholders")
+		}
+		if !strings.Contains(result.Text, "Go") {
+			t.Error("Should contain link text")
+		}
+		if len(result.Links) == 0 {
+			t.Error("Should still extract links to Links array")
+		}
+	})
+
+	t.Run("empty href handling", func(t *testing.T) {
+		htmlContent := `<html><body><a href="">Empty Link</a><a href="https://go.dev">Valid Link</a></body></html>`
+
+		cfg := html.DefaultConfig()
+		cfg.LinkFormat = "markdown"
+		p, _ := html.New(cfg)
+		defer p.Close()
+		result, err := p.Extract([]byte(htmlContent))
+		if err != nil {
+			t.Fatalf("Extract() failed: %v", err)
+		}
+
+		// Only valid link should appear
+		if !strings.Contains(result.Text, "[Valid Link](https://go.dev)") {
+			t.Errorf("Should contain valid link, got: %s", result.Text)
+		}
+	})
+
+	t.Run("empty text handling", func(t *testing.T) {
+		htmlContent := `<html><body><a href="https://go.dev"></a></body></html>`
+
+		cfg := html.DefaultConfig()
+		cfg.LinkFormat = "markdown"
+		p, _ := html.New(cfg)
+		defer p.Close()
+		result, err := p.Extract([]byte(htmlContent))
+		if err != nil {
+			t.Fatalf("Extract() failed: %v", err)
+		}
+
+		// Link with empty text should use fallback
+		if !strings.Contains(result.Text, "[Link 1](https://go.dev)") {
+			t.Errorf("Should use fallback text for empty link, got: %s", result.Text)
+		}
+	})
+
+	t.Run("combined with image format", func(t *testing.T) {
+		htmlContent := `
+			<html><body>
+				<p>Text before</p>
+				<img src="image.jpg" alt="Test Image">
+				<a href="https://go.dev">Go</a>
+				<p>Text after</p>
+			</body></html>
+		`
+
+		cfg := html.DefaultConfig()
+		cfg.ImageFormat = "markdown"
+		cfg.LinkFormat = "markdown"
+		p, _ := html.New(cfg)
+		defer p.Close()
+		result, err := p.Extract([]byte(htmlContent))
+		if err != nil {
+			t.Fatalf("Extract() failed: %v", err)
+		}
+
+		if !strings.Contains(result.Text, "![Test Image](image.jpg)") {
+			t.Errorf("Should contain markdown image, got: %s", result.Text)
+		}
+		if !strings.Contains(result.Text, "[Go](https://go.dev)") {
+			t.Errorf("Should contain markdown link, got: %s", result.Text)
+		}
+	})
+
+	t.Run("html escapes special characters", func(t *testing.T) {
+		htmlContent := `<html><body><a href="https://go.dev?a=1&b=2">Link with "quotes"</a></body></html>`
+
+		cfg := html.DefaultConfig()
+		cfg.LinkFormat = "html"
+		p, _ := html.New(cfg)
+		defer p.Close()
+		result, err := p.Extract([]byte(htmlContent))
+		if err != nil {
+			t.Fatalf("Extract() failed: %v", err)
+		}
+
+		// URL should be escaped
+		if !strings.Contains(result.Text, `href="https://go.dev?a=1&amp;b=2"`) {
+			t.Errorf("URL should have escaped ampersand, got: %s", result.Text)
+		}
+		// Link text should be escaped
+		if !strings.Contains(result.Text, `>Link with &#34;quotes&#34;</a>`) {
+			t.Errorf("Link text should have escaped quotes, got: %s", result.Text)
+		}
+	})
+}
+
+// ============================================================================
 // VIDEO EXTRACTION EDGE CASES
 // ============================================================================
 
@@ -3188,7 +3422,9 @@ func TestExtractAllLinksComprehensive(t *testing.T) {
 		config.IncludeAudios = true
 
 		p, err := html.New(html.DefaultConfig())
-		defer p.Close()
+		if err != nil {
+			t.Fatalf("html.New() failed: %v", err)
+		}
 		defer p.Close()
 		links, err := p.ExtractAllLinks([]byte(htmlContent))
 		if err != nil {
@@ -3237,7 +3473,9 @@ func TestExtractAllLinksComprehensive(t *testing.T) {
 		config.IncludeJS = true
 
 		p, err := html.New(html.DefaultConfig())
-		defer p.Close()
+		if err != nil {
+			t.Fatalf("html.New() failed: %v", err)
+		}
 		defer p.Close()
 		links, err := p.ExtractAllLinks([]byte(htmlContent))
 		if err != nil {
@@ -3273,7 +3511,9 @@ func TestExtractAllLinksComprehensive(t *testing.T) {
 		config.IncludeVideos = true
 
 		p, err := html.New(html.DefaultConfig())
-		defer p.Close()
+		if err != nil {
+			t.Fatalf("html.New() failed: %v", err)
+		}
 		defer p.Close()
 		links, err := p.ExtractAllLinks([]byte(htmlContent))
 		if err != nil {
@@ -3433,7 +3673,9 @@ func TestLinkTagExtraction(t *testing.T) {
 		config.IncludeIcons = true
 
 		p, err := html.New(html.DefaultConfig())
-		defer p.Close()
+		if err != nil {
+			t.Fatalf("html.New() failed: %v", err)
+		}
 		defer p.Close()
 		links, err := p.ExtractAllLinks([]byte(htmlContent))
 		if err != nil {
@@ -3478,7 +3720,9 @@ func TestLinkTagExtraction(t *testing.T) {
 		config.IncludeAudios = true
 
 		p, err := html.New(html.DefaultConfig())
-		defer p.Close()
+		if err != nil {
+			t.Fatalf("html.New() failed: %v", err)
+		}
 		defer p.Close()
 		links, err := p.ExtractAllLinks([]byte(htmlContent))
 		if err != nil {
@@ -3523,7 +3767,9 @@ func TestLinkTagExtraction(t *testing.T) {
 		config.IncludeImages = true
 
 		p, err := html.New(html.DefaultConfig())
-		defer p.Close()
+		if err != nil {
+			t.Fatalf("html.New() failed: %v", err)
+		}
 		defer p.Close()
 		links, err := p.ExtractAllLinks([]byte(htmlContent))
 		if err != nil {
@@ -3549,7 +3795,9 @@ func TestLinkTagExtraction(t *testing.T) {
 		config.IncludeJS = true
 
 		p, err := html.New(html.DefaultConfig())
-		defer p.Close()
+		if err != nil {
+			t.Fatalf("html.New() failed: %v", err)
+		}
 		defer p.Close()
 		links, err := p.ExtractAllLinks([]byte(htmlContent))
 		if err != nil {
@@ -3623,7 +3871,9 @@ func TestLinkTagExtraction(t *testing.T) {
 		config.IncludeCSS = true
 
 		p, err := html.New(html.DefaultConfig())
-		defer p.Close()
+		if err != nil {
+			t.Fatalf("html.New() failed: %v", err)
+		}
 		defer p.Close()
 		links, err := p.ExtractAllLinks([]byte(htmlContent))
 		if err != nil {
@@ -3650,7 +3900,9 @@ func TestLinkTagExtraction(t *testing.T) {
 		config.IncludeCSS = true
 
 		p, err := html.New(html.DefaultConfig())
-		defer p.Close()
+		if err != nil {
+			t.Fatalf("html.New() failed: %v", err)
+		}
 		defer p.Close()
 		links, err := p.ExtractAllLinks([]byte(htmlContent))
 		if err != nil {
@@ -4258,7 +4510,9 @@ func TestURLAndDomainExtraction(t *testing.T) {
 		config.IncludeContentLinks = true
 
 		p, err := html.New(html.DefaultConfig())
-		defer p.Close()
+		if err != nil {
+			t.Fatalf("html.New() failed: %v", err)
+		}
 		defer p.Close()
 		links, err := p.ExtractAllLinks([]byte(htmlContent))
 		if err != nil {
@@ -4357,7 +4611,9 @@ func TestScriptAndEmbedLinkExtraction(t *testing.T) {
 		config.IncludeJS = true
 
 		p, err := html.New(html.DefaultConfig())
-		defer p.Close()
+		if err != nil {
+			t.Fatalf("html.New() failed: %v", err)
+		}
 		defer p.Close()
 		links, err := p.ExtractAllLinks([]byte(htmlContent))
 		if err != nil {
@@ -4388,7 +4644,9 @@ func TestScriptAndEmbedLinkExtraction(t *testing.T) {
 		config.IncludeJS = true
 
 		p, err := html.New(html.DefaultConfig())
-		defer p.Close()
+		if err != nil {
+			t.Fatalf("html.New() failed: %v", err)
+		}
 		defer p.Close()
 		links, err := p.ExtractAllLinks([]byte(htmlContent))
 		if err != nil {
@@ -4414,7 +4672,9 @@ func TestScriptAndEmbedLinkExtraction(t *testing.T) {
 		config.IncludeVideos = true
 
 		p, err := html.New(html.DefaultConfig())
-		defer p.Close()
+		if err != nil {
+			t.Fatalf("html.New() failed: %v", err)
+		}
 		defer p.Close()
 		links, err := p.ExtractAllLinks([]byte(htmlContent))
 		if err != nil {
@@ -4445,7 +4705,9 @@ func TestScriptAndEmbedLinkExtraction(t *testing.T) {
 		config.IncludeAudios = true
 
 		p, err := html.New(html.DefaultConfig())
-		defer p.Close()
+		if err != nil {
+			t.Fatalf("html.New() failed: %v", err)
+		}
 		defer p.Close()
 		links, err := p.ExtractAllLinks([]byte(htmlContent))
 		if err != nil {
@@ -4481,7 +4743,9 @@ func TestContentLinkExtraction(t *testing.T) {
 		config.IncludeExternalLinks = true
 
 		p, err := html.New(html.DefaultConfig())
-		defer p.Close()
+		if err != nil {
+			t.Fatalf("html.New() failed: %v", err)
+		}
 		defer p.Close()
 		links, err := p.ExtractAllLinks([]byte(htmlContent))
 		if err != nil {
@@ -4507,7 +4771,9 @@ func TestContentLinkExtraction(t *testing.T) {
 		config.IncludeImages = true
 
 		p, err := html.New(html.DefaultConfig())
-		defer p.Close()
+		if err != nil {
+			t.Fatalf("html.New() failed: %v", err)
+		}
 		defer p.Close()
 		links, err := p.ExtractAllLinks([]byte(htmlContent))
 		if err != nil {

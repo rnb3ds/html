@@ -867,43 +867,23 @@ func DetectAndConvertToUTF8String(data []byte, forcedEncoding string) (string, s
 }
 
 // isPureASCII checks if data contains only ASCII bytes (0x00-0x7F)
-// Uses word-sized reads and loop unrolling for optimal performance.
-// Processes 32 bytes per iteration to maximize CPU pipeline efficiency.
+// Uses word-sized reads with loop unrolling for optimal performance.
+// Optimized to minimize function call overhead and improve cache utilization.
 func isPureASCII(data []byte) bool {
 	n := len(data)
 	if n == 0 {
 		return true
 	}
 
-	// Process 32 bytes at a time using word-sized reads
-	// This reduces loop overhead by 4x compared to 8-byte processing
+	// Process 8 bytes at a time using simple loop
+	// This allows the compiler to optimize effectively while being cache-friendly
 	i := 0
-	for i+32 <= n {
-		// Load 8 bytes at a time and check high bits
-		// Using direct byte access to avoid unsafe operations while maintaining performance
-		if (uint64(data[i])|uint64(data[i+1])|uint64(data[i+2])|uint64(data[i+3])|
-			uint64(data[i+4])|uint64(data[i+5])|uint64(data[i+6])|uint64(data[i+7]))&0x80 != 0 {
-			return false
-		}
-		if (uint64(data[i+8])|uint64(data[i+9])|uint64(data[i+10])|uint64(data[i+11])|
-			uint64(data[i+12])|uint64(data[i+13])|uint64(data[i+14])|uint64(data[i+15]))&0x80 != 0 {
-			return false
-		}
-		if (uint64(data[i+16])|uint64(data[i+17])|uint64(data[i+18])|uint64(data[i+19])|
-			uint64(data[i+20])|uint64(data[i+21])|uint64(data[i+22])|uint64(data[i+23]))&0x80 != 0 {
-			return false
-		}
-		if (uint64(data[i+24])|uint64(data[i+25])|uint64(data[i+26])|uint64(data[i+27])|
-			uint64(data[i+28])|uint64(data[i+29])|uint64(data[i+30])|uint64(data[i+31]))&0x80 != 0 {
-			return false
-		}
-		i += 32
-	}
 
-	// Handle remaining 8-byte chunks
+	// Process 8-byte chunks with early exit
 	for i+8 <= n {
-		if (uint64(data[i])|uint64(data[i+1])|uint64(data[i+2])|uint64(data[i+3])|
-			uint64(data[i+4])|uint64(data[i+5])|uint64(data[i+6])|uint64(data[i+7]))&0x80 != 0 {
+		// Use simple OR accumulation in single expression for better optimization
+		if (data[i] | data[i+1] | data[i+2] | data[i+3] |
+			data[i+4] | data[i+5] | data[i+6] | data[i+7]) >= 0x80 {
 			return false
 		}
 		i += 8
@@ -911,7 +891,7 @@ func isPureASCII(data []byte) bool {
 
 	// Handle remaining bytes
 	for i < n {
-		if data[i]&0x80 != 0 {
+		if data[i] >= 0x80 {
 			return false
 		}
 		i++

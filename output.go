@@ -59,15 +59,15 @@ func (p *Processor) ExtractToJSONFromFile(filePath string) ([]byte, error) {
 }
 
 // ============================================================================
-// Deprecated Package Functions (for backward compatibility)
+// Package-level Convenience Functions
 // ============================================================================
 
 // ExtractToMarkdown extracts content from HTML and returns it in Markdown format.
 // This is a convenience function that creates a temporary Processor with default settings.
-//
-// Deprecated: Use Processor.ExtractToMarkdown instead for better performance with repeated calls.
+// For repeated extractions or custom configuration (cache, timeout, etc.), use
+// Processor.ExtractToMarkdown instead.
 func ExtractToMarkdown(htmlBytes []byte) (string, error) {
-	processor, err := New(MarkdownConfig())
+	processor, err := New(DefaultConfig())
 	if err != nil {
 		return "", err
 	}
@@ -77,10 +77,10 @@ func ExtractToMarkdown(htmlBytes []byte) (string, error) {
 
 // ExtractToMarkdownFromFile extracts content from an HTML file and returns it in Markdown format.
 // This is a convenience function that creates a temporary Processor with default settings.
-//
-// Deprecated: Use Processor.ExtractToMarkdownFromFile instead for better performance with repeated calls.
+// For repeated extractions or custom configuration (cache, timeout, etc.), use
+// Processor.ExtractToMarkdownFromFile instead.
 func ExtractToMarkdownFromFile(filePath string) (string, error) {
-	processor, err := New(MarkdownConfig())
+	processor, err := New(DefaultConfig())
 	if err != nil {
 		return "", err
 	}
@@ -90,8 +90,8 @@ func ExtractToMarkdownFromFile(filePath string) (string, error) {
 
 // ExtractToJSON extracts content from HTML and returns it as JSON.
 // This is a convenience function that creates a temporary Processor with default settings.
-//
-// Deprecated: Use Processor.ExtractToJSON instead for better performance with repeated calls.
+// For repeated extractions or custom configuration (cache, timeout, etc.), use
+// Processor.ExtractToJSON instead.
 func ExtractToJSON(htmlBytes []byte) ([]byte, error) {
 	processor, err := New(DefaultConfig())
 	if err != nil {
@@ -103,8 +103,8 @@ func ExtractToJSON(htmlBytes []byte) ([]byte, error) {
 
 // ExtractToJSONFromFile extracts content from an HTML file and returns it as JSON.
 // This is a convenience function that creates a temporary Processor with default settings.
-//
-// Deprecated: Use Processor.ExtractToJSONFromFile instead for better performance with repeated calls.
+// For repeated extractions or custom configuration (cache, timeout, etc.), use
+// Processor.ExtractToJSONFromFile instead.
 func ExtractToJSONFromFile(filePath string) ([]byte, error) {
 	processor, err := New(DefaultConfig())
 	if err != nil {

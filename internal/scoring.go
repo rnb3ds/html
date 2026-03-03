@@ -10,19 +10,19 @@ import (
 // Higher scores indicate more likely main content. Negative scores suggest non-content elements.
 // This function delegates to the default Scorer implementation.
 func ScoreContentNode(node *html.Node) int {
-	return defaultScorer.Score(node)
+	return getDefaultScorer().Score(node)
 }
 
 // ShouldRemoveElement determines if a node should be removed from the content tree.
 // This function delegates to the default Scorer implementation.
 func ShouldRemoveElement(n *html.Node) bool {
-	return defaultScorer.ShouldRemove(n)
+	return getDefaultScorer().ShouldRemove(n)
 }
 
 // ScoreAttributes calculates a score based on element attributes.
 // This function delegates to the default Scorer implementation.
 func ScoreAttributes(n *html.Node) int {
-	return defaultScorer.ScoreAttributes(n)
+	return getDefaultScorer().ScoreAttributes(n)
 }
 
 // contentMetrics holds all metrics collected during a single DOM traversal.
