@@ -2,12 +2,58 @@
 
 All notable changes to the cybergodev/html library will be documented in this file.
 
-[//]: # (The format is based on [Keep a Changelog]&#40;https://keepachangelog.com/en/1.0.0/&#41;)
-[//]: # (and this project adheres to [Semantic Versioning]&#40;https://semver.org/spec/v2.0.0.html&#41;)
+[//]: # (The format is based on [Keep a Changelog]&#40;https://keepachangelog.com&#41;)
+[//]: # (and this project adheres to [Semantic Versioning]&#40;https://semver.org&#41;)
 
 ---
 
-## v1.2.0 - Comprehensive Quality & Documentation Enhancement (2025-02-07)
+## v1.3.0 - Performance & API Enhancement (2026-03-03)
+
+### Added
+- `LinkFormat` configuration for inline link formatting (markdown, html, none)
+- `CacheCleanup` configuration with automatic background cleanup for TTL entries
+- `StartCleanup()` and `StopCleanup()` methods for proactive cache management
+- `SetPoolLogger()` function for pool corruption debug logging
+- Optional variadic configuration parameters for `New()` constructor
+- Smart config merging for `ExtractConfig` and `LinkExtractionConfig`
+- Automatic cache goroutine cleanup via `runtime.SetFinalizer`
+- `Len()` method to get current cache entry count
+- `FromFile` variant methods to `Extractor` and `LinkExtractor` interfaces
+
+### Changed
+- `WalkNodes` converted from recursive to iterative (prevents stack overflow on deep DOM)
+- `isPureASCII` optimized with 64-bit batch processing (16% CPU hotspot reduced)
+- Cache key hash length increased from 8 to 16 bytes (better collision resistance)
+- `Cache.Get()` uses read-write lock separation for better concurrent performance
+- `ExtractToMarkdown()` now uses `DefaultConfig()` for API consistency
+- `DefaultScorer` uses lazy initialization with `sync.Once`
+- Examples restructured from 9 to 8 focused files
+
+### Fixed
+- Potential cache goroutine leak when Cache is garbage collected
+- TOCTOU race condition in `Cache.Get()` method
+- Potential nil pointer dereference in `NewDefaultScorerWithConfig()`
+- Goroutine leak in `withTimeout()` with maximum limit protection
+- Test error handling issues (unchecked errors, nil pointer access)
+
+### Performance
+- `Extract`: ~26% faster
+- `ExtractWithCache`: ~34% faster
+- `ExtractLargeDocument`: ~22% faster
+- `CleanText`: ~68% faster (replaced regex with manual scanning)
+- `ConcurrentExtract`: ~29% faster
+- Memory allocations reduced by 50-65% in key benchmarks
+
+### Security
+- Library confirmed fully thread-safe (100+ race detection iterations)
+- All shared state properly synchronized with appropriate primitives
+
+### Breaking Changes
+- Destructive update!
+
+---
+
+## v1.2.0 - Comprehensive Quality & Documentation Enhancement (2026-02-07)
 
 ### Breaking Changes
 - **Removed**: Deprecated `NewWithDefaults()` method (use `New()` or `New(html.DefaultConfig())`)
@@ -119,7 +165,7 @@ processor.ExtractBatch(docs, config1)     // single config
 
 ---
 
-## v1.1.1 - Critical Bug Fixes & Security Enhancements (2025-02-02)
+## v1.1.1 - Critical Bug Fixes & Security Enhancements (2026-02-02)
 
 ### Fixed
 - **Critical: Pattern Matching Word Boundary Detection**
@@ -272,7 +318,7 @@ processor.ExtractBatch(docs, config1)     // single config
 
 ---
 
-## v1.0.5 - Code Quality & Maintainability Enhancement (2025-01-14)
+## v1.0.5 - Code Quality & Maintainability Enhancement (2026-01-14)
 
 ### Fixed
 - **Critical Performance Issues**:

@@ -519,8 +519,8 @@ func TestUTF8WithWrongCharsetMeta(t *testing.T) {
 			shouldContain:   "Café",
 		},
 		{
-			name: "UTF-8 with Chinese chars and Windows-1252 meta",
-			data: []byte(`<html><head><meta charset="windows-1252"></head><body>Hello 世界</body></html>`),
+			name:            "UTF-8 with Chinese chars and Windows-1252 meta",
+			data:            []byte(`<html><head><meta charset="windows-1252"></head><body>Hello 世界</body></html>`),
 			expectedCharset: "utf-8",
 			shouldContain:   "世界",
 		},
@@ -565,3 +565,60 @@ func TestUTF8WithWrongCharsetMeta(t *testing.T) {
 	}
 }
 
+// ============================================================================
+// SetMaxSampleSize Tests
+// ============================================================================
+
+func TestSetMaxSampleSize(t *testing.T) {
+	t.Parallel()
+
+	t.Run("valid sample size", func(t *testing.T) {
+		ed := NewEncodingDetector()
+		result := ed.SetMaxSampleSize(2048)
+
+		// Should return the detector for chaining
+		if result != ed {
+			t.Error("SetMaxSampleSize should return the detector")
+		}
+
+		if ed.MaxSampleSize != 2048 {
+			t.Errorf("MaxSampleSize = %d, want 2048", ed.MaxSampleSize)
+		}
+	})
+
+	t.Run("negative size uses default", func(t *testing.T) {
+		ed := NewEncodingDetector()
+		ed.SetMaxSampleSize(-1)
+
+		if ed.MaxSampleSize != 10240 {
+			t.Errorf("MaxSampleSize = %d, want 10240 (default)", ed.MaxSampleSize)
+		}
+	})
+
+	t.Run("zero size uses default", func(t *testing.T) {
+		ed := NewEncodingDetector()
+		ed.SetMaxSampleSize(0)
+
+		if ed.MaxSampleSize != 10240 {
+			t.Errorf("MaxSampleSize = %d, want 10240 (default)", ed.MaxSampleSize)
+		}
+	})
+
+	t.Run("size above max is capped", func(t *testing.T) {
+		ed := NewEncodingDetector()
+		ed.SetMaxSampleSize(10 * 1024 * 1024) // 10MB, above 1MB max
+
+		if ed.MaxSampleSize != 1024*1024 {
+			t.Errorf("MaxSampleSize = %d, want %d (max)", ed.MaxSampleSize, 1024*1024)
+		}
+	})
+
+	t.Run("chaining works", func(t *testing.T) {
+		ed := NewEncodingDetector()
+		ed.SetMaxSampleSize(512)
+
+		if ed.MaxSampleSize != 512 {
+			t.Errorf("MaxSampleSize = %d, want 512", ed.MaxSampleSize)
+		}
+	})
+}

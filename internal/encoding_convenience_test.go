@@ -59,11 +59,11 @@ func TestConvertToUTF8(t *testing.T) {
 	t.Parallel()
 
 	testCases := []struct {
-		name         string
-		data         []byte
-		charset      string
-		expectError  bool
-		mustContain  string // Result must contain this string
+		name           string
+		data           []byte
+		charset        string
+		expectError    bool
+		mustContain    string // Result must contain this string
 		mustNotContain string // Result must not contain this string
 	}{
 		{
@@ -81,10 +81,10 @@ func TestConvertToUTF8(t *testing.T) {
 			mustContain: "Hello",
 		},
 		{
-			name:        "Empty input",
-			data:        []byte{},
-			charset:     "utf-8",
-			expectError: false,
+			name:           "Empty input",
+			data:           []byte{},
+			charset:        "utf-8",
+			expectError:    false,
 			mustNotContain: "\x00", // Should not contain null bytes
 		},
 		{
@@ -127,7 +127,7 @@ func TestDetectAndConvertToUTF8(t *testing.T) {
 		name        string
 		data        []byte
 		expectError bool
-		checkUTF8    bool // Verify result is valid UTF-8
+		checkUTF8   bool // Verify result is valid UTF-8
 	}{
 		{
 			name:        "UTF-8 HTML",
@@ -177,34 +177,34 @@ func TestDetectAndConvertToUTF8String(t *testing.T) {
 	t.Parallel()
 
 	testCases := []struct {
-		name        string
-		data        []byte
+		name           string
+		data           []byte
 		forcedEncoding string
-		expectError bool
+		expectError    bool
 	}{
 		{
-			name:        "Auto-detect UTF-8",
-			data:        []byte("<html><head><meta charset=\"utf-8\"></head><body>Hello</body></html>"),
+			name:           "Auto-detect UTF-8",
+			data:           []byte("<html><head><meta charset=\"utf-8\"></head><body>Hello</body></html>"),
 			forcedEncoding: "",
-			expectError: false,
+			expectError:    false,
 		},
 		{
-			name:        "Forced UTF-8",
-			data:        []byte("Hello World"),
+			name:           "Forced UTF-8",
+			data:           []byte("Hello World"),
 			forcedEncoding: "utf-8",
-			expectError: false,
+			expectError:    false,
 		},
 		{
-			name:        "Forced Windows-1252",
-			data:        []byte{0x48, 0x65, 0x6C, 0x6C, 0x6F}, // "Hello" in Windows-1252
+			name:           "Forced Windows-1252",
+			data:           []byte{0x48, 0x65, 0x6C, 0x6C, 0x6F}, // "Hello" in Windows-1252
 			forcedEncoding: "windows-1252",
-			expectError: false,
+			expectError:    false,
 		},
 		{
-			name:        "Invalid forced encoding",
-			data:        []byte("Hello"),
+			name:           "Invalid forced encoding",
+			data:           []byte("Hello"),
 			forcedEncoding: "invalid-xyz",
-			expectError: false, // Should fall back to auto-detect
+			expectError:    false, // Should fall back to auto-detect
 		},
 	}
 

@@ -535,7 +535,7 @@ func TestIsBlockElement(t *testing.T) {
 		{"ol", true},
 		{"li", true},
 		{"table", true},
-		{"br", false},  // BR is now inline, not block
+		{"br", false}, // BR is now inline, not block
 		{"hr", true},
 		{"span", false},
 		{"a", false},
@@ -779,6 +779,180 @@ func TestCalculateContentDensityEdgeCases(t *testing.T) {
 		// Many tags with little text should have low density
 		if density > 0.1 {
 			t.Errorf("CalculateContentDensity(many tags) = %f, want <= 0.1", density)
+		}
+	})
+}
+
+// ============================================================================
+// NewDefaultScorerWithConfig Tests
+// ============================================================================
+
+func TestNewDefaultScorerWithConfig(t *testing.T) {
+	t.Parallel()
+
+	t.Run("creates scorer with custom config", func(t *testing.T) {
+		config := &ScoringConfig{
+			PositiveStrongPatterns: map[string]int{"custom": 500},
+			TagScores:              map[string]int{"article": 1000},
+		}
+		scorer := NewDefaultScorerWithConfig(config)
+
+		if scorer == nil {
+			t.Fatal("NewDefaultScorerWithConfig returned nil")
+		}
+		if scorer.config != config {
+			t.Error("Scorer config not set correctly")
+		}
+	})
+
+	t.Run("nil config uses default", func(t *testing.T) {
+		scorer := NewDefaultScorerWithConfig(nil)
+
+		if scorer == nil {
+			t.Fatal("NewDefaultScorerWithConfig(nil) returned nil")
+		}
+		// nil config is replaced with default config for safety
+		if scorer.config == nil {
+			t.Error("Config should not be nil when nil is passed (should use default)")
+		}
+		// Verify default config is used by checking for expected patterns
+		if len(scorer.config.PositiveStrongPatterns) == 0 {
+			t.Error("Default config should have positive patterns")
+		}
+	})
+
+	t.Run("custom config affects scoring", func(t *testing.T) {
+		// Create custom config with different patterns
+		config := &ScoringConfig{
+			PositiveStrongPatterns: map[string]int{"content": 500, "article": 500},
+			TagScores:              map[string]int{"article": 1000},
+		}
+		scorer := NewDefaultScorerWithConfig(config)
+
+		// Test with article element
+		htmlContent := `<article class="content"><p>Test content here.</p></article>`
+		doc, _ := html.Parse(strings.NewReader(htmlContent))
+
+		var articleNode *html.Node
+		WalkNodes(doc, func(n *html.Node) bool {
+			if n.Type == html.ElementNode && n.Data == "article" {
+				articleNode = n
+				return false
+			}
+			return true
+		})
+
+		score := scorer.Score(articleNode)
+		// Score should be affected by custom config
+		if score <= 0 {
+			t.Errorf("Score with custom config = %d, want > 0", score)
+		}
+	})
+
+	t.Run("scorer implements Scorer interface", func(t *testing.T) {
+		config := &ScoringConfig{}
+		var _ Scorer = NewDefaultScorerWithConfig(config)
+	})
+}
+
+func TestDefaultScorerScore(t *testing.T) {
+	t.Parallel()
+
+	t.Run("nil node returns 0", func(t *testing.T) {
+		scorer := NewDefaultScorer()
+		score := scorer.Score(nil)
+		if score != 0 {
+			t.Errorf("Score(nil) = %d, want 0", score)
+		}
+	})
+
+	t.Run("text node returns 0", func(t *testing.T) {
+		scorer := NewDefaultScorer()
+		textNode := &html.Node{
+			Type: html.TextNode,
+			Data: "text",
+		}
+		score := scorer.Score(textNode)
+		if score != 0 {
+			t.Errorf("Score(textNode) = %d, want 0", score)
+		}
+	})
+
+	t.Run("non-content element returns 0", func(t *testing.T) {
+		scorer := NewDefaultScorer()
+		doc, _ := html.Parse(strings.NewReader(`<script>code</script>`))
+
+		var scriptNode *html.Node
+		WalkNodes(doc, func(n *html.Node) bool {
+			if n.Type == html.ElementNode && n.Data == "script" {
+				scriptNode = n
+				return false
+			}
+			return true
+		})
+
+		score := scorer.Score(scriptNode)
+		if score != 0 {
+			t.Errorf("Score(script) = %d, want 0", score)
+		}
+	})
+
+	t.Run("paragraph returns 0", func(t *testing.T) {
+		scorer := NewDefaultScorer()
+		doc, _ := html.Parse(strings.NewReader(`<p>text</p>`))
+
+		var pNode *html.Node
+		WalkNodes(doc, func(n *html.Node) bool {
+			if n.Type == html.ElementNode && n.Data == "p" {
+				pNode = n
+				return false
+			}
+			return true
+		})
+
+		score := scorer.Score(pNode)
+		if score != 0 {
+			t.Errorf("Score(p) = %d, want 0", score)
+		}
+	})
+
+	t.Run("article with content has positive score", func(t *testing.T) {
+		scorer := NewDefaultScorer()
+		doc, _ := html.Parse(strings.NewReader(`<article><p>Content paragraph with text.</p></article>`))
+
+		var articleNode *html.Node
+		WalkNodes(doc, func(n *html.Node) bool {
+			if n.Type == html.ElementNode && n.Data == "article" {
+				articleNode = n
+				return false
+			}
+			return true
+		})
+
+		score := scorer.Score(articleNode)
+		if score <= 0 {
+			t.Errorf("Score(article with content) = %d, want > 0", score)
+		}
+	})
+}
+
+func TestScoringConfigDefaults(t *testing.T) {
+	t.Parallel()
+
+	t.Run("default config values are reasonable", func(t *testing.T) {
+		config := DefaultScoringConfig()
+
+		if len(config.PositiveStrongPatterns) == 0 {
+			t.Error("PositiveStrongPatterns should not be empty")
+		}
+		if len(config.NegativeStrongPatterns) == 0 {
+			t.Error("NegativeStrongPatterns should not be empty")
+		}
+		if len(config.TagScores) == 0 {
+			t.Error("TagScores should not be empty")
+		}
+		if len(config.RemovePatterns) == 0 {
+			t.Error("RemovePatterns should not be empty")
 		}
 	})
 }

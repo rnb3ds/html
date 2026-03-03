@@ -16,8 +16,8 @@ func TestNamespaceTagInlineHandling(t *testing.T) {
 		expected string // expected output pattern
 	}{
 		{
-			name: "ix:nonumeric tags in span should not create newlines",
-			html: `(<ix:nonnumeric>707</ix:nonnumeric>) <ix:nonnumeric>774-7000</ix:nonnumeric>`,
+			name:     "ix:nonumeric tags in span should not create newlines",
+			html:     `(<ix:nonnumeric>707</ix:nonnumeric>) <ix:nonnumeric>774-7000</ix:nonnumeric>`,
 			expected: "707 ) 774-7000", // After whitespace normalization, "(707 ) 774-7000" becomes "( 707 ) 774-7000" without leading space
 		},
 		{
@@ -67,7 +67,7 @@ func TestNamespaceTagInlineHandling(t *testing.T) {
 			}
 
 			var sb strings.Builder
-			ExtractTextWithStructureAndImages(doc, &sb, 0, nil, "markdown")
+			ExtractTextWithStructureAndImages(doc, &sb, nil, nil, "markdown")
 			result := sb.String()
 
 			// Remove extra whitespace for comparison
@@ -102,17 +102,17 @@ func TestNamespaceTagStructure(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.tag, func(t *testing.T) {
-			if got := isNamespaceTag(tt.tag); got != tt.isNamespace {
-				t.Errorf("isNamespaceTag(%q) = %v, want %v", tt.tag, got, tt.isNamespace)
+			if got := IsNamespaceTag(tt.tag); got != tt.isNamespace {
+				t.Errorf("IsNamespaceTag(%q) = %v, want %v", tt.tag, got, tt.isNamespace)
 			}
 
-			if got := getNamespacePrefix(tt.tag); got != tt.prefix {
-				t.Errorf("getNamespacePrefix(%q) = %q, want %q", tt.tag, got, tt.prefix)
+			if got := GetNamespacePrefix(tt.tag); got != tt.prefix {
+				t.Errorf("GetNamespacePrefix(%q) = %q, want %q", tt.tag, got, tt.prefix)
 			}
 
 			if tt.isNamespace {
-				if got := knownInlineNamespacePrefixes[tt.prefix]; got != tt.isKnownInline {
-					t.Errorf("knownInlineNamespacePrefixes[%q] = %v, want %v", tt.prefix, got, tt.isKnownInline)
+				if got := IsKnownInlineNamespacePrefix(tt.prefix); got != tt.isKnownInline {
+					t.Errorf("IsKnownInlineNamespacePrefix(%q) = %v, want %v", tt.prefix, got, tt.isKnownInline)
 				}
 			}
 		})
@@ -164,7 +164,7 @@ func TestShouldTreatNamespaceTagAsInline(t *testing.T) {
 			var namespaceTag *html.Node
 			var findFunc func(*html.Node)
 			findFunc = func(n *html.Node) {
-				if n.Type == html.ElementNode && isNamespaceTag(n.Data) {
+				if n.Type == html.ElementNode && IsNamespaceTag(n.Data) {
 					namespaceTag = n
 					return
 				}
@@ -178,9 +178,9 @@ func TestShouldTreatNamespaceTagAsInline(t *testing.T) {
 				t.Fatal("Failed to find namespace tag in parsed HTML")
 			}
 
-			got := shouldTreatNamespaceTagAsInline(namespaceTag)
+			got := ShouldTreatNamespaceTagAsInline(namespaceTag)
 			if got != tt.expected {
-				t.Errorf("shouldTreatNamespaceTagAsInline() = %v, want %v", got, tt.expected)
+				t.Errorf("ShouldTreatNamespaceTagAsInline() = %v, want %v", got, tt.expected)
 			}
 		})
 	}

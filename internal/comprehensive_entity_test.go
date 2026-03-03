@@ -14,171 +14,171 @@ func TestComprehensiveHTMLEntityConversion(t *testing.T) {
 	t.Parallel()
 
 	testCases := []struct {
-		name         string
-		html         string
-		mustContain  []string
+		name           string
+		html           string
+		mustContain    []string
 		mustNotContain []string
-		explanation  string
+		explanation    string
 	}{
 		// Non-breaking spaces - all forms should convert to regular space (U+0020)
 		{
-			name: "nbsp_named_entity",
-			html: "A&nbsp;B",
-			mustContain: []string{"A B"},
+			name:           "nbsp_named_entity",
+			html:           "A&nbsp;B",
+			mustContain:    []string{"A B"},
 			mustNotContain: []string{"\u00a0", "&nbsp;"},
-			explanation: "&nbsp; should convert to regular space (0x20), not non-breaking space (0xa0)",
+			explanation:    "&nbsp; should convert to regular space (0x20), not non-breaking space (0xa0)",
 		},
 		{
-			name: "nbsp_decimal_numeric",
-			html: "A&#160;B",
-			mustContain: []string{"A B"},
+			name:           "nbsp_decimal_numeric",
+			html:           "A&#160;B",
+			mustContain:    []string{"A B"},
 			mustNotContain: []string{"\u00a0", "&#160;"},
-			explanation: "&#160; should convert to regular space",
+			explanation:    "&#160; should convert to regular space",
 		},
 		{
-			name: "nbsp_hexadecimal_numeric",
-			html: "A&#xa0;B",
-			mustContain: []string{"A B"},
+			name:           "nbsp_hexadecimal_numeric",
+			html:           "A&#xa0;B",
+			mustContain:    []string{"A B"},
 			mustNotContain: []string{"\u00a0", "&#xa0;"},
-			explanation: "&#xa0; should convert to regular space",
+			explanation:    "&#xa0; should convert to regular space",
 		},
 		{
-			name: "nbsp_uppercase_hex",
-			html: "A&#xA0;B",
-			mustContain: []string{"A B"},
+			name:           "nbsp_uppercase_hex",
+			html:           "A&#xA0;B",
+			mustContain:    []string{"A B"},
 			mustNotContain: []string{"\u00a0"},
-			explanation: "&#xA0; (uppercase) should convert to regular space",
+			explanation:    "&#xA0; (uppercase) should convert to regular space",
 		},
 
 		// Basic XML entities
 		{
-			name: "basic_xml_entities",
-			html: "&amp;&lt;&gt;&quot;&apos;",
-			mustContain: []string{"&", "<", ">", "\"", "'"},
+			name:           "basic_xml_entities",
+			html:           "&amp;&lt;&gt;&quot;&apos;",
+			mustContain:    []string{"&", "<", ">", "\"", "'"},
 			mustNotContain: []string{"&amp;", "&lt;", "&gt;", "&quot;", "&apos;"},
-			explanation: "Basic XML entities should convert to their characters",
+			explanation:    "Basic XML entities should convert to their characters",
 		},
 
 		// Typographic entities
 		{
-			name: "typographic_dashes",
-			html: "&mdash;&ndash;",
-			mustContain: []string{"—", "–"},
+			name:           "typographic_dashes",
+			html:           "&mdash;&ndash;",
+			mustContain:    []string{"—", "–"},
 			mustNotContain: []string{"&mdash;", "&ndash;"},
-			explanation: "Em dash and en dash should convert correctly",
+			explanation:    "Em dash and en dash should convert correctly",
 		},
 		{
-			name: "typographic_quotes",
-			html: "&lsquo;&rsquo;&ldquo;&rdquo;",
-			mustContain: []string{"\u2018", "\u2019", "\u201c", "\u201d"}, // Unicode smart quotes
+			name:           "typographic_quotes",
+			html:           "&lsquo;&rsquo;&ldquo;&rdquo;",
+			mustContain:    []string{"\u2018", "\u2019", "\u201c", "\u201d"}, // Unicode smart quotes
 			mustNotContain: []string{"&lsquo;", "&rsquo;", "&ldquo;", "&rdquo;"},
-			explanation: "Smart quotes should convert to their Unicode characters (U+2018, U+2019, U+201C, U+201D)",
+			explanation:    "Smart quotes should convert to their Unicode characters (U+2018, U+2019, U+201C, U+201D)",
 		},
 		{
-			name: "ellipsis",
-			html: "&hellip;",
-			mustContain: []string{"…"},
+			name:           "ellipsis",
+			html:           "&hellip;",
+			mustContain:    []string{"…"},
 			mustNotContain: []string{"&hellip;"},
-			explanation: "Ellipsis should convert to …",
+			explanation:    "Ellipsis should convert to …",
 		},
 
 		// Copyright and trademarks
 		{
-			name: "copyright_trademarks",
-			html: "&copy;&reg;&trade;",
-			mustContain: []string{"©", "®", "™"},
+			name:           "copyright_trademarks",
+			html:           "&copy;&reg;&trade;",
+			mustContain:    []string{"©", "®", "™"},
 			mustNotContain: []string{"&copy;", "&reg;", "&trade;"},
-			explanation: "Copyright and trademark symbols should convert",
+			explanation:    "Copyright and trademark symbols should convert",
 		},
 
 		// Currency symbols
 		{
-			name: "currency_symbols",
-			html: "&euro;&pound;&yen;&cent;&curren;",
-			mustContain: []string{"€", "£", "¥", "¢", "¤"},
+			name:           "currency_symbols",
+			html:           "&euro;&pound;&yen;&cent;&curren;",
+			mustContain:    []string{"€", "£", "¥", "¢", "¤"},
 			mustNotContain: []string{"&euro;", "&pound;", "&yen;", "&cent;", "&curren;"},
-			explanation: "Currency symbols should convert",
+			explanation:    "Currency symbols should convert",
 		},
 
 		// Mathematical symbols
 		{
-			name: "math_symbols",
-			html: "&plusmn;&times;&divide;&deg;&frac12;&frac14;&frac34;",
-			mustContain: []string{"±", "×", "÷", "°", "½", "¼", "¾"},
+			name:           "math_symbols",
+			html:           "&plusmn;&times;&divide;&deg;&frac12;&frac14;&frac34;",
+			mustContain:    []string{"±", "×", "÷", "°", "½", "¼", "¾"},
 			mustNotContain: []string{"&plusmn;", "&times;", "&divide;", "&deg;", "&frac12;", "&frac14;", "&frac34;"},
-			explanation: "Mathematical symbols should convert",
+			explanation:    "Mathematical symbols should convert",
 		},
 
 		// Other common symbols
 		{
-			name: "other_symbols",
-			html: "&sect;&para;&middot;&bull;&micro;&prime;&Prime;",
-			mustContain: []string{"§", "¶", "·", "•", "µ", "′", "″"},
+			name:           "other_symbols",
+			html:           "&sect;&para;&middot;&bull;&micro;&prime;&Prime;",
+			mustContain:    []string{"§", "¶", "·", "•", "µ", "′", "″"},
 			mustNotContain: []string{"&sect;", "&para;", "&middot;", "&bull;", "&micro;", "&prime;", "&Prime;"},
-			explanation: "Other common symbols should convert (prime/prime are mathematical symbols, not quotes)",
+			explanation:    "Other common symbols should convert (prime/prime are mathematical symbols, not quotes)",
 		},
 
 		// Numeric entities - decimal
 		{
-			name: "numeric_decimal_entities",
-			html: "&#169;&#8364;&#162;&#163;&#165;",
-			mustContain: []string{"©", "€", "¢", "£", "¥"},
+			name:           "numeric_decimal_entities",
+			html:           "&#169;&#8364;&#162;&#163;&#165;",
+			mustContain:    []string{"©", "€", "¢", "£", "¥"},
 			mustNotContain: []string{"&#169;", "&#8364;", "&#162;", "&#163;", "&#165;"},
-			explanation: "Decimal numeric entities should convert",
+			explanation:    "Decimal numeric entities should convert",
 		},
 
 		// Numeric entities - hexadecimal
 		{
-			name: "numeric_hex_entities",
-			html: "&#xa9;&#x20ac;&#xa2;&#xa3;&#xa5;",
-			mustContain: []string{"©", "€", "¢", "£", "¥"},
+			name:           "numeric_hex_entities",
+			html:           "&#xa9;&#x20ac;&#xa2;&#xa3;&#xa5;",
+			mustContain:    []string{"©", "€", "¢", "£", "¥"},
 			mustNotContain: []string{"&#xa9;", "&#x20ac;", "&#xa2;", "&#xa3;", "&#xa5;"},
-			explanation: "Hexadecimal numeric entities should convert",
+			explanation:    "Hexadecimal numeric entities should convert",
 		},
 
 		// Mixed case hexadecimal
 		{
-			name: "mixed_case_hex",
-			html: "&#xA9;&#x20AC;&#xA2;&#xA3;&#xA5;",
-			mustContain: []string{"©", "€", "¢", "£", "¥"},
+			name:           "mixed_case_hex",
+			html:           "&#xA9;&#x20AC;&#xA2;&#xA3;&#xA5;",
+			mustContain:    []string{"©", "€", "¢", "£", "¥"},
 			mustNotContain: []string{"&#xA9;"},
-			explanation: "Uppercase hexadecimal entities should work",
+			explanation:    "Uppercase hexadecimal entities should work",
 		},
 
 		// Special characters that might cause issues
 		{
-			name: "soft_hyphen",
-			html: "A&shy;B",
-			mustContain: []string{"A\u00adB"}, // Soft hyphen is preserved as U+00AD
+			name:           "soft_hyphen",
+			html:           "A&shy;B",
+			mustContain:    []string{"A\u00adB"}, // Soft hyphen is preserved as U+00AD
 			mustNotContain: []string{"&shy;"},
-			explanation: "Soft hyphen is converted to U+00AD (soft hyphen character)",
+			explanation:    "Soft hyphen is converted to U+00AD (soft hyphen character)",
 		},
 
 		// Edge cases - multiple entities
 		{
-			name: "multiple_entities_sequence",
-			html: "&nbsp;&amp;&nbsp;&lt;&nbsp;&gt;",
-			mustContain: []string{"& < >"}, // Leading nbsp is trimmed by TrimSpace
+			name:           "multiple_entities_sequence",
+			html:           "&nbsp;&amp;&nbsp;&lt;&nbsp;&gt;",
+			mustContain:    []string{"& < >"}, // Leading nbsp is trimmed by TrimSpace
 			mustNotContain: []string{"\u00a0", "&nbsp;", "&amp;", "&lt;", "&gt;"},
-			explanation: "Multiple entities convert, but GetTextContent trims leading/trailing whitespace",
+			explanation:    "Multiple entities convert, but GetTextContent trims leading/trailing whitespace",
 		},
 
 		// Superscripts and subscripts
 		{
-			name: "superscripts_subscripts",
-			html: "&sup1;&sup2;&sup3;&frac12;",
-			mustContain: []string{"¹", "²", "³", "½"},
+			name:           "superscripts_subscripts",
+			html:           "&sup1;&sup2;&sup3;&frac12;",
+			mustContain:    []string{"¹", "²", "³", "½"},
 			mustNotContain: []string{"&sup1;", "&sup2;", "&sup3;", "&frac12;"},
-			explanation: "Superscript numbers should convert",
+			explanation:    "Superscript numbers should convert",
 		},
 
 		// Dagger symbols
 		{
-			name: "dagger_symbols",
-			html: "&dagger;&Dagger;&permil;",
-			mustContain: []string{"†", "‡", "‰"},
+			name:           "dagger_symbols",
+			html:           "&dagger;&Dagger;&permil;",
+			mustContain:    []string{"†", "‡", "‰"},
 			mustNotContain: []string{"&dagger;", "&Dagger;", "&permil;"},
-			explanation: "Dagger and permil symbols should convert",
+			explanation:    "Dagger and permil symbols should convert",
 		},
 	}
 
@@ -217,9 +217,9 @@ func TestComprehensiveHTMLEntityConversion(t *testing.T) {
 
 			// Verify byte representation for spaces
 			if strings.Contains(tc.html, "&nbsp;") ||
-			   strings.Contains(tc.html, "&#160;") ||
-			   strings.Contains(tc.html, "&#xa0;") ||
-			   strings.Contains(tc.html, "&#xA0;") {
+				strings.Contains(tc.html, "&#160;") ||
+				strings.Contains(tc.html, "&#xa0;") ||
+				strings.Contains(tc.html, "&#xA0;") {
 				// Should have regular space (0x20), not non-breaking space (0xc2 0xa0)
 				if strings.Contains(result, "\u00a0") {
 					t.Errorf("Non-breaking space detected in bytes: % x", result)
@@ -355,33 +355,33 @@ func TestExtractTextWithStructureHTMLEntities(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name     string
-		html     string
-		contains []string // Strings that should be in the result
+		name        string
+		html        string
+		contains    []string // Strings that should be in the result
 		notContains []string // Strings that should NOT be in the result
 	}{
 		{
-			name: "paragraph_with_nbsp",
-			html: `<p>Hello&nbsp;World</p>`,
-			contains: []string{"Hello World"},
+			name:        "paragraph_with_nbsp",
+			html:        `<p>Hello&nbsp;World</p>`,
+			contains:    []string{"Hello World"},
 			notContains: []string{"\u00a0", "&nbsp;"},
 		},
 		{
-			name: "div_with_entities",
-			html: `<div>&copy; 2025 &mdash; Test</div>`,
-			contains: []string{"©", "2025", "—", "Test"},
+			name:        "div_with_entities",
+			html:        `<div>&copy; 2025 &mdash; Test</div>`,
+			contains:    []string{"©", "2025", "—", "Test"},
 			notContains: []string{"&copy;", "&mdash;"},
 		},
 		{
-			name: "multiple_paragraphs",
-			html: `<p>First&nbsp;para</p><p>Second&nbsp;para</p>`,
-			contains: []string{"First para", "Second para"},
+			name:        "multiple_paragraphs",
+			html:        `<p>First&nbsp;para</p><p>Second&nbsp;para</p>`,
+			contains:    []string{"First para", "Second para"},
 			notContains: []string{"\u00a0"},
 		},
 		{
-			name: "table_with_nbsp",
-			html: `<table><tr><td>A&nbsp;B</td><td>&copy;</td></tr></table>`,
-			contains: []string{"A B", "©"},
+			name:        "table_with_nbsp",
+			html:        `<table><tr><td>A&nbsp;B</td><td>&copy;</td></tr></table>`,
+			contains:    []string{"A B", "©"},
 			notContains: []string{"\u00a0"},
 		},
 	}
@@ -394,7 +394,7 @@ func TestExtractTextWithStructureHTMLEntities(t *testing.T) {
 			}
 
 			var sb strings.Builder
-			ExtractTextWithStructureAndImages(doc, &sb, 0, nil, "markdown")
+			ExtractTextWithStructureAndImages(doc, &sb, nil, nil, "markdown")
 			result := CleanText(sb.String(), nil)
 
 			for _, mustContain := range tt.contains {

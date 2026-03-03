@@ -143,6 +143,34 @@ cacheKey := hex.EncodeToString(hasher.Sum(nil))
 - **Mitigation**: Not applicable - library is not cryptographic
 - **Note**: Cache hits are observable through statistics API (by design)
 
+#### 5. Unsafe Package Usage
+
+**Controlled Unsafe Operations**
+- **Usage**: Single controlled use of `unsafe` package in `extract.go`
+- **Purpose**: Zero-allocation string-to-bytes conversion for cache key generation
+- **Safety**: Read-only operation, returned slice is never modified
+- **Documentation**: Full safety documentation in code comments
+
+```go
+// extract.go:34-39
+// SAFETY: The returned slice MUST NOT be modified. Go strings are immutable,
+// and modifying the returned slice would violate this immutability, potentially
+// causing undefined behavior in other code holding references to the string.
+func stringToBytes(s string) []byte {
+    if s == "" {
+        return nil
+    }
+    return unsafe.Slice(unsafe.StringData(s), len(s))
+}
+```
+
+**Security Assessment**:
+- ✅ Single use case, well-documented
+- ✅ Read-only operation (no mutation)
+- ✅ Lifetime bounded to original string scope
+- ✅ Used only for hash.Write operations (read-only consumer)
+- ✅ No memory safety violations possible
+
 ### Not Protected Against
 
 #### 1. Malicious HTML Content
@@ -471,7 +499,7 @@ func FuzzExtract(f *testing.F) {
 - [x] No panics in production code
 - [x] All errors properly handled
 - [x] Thread-safe concurrent access
-- [x] No unsafe package usage
+- [x] Controlled unsafe package usage (single read-only string-to-bytes conversion with full documentation)
 - [x] No arbitrary code execution
 - [x] Regex patterns are safe
 - [x] Cache keys are cryptographically secure (SHA-256)

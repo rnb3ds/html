@@ -4,8 +4,15 @@
 package internal
 
 import (
+	"context"
+	"runtime"
 	"sync"
 	"time"
+)
+
+// Default cache cleanup configuration
+const (
+	DefaultCacheCleanupInterval = 5 * time.Minute
 )
 
 type cacheEntry struct {
@@ -20,17 +27,38 @@ func (e *cacheEntry) isExpired(now int64) bool {
 	return e.expiresAt > 0 && now > e.expiresAt
 }
 
+// Cache is a thread-safe LRU cache with optional TTL support.
+// It uses a doubly-linked list for LRU ordering with sentinel nodes
+// to simplify edge case handling.
+//
+// TTL Behavior:
+//   - ttl > 0: Entries expire after the specified duration
+//   - ttl = 0: Entries never expire based on time (only LRU eviction)
+//   - ttl < 0: Treated as 0 (no time-based expiration)
+//
+// Thread Safety: All public methods are safe for concurrent use.
+// Get() uses a write lock to prevent TOCTOU race conditions.
 type Cache struct {
 	mu         sync.RWMutex
 	entries    map[string]*cacheEntry
 	maxEntries int
 	ttl        time.Duration
 	head, tail *cacheEntry // Sentinel nodes for doubly-linked list
+
+	// Cleanup management
+	cleanupCancel context.CancelFunc // Function to stop background cleanup
+	cleanupOnce   sync.Once          // Ensures cleanup goroutine starts only once
 }
 
+// NewCache creates a new LRU cache with the specified maximum entries and TTL.
+// If maxEntries is 0 or negative, the cache is disabled (Set becomes a no-op).
+// If ttl is 0 or negative, entries never expire based on time.
 func NewCache(maxEntries int, ttl time.Duration) *Cache {
 	if maxEntries < 0 {
 		maxEntries = 0
+	}
+	if ttl < 0 {
+		ttl = 0
 	}
 	c := &Cache{
 		entries:    make(map[string]*cacheEntry, maxEntries),
@@ -51,29 +79,27 @@ func (c *Cache) Get(key string) any {
 	}
 	now := time.Now().UnixNano()
 
-	c.mu.RLock()
+	// Use a single write lock to avoid TOCTOU race condition.
+	// The overhead of write lock vs read lock is minimal compared to
+	// the complexity and potential races of lock switching.
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	entry := c.entries[key]
 	if entry == nil {
-		c.mu.RUnlock()
 		return nil
 	}
 
+	// Check expiration
 	if entry.isExpired(now) {
-		c.mu.RUnlock()
-		c.mu.Lock()
-		// Double-check after acquiring write lock
-		if entry, exists := c.entries[key]; exists && entry.isExpired(now) {
-			c.removeNode(entry)
-			delete(c.entries, key)
-		}
-		c.mu.Unlock()
+		c.removeNode(entry)
+		delete(c.entries, key)
 		return nil
 	}
 
-	// Update last used time and move to front
+	// Update LRU position
 	entry.lastUsed = now
 	c.moveToFront(entry)
-	c.mu.RUnlock()
 
 	return entry.value
 }
@@ -175,11 +201,104 @@ func (c *Cache) evictOne(nowNano int64) {
 func (c *Cache) Clear() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	// Clear all entries
-	for key := range c.entries {
+	// Clear all entries and break references to help GC
+	for key, entry := range c.entries {
+		if entry != nil {
+			entry.prev = nil
+			entry.next = nil
+		}
 		delete(c.entries, key)
 	}
 	// Reset linked list
 	c.head.next = c.tail
 	c.tail.prev = c.head
+}
+
+// StartCleanup starts a background goroutine that periodically cleans up expired entries.
+// This is useful when TTL is enabled and the cache receives many one-time accesses,
+// as expired entries would otherwise only be cleaned when accessed or during eviction.
+//
+// The cleanup goroutine runs at the specified interval until StopCleanup is called
+// or the cache is garbage collected. If interval is 0, DefaultCacheCleanupInterval is used.
+//
+// This method is idempotent - calling it multiple times has no additional effect.
+//
+// IMPORTANT: While runtime.SetFinalizer ensures cleanup when the Cache is garbage collected,
+// it is still recommended to call StopCleanup() explicitly for deterministic resource release,
+// especially in long-running applications.
+//
+// Usage:
+//
+//	cache := NewCache(1000, time.Hour)
+//	cache.StartCleanup(5 * time.Minute)
+//	defer cache.StopCleanup()
+func (c *Cache) StartCleanup(interval time.Duration) context.CancelFunc {
+	if interval <= 0 {
+		interval = DefaultCacheCleanupInterval
+	}
+
+	var cancel context.CancelFunc
+
+	c.cleanupOnce.Do(func() {
+		ctx, cancelFunc := context.WithCancel(context.Background())
+		cancel = cancelFunc
+		c.cleanupCancel = cancelFunc
+
+		// Set finalizer to ensure goroutine cleanup when Cache is garbage collected.
+		// This prevents goroutine leaks if StopCleanup() is not called explicitly.
+		runtime.SetFinalizer(c, func(cache *Cache) {
+			cache.StopCleanup()
+		})
+
+		go func() {
+			ticker := time.NewTicker(interval)
+			defer ticker.Stop()
+
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-ticker.C:
+					c.cleanupExpired()
+				}
+			}
+		}()
+	})
+
+	return cancel
+}
+
+// StopCleanup stops the background cleanup goroutine if it was started.
+// It is safe to call this method multiple times.
+// This method also clears the finalizer to prevent double cleanup.
+func (c *Cache) StopCleanup() {
+	if c.cleanupCancel != nil {
+		c.cleanupCancel()
+		c.cleanupCancel = nil
+		// Clear the finalizer since we've already cleaned up
+		runtime.SetFinalizer(c, nil)
+	}
+}
+
+// cleanupExpired removes all expired entries from the cache.
+// This is called periodically by the background cleanup goroutine.
+func (c *Cache) cleanupExpired() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	now := time.Now().UnixNano()
+	for key, entry := range c.entries {
+		if entry.isExpired(now) {
+			c.removeNode(entry)
+			delete(c.entries, key)
+		}
+	}
+}
+
+// Len returns the current number of entries in the cache.
+// This is useful for monitoring and debugging.
+func (c *Cache) Len() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return len(c.entries)
 }

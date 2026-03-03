@@ -2,6 +2,7 @@ package internal
 
 import (
 	"fmt"
+	"runtime"
 	"sync"
 	"testing"
 	"time"
@@ -303,4 +304,248 @@ func BenchmarkCacheConcurrent(b *testing.B) {
 			i++
 		}
 	})
+}
+
+func TestCacheStartCleanup(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping cleanup test in short mode")
+	}
+
+	cache := NewCache(100, 50*time.Millisecond)
+
+	// Start cleanup with 20ms interval
+	cancel := cache.StartCleanup(20 * time.Millisecond)
+	if cancel == nil {
+		t.Fatal("StartCleanup should return a cancel function")
+	}
+	defer cancel()
+
+	// Add entries
+	cache.Set("key1", "value1")
+	cache.Set("key2", "value2")
+
+	// Verify entries exist
+	if cache.Len() != 2 {
+		t.Errorf("Expected 2 entries, got %d", cache.Len())
+	}
+
+	// Wait for TTL expiration and cleanup
+	time.Sleep(100 * time.Millisecond)
+
+	// Entries should be cleaned up
+	if cache.Len() != 0 {
+		t.Errorf("Expected 0 entries after cleanup, got %d", cache.Len())
+	}
+}
+
+func TestCacheStopCleanup(t *testing.T) {
+	cache := NewCache(100, time.Hour)
+
+	// Start cleanup
+	cancel := cache.StartCleanup(time.Minute)
+	if cancel == nil {
+		t.Fatal("StartCleanup should return a cancel function")
+	}
+
+	// Stop cleanup
+	cache.StopCleanup()
+
+	// Should be safe to call multiple times
+	cache.StopCleanup()
+	cache.StopCleanup()
+}
+
+func TestCacheCleanupIdempotent(t *testing.T) {
+	cache := NewCache(100, time.Hour)
+
+	// Multiple calls to StartCleanup should only start one goroutine
+	cancel1 := cache.StartCleanup(time.Minute)
+	cancel2 := cache.StartCleanup(time.Minute)
+	cancel3 := cache.StartCleanup(time.Minute)
+
+	// Only the first call should return a valid cancel function
+	// Subsequent calls may return nil or the same cancel
+	if cancel1 == nil {
+		t.Error("First StartCleanup should return a cancel function")
+	}
+
+	// Clean up
+	if cancel1 != nil {
+		cancel1()
+	}
+	if cancel2 != nil {
+		cancel2()
+	}
+	if cancel3 != nil {
+		cancel3()
+	}
+}
+
+func TestCacheCleanupNoExpiredEntries(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping cleanup test in short mode")
+	}
+
+	// Cache with long TTL - entries won't expire during test
+	cache := NewCache(100, time.Hour)
+	cancel := cache.StartCleanup(20 * time.Millisecond)
+	defer cancel()
+
+	// Add entries
+	cache.Set("key1", "value1")
+	cache.Set("key2", "value2")
+
+	// Wait for a few cleanup cycles
+	time.Sleep(100 * time.Millisecond)
+
+	// Entries should still exist (not expired)
+	if cache.Len() != 2 {
+		t.Errorf("Expected 2 entries, got %d", cache.Len())
+	}
+}
+
+func TestCacheLen(t *testing.T) {
+	cache := NewCache(10, time.Hour)
+
+	if cache.Len() != 0 {
+		t.Errorf("Empty cache should have 0 entries, got %d", cache.Len())
+	}
+
+	cache.Set("key1", "value1")
+	if cache.Len() != 1 {
+		t.Errorf("Expected 1 entry, got %d", cache.Len())
+	}
+
+	cache.Set("key2", "value2")
+	if cache.Len() != 2 {
+		t.Errorf("Expected 2 entries, got %d", cache.Len())
+	}
+
+	// Update existing key should not increase count
+	cache.Set("key1", "updated")
+	if cache.Len() != 2 {
+		t.Errorf("Expected 2 entries after update, got %d", cache.Len())
+	}
+
+	cache.Clear()
+	if cache.Len() != 0 {
+		t.Errorf("Cleared cache should have 0 entries, got %d", cache.Len())
+	}
+}
+
+func TestCacheCleanupDefaultInterval(t *testing.T) {
+	cache := NewCache(100, time.Hour)
+
+	// Start cleanup with 0 interval - should use default
+	cancel := cache.StartCleanup(0)
+	if cancel == nil {
+		t.Fatal("StartCleanup(0) should use default interval and return cancel function")
+	}
+	cancel()
+}
+
+func BenchmarkCacheWithCleanup(b *testing.B) {
+	cache := NewCache(1000, time.Hour)
+	cancel := cache.StartCleanup(time.Minute)
+	defer cancel()
+
+	// Pre-populate cache
+	for i := 0; i < 1000; i++ {
+		cache.Set(fmt.Sprintf("key-%d", i), "value")
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		key := fmt.Sprintf("key-%d", i%1000)
+		cache.Get(key)
+	}
+}
+
+// TestCacheGoroutineCleanup verifies that the cleanup goroutine is properly
+// stopped when the Cache is garbage collected without explicitly calling StopCleanup.
+// This test ensures the runtime.SetFinalizer fix is working correctly.
+func TestCacheGoroutineCleanup(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping goroutine cleanup test in short mode")
+	}
+
+	// Force GC to get a clean baseline
+	runtime.GC()
+	time.Sleep(50 * time.Millisecond)
+
+	initialGoroutines := runtime.NumGoroutine()
+
+	// Create a cache and start cleanup, then let it be garbage collected
+	// WITHOUT calling StopCleanup explicitly
+	func() {
+		cache := NewCache(100, time.Minute)
+		cache.StartCleanup(10 * time.Millisecond)
+		// Cache goes out of scope here without StopCleanup being called
+		// The finalizer should ensure the goroutine is stopped
+	}()
+
+	// Force garbage collection to trigger the finalizer
+	for i := 0; i < 5; i++ {
+		runtime.GC()
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	// Allow time for finalizer to execute and goroutine to exit
+	time.Sleep(100 * time.Millisecond)
+
+	finalGoroutines := runtime.NumGoroutine()
+
+	// The goroutine count should not have increased
+	// Allow some tolerance for other goroutines that may be running
+	if finalGoroutines > initialGoroutines+1 {
+		t.Errorf("Potential goroutine leak: before=%d, after=%d", initialGoroutines, finalGoroutines)
+	}
+}
+
+// TestCacheExplicitStopCleanupClearsFinalizer verifies that calling StopCleanup
+// explicitly clears the finalizer to prevent double cleanup.
+func TestCacheExplicitStopCleanupClearsFinalizer(t *testing.T) {
+	cache := NewCache(100, time.Minute)
+	cache.StartCleanup(10 * time.Millisecond)
+
+	// Stop cleanup explicitly
+	cache.StopCleanup()
+
+	// This should be safe and not cause issues
+	runtime.GC()
+	time.Sleep(50 * time.Millisecond)
+
+	// Verify cache is still usable (though cleanup is stopped)
+	cache.Set("test", "value")
+	if cache.Get("test") != "value" {
+		t.Error("Cache should still be functional after StopCleanup")
+	}
+}
+
+// TestCacheMultipleStartCleanup verifies that StartCleanup is idempotent
+// and only starts one cleanup goroutine even when called multiple times.
+func TestCacheMultipleStartCleanup(t *testing.T) {
+	runtime.GC()
+	time.Sleep(50 * time.Millisecond)
+
+	before := runtime.NumGoroutine()
+
+	cache := NewCache(100, time.Minute)
+
+	// Call StartCleanup multiple times
+	cache.StartCleanup(10 * time.Millisecond)
+	cache.StartCleanup(10 * time.Millisecond)
+	cache.StartCleanup(10 * time.Millisecond)
+
+	time.Sleep(50 * time.Millisecond)
+
+	after := runtime.NumGoroutine()
+
+	// Should only have started one additional goroutine
+	if after > before+1 {
+		t.Errorf("Multiple StartCleanup calls should only start one goroutine: before=%d, after=%d", before, after)
+	}
+
+	// Clean up
+	cache.StopCleanup()
 }

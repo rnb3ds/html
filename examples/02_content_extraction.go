@@ -3,194 +3,163 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 
 	"github.com/cybergodev/html"
 )
 
-// This example demonstrates how to customize content extraction.
-// Learn how to control what gets extracted and how it's formatted.
+// This example demonstrates content extraction options and output formats.
+// Learn how to customize extraction and produce different output formats.
 func main() {
-	fmt.Println("=== Content Extraction Options ===\n ")
+	fmt.Println("=== Content Extraction & Output Formats ===\n")
 
-	// Sample HTML with various elements
 	sampleHTML := `
 		<html>
 			<head><title>Go Interfaces Guide</title></head>
 			<body>
-				<nav>Menu • About • Contact</nav>
-				<aside>
-					<div class="ad">Sponsored Content</div>
-					<div class="related">You might also like...</div>
-				</aside>
-				<main>
-					<article>
-						<h1>Understanding Go Interfaces</h1>
-						<p class="author">By Jane Doe • March 15, 2024</p>
-						<p>Interfaces provide a way to specify the behavior of an object.</p>
-						<img src="diagram.jpg" alt="Interface Diagram" width="600" height="400">
-						<h2>Key Benefits</h2>
-						<p>Decoupling and flexibility are the main advantages.</p>
-						<table>
-							<tr><th>Concept</th><th>Benefit</th></tr>
-							<tr><td>Polymorphism</td><td>Code reuse</td></tr>
-							<tr><td>Abstraction</td><td>Hiding complexity</td></tr>
-						</table>
-					</article>
-				</main>
-				<footer>Copyright 2024</footer>
+				<article>
+					<h1>Understanding Go Interfaces</h1>
+					<p>Interfaces provide a way to specify behavior.</p>
+					<img src="diagram.jpg" alt="Interface Diagram" width="600">
+					<a href="https://go.dev/tour/">Go Tour</a>
+					<table>
+						<tr><th>Feature</th><th>Benefit</th></tr>
+						<tr><td>Goroutines</td><td>Lightweight concurrency</td></tr>
+						<tr><td>Channels</td><td>Safe communication</td></tr>
+					</table>
+				</article>
 			</body>
 		</html>
 	`
 
+	// ============================================================
+	// 1. Preset Configurations
+	// ============================================================
+	fmt.Println("1. Preset Configurations")
+	fmt.Println("-----------------------")
+
+	// Default: all media preserved
+	fmt.Println("DefaultConfig():  All media (images, links, videos, audios)")
+
+	// Text-only: no media
+	textOnlyProcessor, _ := html.New(html.TextOnlyConfig())
+	defer textOnlyProcessor.Close()
+	result, _ := textOnlyProcessor.Extract([]byte(sampleHTML))
+	fmt.Printf("TextOnlyConfig(): %d chars, %d images\n\n", len(result.Text), len(result.Images))
+
+	// ============================================================
+	// 2. Custom Configuration
+	// ============================================================
+	fmt.Println("2. Custom Configuration")
+	fmt.Println("-----------------------")
+
+	customConfig := html.DefaultConfig()
+	customConfig.PreserveImages = true
+	customConfig.PreserveLinks = true
+	customConfig.PreserveVideos = false
+	customConfig.PreserveAudios = false
+	customConfig.ImageFormat = "markdown"
+	customConfig.LinkFormat = "markdown"
+
+	customProcessor, _ := html.New(customConfig)
+	defer customProcessor.Close()
+	result, _ = customProcessor.Extract([]byte(sampleHTML))
+	fmt.Printf("Images: %d, Links: %d\n\n", len(result.Images), len(result.Links))
+
+	// ============================================================
+	// 3. Image Format Options
+	// ============================================================
+	fmt.Println("3. Image Format Options")
+	fmt.Println("-----------------------")
+
+	imageHTML := `<img src="photo.jpg" alt="Photo" width="800">`
+	formats := []string{"none", "markdown", "html", "placeholder"}
+
+	for _, format := range formats {
+		cfg := html.DefaultConfig()
+		cfg.ImageFormat = format
+		p, _ := html.New(cfg)
+		r, _ := p.Extract([]byte(imageHTML))
+		fmt.Printf("  %-12s: %s\n", format, r.Text)
+		p.Close()
+	}
+
+	// ============================================================
+	// 4. Table Format Options
+	// ============================================================
+	fmt.Println("\n4. Table Format Options")
+	fmt.Println("-----------------------")
+
+	// Markdown table (default)
+	mdProcessor, _ := html.New(html.MarkdownConfig())
+	defer mdProcessor.Close()
+	mdResult, _ := mdProcessor.Extract([]byte(sampleHTML))
+	fmt.Println("Markdown table:")
+	fmt.Println(mdResult.Text[:min(150, len(mdResult.Text))] + "...")
+
+	// ============================================================
+	// 5. JSON Output
+	// ============================================================
+	fmt.Println("\n5. JSON Output")
+	fmt.Println("--------------")
+
 	processor, _ := html.New()
 	defer processor.Close()
 
-	// ============================================================
-	// OPTION 1: Control image embedding in text
-	// ============================================================
-	fmt.Println("Option 1: Image Embedding in Text")
-	fmt.Println("----------------------------------")
-
-	imageFormats := []string{"none", "markdown", "html", "placeholder"}
-
-	for _, format := range imageFormats {
-		config := html.DefaultExtractConfig()
-		config.InlineImageFormat = format
-
-		result, err := processor.Extract([]byte(sampleHTML), config)
-		if err != nil {
-			log.Fatal(err)
-		}
-
-		fmt.Printf("\nFormat: %s\n", format)
-		fmt.Printf("Output:  %s\n", truncate02(result.Text, 80))
-	}
-
-	// ============================================================
-	// OPTION 2: Control table formatting
-	// ============================================================
-	fmt.Println("\n\nOption 2: Table Formatting")
-	fmt.Println("--------------------------")
-
-	tableHTML := `
-		<html><body>
-			<table>
-				<tr><th>Product</th><th>Price</th></tr>
-				<tr><td>Go Book</td><td>$29.99</td></tr>
-			</table>
-		</body></html>
-	`
-
-	tableFormats := []string{"markdown", "html"}
-
-	for _, format := range tableFormats {
-		config := html.DefaultExtractConfig()
-		config.TableFormat = format
-
-		result, err := processor.Extract([]byte(tableHTML), config)
-		if err != nil {
-			log.Fatal(err)
-		}
-
-		fmt.Printf("\nFormat: %s\n", format)
-		fmt.Printf("Output:\n%s\n", result.Text)
-	}
-
-	// ============================================================
-	// OPTION 3: Choose what to extract
-	// ============================================================
-	fmt.Println("\nOption 3: Selective Content Extraction")
-	fmt.Println("--------------------------------------")
-
-	extractOptions := []struct {
-		name    string
-		config  html.ExtractConfig
-		comment string
-	}{
-		{
-			name: "Text only (fastest)",
-			config: html.ExtractConfig{
-				ExtractArticle: true,
-				PreserveImages: false,
-				PreserveLinks:  false,
-				PreserveVideos: false,
-				PreserveAudios: false,
-			},
-			comment: "Extract only the main text content",
-		},
-		{
-			name: "Article with images",
-			config: html.ExtractConfig{
-				ExtractArticle: true,
-				PreserveImages: true,
-				PreserveLinks:  false,
-			},
-			comment: "Extract article and keep image references",
-		},
-		{
-			name: "Full content (images + links)",
-			config: html.ExtractConfig{
-				ExtractArticle: true,
-				PreserveImages: true,
-				PreserveLinks:  true,
-			},
-			comment: "Extract everything except media files",
-		},
-		{
-			name: "Everything (includes videos/audio)",
-			config: html.ExtractConfig{
-				ExtractArticle: true,
-				PreserveImages: true,
-				PreserveLinks:  true,
-				PreserveVideos: true,
-				PreserveAudios: true,
-			},
-			comment: "Extract all content types",
-		},
-	}
-
-	for _, opt := range extractOptions {
-		result, err := processor.Extract([]byte(sampleHTML), opt.config)
-		if err != nil {
-			log.Fatal(err)
-		}
-
-		fmt.Printf("\n%s:\n", opt.name)
-		fmt.Printf("  %s\n", opt.comment)
-		fmt.Printf("  Title: %s\n", result.Title)
-		fmt.Printf("  Images: %d, Links: %d, Videos: %d\n",
-			len(result.Images), len(result.Links), len(result.Videos))
-	}
-
-	// ============================================================
-	// OPTION 4: Extract specific content only
-	// ============================================================
-	fmt.Println("\n\nOption 4: Extract Specific Content Types")
-	fmt.Println("----------------------------------------")
-
-	// Extract only the article (removes nav, sidebar, footer)
-	config := html.DefaultExtractConfig()
-	config.ExtractArticle = true
-
-	result, err := processor.Extract([]byte(sampleHTML), config)
+	jsonBytes, err := processor.ExtractToJSON([]byte(sampleHTML))
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	fmt.Println("Article extraction (noise removed):")
-	fmt.Printf("  Title: %s\n", result.Title)
-	fmt.Printf("  Text preview: %s\n", truncate02(result.Text, 100))
-	fmt.Println("\n  ✓ Navigation removed")
-	fmt.Println("  ✓ Sidebar with ads removed")
-	fmt.Println("  ✓ Footer removed")
+	var data map[string]interface{}
+	json.Unmarshal(jsonBytes, &data)
+	pretty, _ := json.MarshalIndent(data, "", "  ")
+	fmt.Printf("%s\n", string(pretty[:min(400, len(pretty))])+"...")
 
+	// ============================================================
+	// 6. Markdown Output
+	// ============================================================
+	fmt.Println("\n6. Markdown Output")
+	fmt.Println("------------------")
+
+	markdown, _ := processor.ExtractToMarkdown([]byte(sampleHTML))
+	fmt.Printf("%s\n", markdown[:min(200, len(markdown))]+"...")
+
+	// ============================================================
+	// 7. File Operations
+	// ============================================================
+	fmt.Println("\n7. File Operations")
+	fmt.Println("------------------")
+	fmt.Println("  processor.ExtractFromFile(\"article.html\")")
+	fmt.Println("  processor.ExtractToJSONFromFile(\"article.html\")")
+	fmt.Println("  processor.ExtractToMarkdownFromFile(\"article.html\")")
+
+	// ============================================================
+	// 8. Encoding Support
+	// ============================================================
+	fmt.Println("\n8. Encoding Support")
+	fmt.Println("-------------------")
+	fmt.Println("  Auto-detects: UTF-8, GBK, Big5, Shift_JIS, Windows-1250/1251/1252, ISO-8859-*")
+	fmt.Println("  Specify explicitly:")
+	fmt.Println("    cfg := html.DefaultConfig()")
+	fmt.Println("    cfg.Encoding = \"windows-1252\"")
+
+	// ============================================================
+	// Summary
+	// ============================================================
+	fmt.Println("\n=== Quick Reference ===")
+	fmt.Println("Preset configs: DefaultConfig(), TextOnlyConfig(), MarkdownConfig(), HighSecurityConfig()")
+	fmt.Println("Image formats:  none | markdown | html | placeholder")
+	fmt.Println("Link formats:   none | markdown | html")
+	fmt.Println("Table formats:  markdown | html")
+	fmt.Println("Output methods: Extract(), ExtractToJSON(), ExtractToMarkdown()")
 }
 
-func truncate02(s string, maxLen int) string {
-	if len(s) <= maxLen {
-		return s
+func min(a, b int) int {
+	if a < b {
+		return a
 	}
-	return s[:maxLen] + "..."
+	return b
 }

@@ -44,7 +44,7 @@ PUBLIC DOCUMENT COUNT:		1
 	}
 
 	var sb strings.Builder
-	ExtractTextWithStructureAndImages(doc, &sb, 0, nil, "markdown")
+	ExtractTextWithStructureAndImages(doc, &sb, nil, nil, "markdown")
 	result := sb.String()
 
 	// Verify that custom SEC tags result in proper spacing
@@ -85,45 +85,45 @@ PUBLIC DOCUMENT COUNT:		1
 // result in proper paragraph formatting.
 func TestCustomTagFormatting(t *testing.T) {
 	tests := []struct {
-		name              string
-		html              string
-		minParagraphs     int  // Minimum expected paragraph separations
+		name               string
+		html               string
+		minParagraphs      int // Minimum expected paragraph separations
 		contentShouldExist []string
 	}{
 		{
-			name: "SEC-DOCUMENT root element",
-			html: `<SEC-DOCUMENT>content here</SEC-DOCUMENT>`,
-			minParagraphs: 1,
+			name:               "SEC-DOCUMENT root element",
+			html:               `<SEC-DOCUMENT>content here</SEC-DOCUMENT>`,
+			minParagraphs:      1,
 			contentShouldExist: []string{"content here"},
 		},
 		{
-			name: "SEC-HEADER with children",
-			html: `<SEC-HEADER><TYPE>4</TYPE><SEQUENCE>1</SEQUENCE></SEC-HEADER>`,
-			minParagraphs: 1,
+			name:               "SEC-HEADER with children",
+			html:               `<SEC-HEADER><TYPE>4</TYPE><SEQUENCE>1</SEQUENCE></SEC-HEADER>`,
+			minParagraphs:      1,
 			contentShouldExist: []string{"4", "1"},
 		},
 		{
-			name: "Container with multiple children",
-			html: `<CUSTOM-TAG><child1>text1</child1><child2>text2</child2></CUSTOM-TAG>`,
-			minParagraphs: 1,
+			name:               "Container with multiple children",
+			html:               `<CUSTOM-TAG><child1>text1</child1><child2>text2</child2></CUSTOM-TAG>`,
+			minParagraphs:      1,
 			contentShouldExist: []string{"text1", "text2"},
 		},
 		{
-			name: "Tag with long text content",
-			html: `<DESCRIPTION>This is a very long description that should cause the tag to be treated as a block element because it contains substantial text content</DESCRIPTION>`,
-			minParagraphs: 1,
+			name:               "Tag with long text content",
+			html:               `<DESCRIPTION>This is a very long description that should cause the tag to be treated as a block element because it contains substantial text content</DESCRIPTION>`,
+			minParagraphs:      1,
 			contentShouldExist: []string{"long description"},
 		},
 		{
-			name: "Tag with multiline text",
-			html: "<ADDRESS>\nLine 1\nLine 2\nLine 3\n</ADDRESS>",
-			minParagraphs: 1,
+			name:               "Tag with multiline text",
+			html:               "<ADDRESS>\nLine 1\nLine 2\nLine 3\n</ADDRESS>",
+			minParagraphs:      1,
 			contentShouldExist: []string{"Line 1", "Line 2", "Line 3"},
 		},
 		{
-			name: "Uppercase tag with hyphens",
-			html: `<ACCEPTANCE-DATETIME>20260130180232</ACCEPTANCE-DATETIME>`,
-			minParagraphs: 1,
+			name:               "Uppercase tag with hyphens",
+			html:               `<ACCEPTANCE-DATETIME>20260130180232</ACCEPTANCE-DATETIME>`,
+			minParagraphs:      1,
 			contentShouldExist: []string{"20260130180232"},
 		},
 	}
@@ -136,7 +136,7 @@ func TestCustomTagFormatting(t *testing.T) {
 			}
 
 			var sb strings.Builder
-			ExtractTextWithStructureAndImages(doc, &sb, 0, nil, "markdown")
+			ExtractTextWithStructureAndImages(doc, &sb, nil, nil, "markdown")
 			result := sb.String()
 
 			// Count paragraph separations (double newlines)
@@ -201,6 +201,6 @@ PUBLIC DOCUMENT COUNT:		1
 		}
 
 		var sb strings.Builder
-		ExtractTextWithStructureAndImages(doc, &sb, 0, nil, "markdown")
+		ExtractTextWithStructureAndImages(doc, &sb, nil, nil, "markdown")
 	}
 }
