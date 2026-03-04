@@ -68,9 +68,9 @@ func TestExtractFromFile(t *testing.T) {
 	})
 
 	t.Run("with custom config", func(t *testing.T) {
-		cfg := html.DefaultConfig()
-		cfg.PreserveImages = true
-		p, _ := html.New(cfg)
+		c := html.DefaultConfig()
+		c.PreserveImages = true
+		p, _ := html.New(c)
 		defer p.Close()
 
 		htmlContent := testutil.CommonHTMLSnippets.ArticleWithImages

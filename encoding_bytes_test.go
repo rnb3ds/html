@@ -303,10 +303,10 @@ func TestExtractWithForcedEncoding(t *testing.T) {
 	htmlBytes := []byte(htmlContent)
 
 	// Test with forced encoding in processor config
-	cfg := html.DefaultConfig()
-	cfg.Encoding = "utf-8"
+	c := html.DefaultConfig()
+	c.Encoding = "utf-8"
 
-	p, err := html.New(cfg)
+	p, err := html.New(c)
 	if err != nil {
 		t.Fatalf("New() failed: %v", err)
 	}

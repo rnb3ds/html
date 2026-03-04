@@ -83,27 +83,36 @@ func normalizeNonBreakingSpaces(s string) string {
 
 // normalizeLineBreaks replaces newlines with spaces and removes carriage returns
 // in a single pass. This is more efficient than two separate ReplaceAll calls.
+// Optimized with combined detection and processing in a single allocation.
 func normalizeLineBreaks(s string) string {
-	// Fast path: check if any line breaks exist
-	hasNewline := false
-	hasCR := false
-	for i := 0; i < len(s); i++ {
-		if s[i] == '\n' {
-			hasNewline = true
-		} else if s[i] == '\r' {
-			hasCR = true
+	// Fast path: single scan to detect if any processing is needed
+	// and find the first position that needs modification
+	n := len(s)
+	firstMod := -1
+	for i := 0; i < n; i++ {
+		if s[i] == '\n' || s[i] == '\r' {
+			firstMod = i
+			break
 		}
 	}
-	if !hasNewline && !hasCR {
+
+	// No line breaks or carriage returns found
+	if firstMod == -1 {
 		return s
 	}
 
-	// Single pass replacement
+	// Single pass replacement starting from first modification point
 	sb := GetBuilder()
 	defer PutBuilder(sb)
-	sb.Grow(len(s))
+	sb.Grow(n)
 
-	for i := 0; i < len(s); i++ {
+	// Copy unchanged prefix
+	if firstMod > 0 {
+		sb.WriteString(s[:firstMod])
+	}
+
+	// Process from first modification point
+	for i := firstMod; i < n; i++ {
 		c := s[i]
 		if c == '\n' {
 			sb.WriteByte(' ')
@@ -124,63 +133,65 @@ var unwantedCharReplacer = strings.NewReplacer(
 
 // compressWhitespace compresses multiple whitespace characters to single space
 // without using regex. Returns the compressed string.
-// Optimized to avoid allocations when no compression is needed.
+// Optimized with single-pass detection and processing using pooled builder.
 func compressWhitespace(s string) string {
 	n := len(s)
 	if n == 0 {
 		return ""
 	}
 
-	// Check if compression is needed
-	needsCompression := false
-	for i := 0; i < n; i++ {
-		c := s[i]
-		if (c == ' ' || c == '\t') && i+1 < n && (s[i+1] == ' ' || s[i+1] == '\t') {
-			needsCompression = true
-			break
-		}
-	}
-
-	if !needsCompression {
-		// Also convert tabs to spaces if present
-		hasTabs := false
-		for i := 0; i < n; i++ {
-			if s[i] == '\t' {
-				hasTabs = true
-				break
-			}
-		}
-		if !hasTabs {
-			return s
-		}
-	}
-
-	// Perform compression
-	var result []byte
-	inSpace := false
+	// Single scan to find first position needing compression or tab conversion
+	firstMod := -1
+	needsSpace := false // Track if previous char was space/tab
 	for i := 0; i < n; i++ {
 		c := s[i]
 		if c == ' ' || c == '\t' {
+			if needsSpace {
+				// Found consecutive whitespace - needs compression
+				firstMod = i - 1
+				break
+			}
+			needsSpace = true
+		} else {
+			needsSpace = false
+		}
+		// Also check for tabs that need conversion
+		if c == '\t' && firstMod == -1 {
+			firstMod = i
+		}
+	}
+
+	// No modification needed
+	if firstMod == -1 {
+		return s
+	}
+
+	// Use pooled builder for result
+	sb := GetBuilder()
+	defer PutBuilder(sb)
+	sb.Grow(n)
+
+	// Copy unchanged prefix
+	if firstMod > 0 {
+		sb.WriteString(s[:firstMod])
+	}
+
+	// Process from first modification point
+	inSpace := false
+	for i := firstMod; i < n; i++ {
+		c := s[i]
+		if c == ' ' || c == '\t' {
 			if !inSpace {
-				if result == nil {
-					result = make([]byte, 0, n)
-					result = append(result, s[:i]...)
-				}
-				result = append(result, ' ')
+				sb.WriteByte(' ')
 				inSpace = true
 			}
 		} else {
-			if result != nil {
-				result = append(result, c)
-			}
+			sb.WriteByte(c)
 			inSpace = false
 		}
 	}
 
-	if result == nil {
-		return s
-	}
-	return string(result)
+	return sb.String()
 }
 
 func CleanText(text string, whitespaceRegex *regexp.Regexp) string {

@@ -182,6 +182,7 @@ func HighSecurityConfig() Config {
 	}
 }
 
+// TextOnlyConfig returns a configuration optimized for plain text extraction.
 // This disables all media preservation (images, links, videos, audios).
 func TextOnlyConfig() Config {
 	cfg := DefaultConfig()

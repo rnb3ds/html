@@ -3,6 +3,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"strings"
@@ -13,9 +14,6 @@ import (
 // This example demonstrates error handling patterns.
 func main() {
 	fmt.Println("=== Error Handling ===\n")
-
-	processor, _ := html.New()
-	defer processor.Close()
 
 	// ============================================================
 	// 1. Basic Error Checking
@@ -29,7 +27,7 @@ func main() {
 		log.Fatalf("Failed: %v", err)
 	}
 	fmt.Printf("Extracted: %s\n\n", text)
-	fmt.Println("Always check errors from extraction functions")
+	fmt.Println("✓ Always check errors from extraction functions")
 
 	// ============================================================
 	// 2. Sentinel Errors
@@ -37,16 +35,33 @@ func main() {
 	fmt.Println("\n2. Sentinel Errors")
 	fmt.Println("-----------------")
 
-	// Empty input
+	// Empty input returns empty result, not error
+	processor, _ := html.New()
+	defer processor.Close()
+
 	_, err = processor.Extract([]byte(""))
 	if err != nil {
-		fmt.Printf("Empty input: %v\n", err)
+		fmt.Printf("Empty input error: %v\n", err)
+	} else {
+		fmt.Printf("Empty input: result.Text is empty (no error)\n")
 	}
 
-	// Input too large (demonstration)
-	largeInput := strings.Repeat("<div>", 1000)
-	if len(largeInput) > 50*1024*1024 {
-		fmt.Println("Input validation prevents memory issues")
+	// Demonstrate errors.Is() for sentinel errors
+	fmt.Println("\nAvailable sentinel errors:")
+	fmt.Println("  • html.ErrInputTooLarge    - Input exceeds MaxInputSize")
+	fmt.Println("  • html.ErrInvalidHTML      - HTML parsing failed")
+	fmt.Println("  • html.ErrProcessorClosed  - Operation on closed processor")
+	fmt.Println("  • html.ErrMaxDepthExceeded - Nesting exceeds MaxDepth")
+	fmt.Println("  • html.ErrInvalidConfig    - Configuration validation failed")
+	fmt.Println("  • html.ErrProcessingTimeout - Processing exceeded timeout")
+	fmt.Println("  • html.ErrFileNotFound     - File does not exist")
+	fmt.Println("  • html.ErrInvalidFilePath  - Path validation failed")
+
+	// Example: Check for specific error
+	largeInput := strings.Repeat("<div>", 1000000)
+	_, err = processor.Extract([]byte(largeInput))
+	if errors.Is(err, html.ErrInputTooLarge) {
+		fmt.Println("\n✓ Use errors.Is() to check for specific error types")
 	}
 
 	// ============================================================
@@ -55,69 +70,97 @@ func main() {
 	fmt.Println("\n3. Custom Error Types")
 	fmt.Println("--------------------")
 
-	// Demonstrate InputError fields
-	var inputErr html.InputError
-	if inputErr.InputErr != nil {
-		fmt.Printf("InputError: size=%d, maxSize=%d\n", inputErr.Size, inputErr.MaxSize)
+	fmt.Println("Custom error types with additional context:")
+	fmt.Println("  • html.InputError  - Op, Size, MaxSize fields")
+	fmt.Println("  • html.ConfigError - Field, Value, Message fields")
+	fmt.Println("  • html.FileError   - Op, Path, FileErr fields")
+
+	// Example: Type assertion for more details
+	var inputErr *html.InputError
+	if errors.As(err, &inputErr) {
+		fmt.Printf("\nInputError details:\n")
+		fmt.Printf("  Operation: %s\n", inputErr.Op)
+		fmt.Printf("  Size: %d\n", inputErr.Size)
+		fmt.Printf("  MaxSize: %d\n", inputErr.MaxSize)
 	}
 
-	// Demonstrate ConfigError fields
-	var configErr html.ConfigError
-	if configErr.Message != "" {
-		fmt.Printf("ConfigError: field=%s, message=%s\n", configErr.Field, configErr.Message)
-	}
-
-	// Demonstrate FileError fields
-	var fileErr html.FileError
-	if fileErr.FileErr != nil {
-		fmt.Printf("FileError: path=%s, error=%v\n", fileErr.Path, fileErr.FileErr)
-	}
-
-	fmt.Println("Use errors.Is() for sentinel errors")
-	fmt.Println("Use errors.As() for custom error types")
-	fmt.Println("Check error fields for specific error info")
+	fmt.Println("\n✓ Use errors.As() to access error details")
 
 	// ============================================================
 	// 4. Processor Lifecycle
 	// ============================================================
 	fmt.Println("\n4. Processor Lifecycle")
-	fmt.Println("---------------------")
+	fmt.Println("----------------------")
 
 	p, err := html.New()
 	if err != nil {
 		log.Fatalf("Failed to create processor: %v", err)
 	}
+
+	// Always use defer for cleanup
 	defer p.Close()
 
-	fmt.Println("Always use defer for cleanup")
-	fmt.Println("Check Close() error return")
+	fmt.Println("✓ Always use defer p.Close() for cleanup")
 
-	// ============================================================
-	// 5. Batch Processing
-	// ============================================================
-	fmt.Println("\n5. Batch Processing")
-	fmt.Println("-----------------------------")
-
-	docs := [][]byte{
-		[]byte("<html><body><p>Doc 1</p></body></html>"),
-		[]byte(""), // Empty - causes error
-		[]byte("<html><body><p>Doc 3</p></body></html>"),
+	// Using after close returns error
+	p.Close()
+	_, err = p.Extract([]byte("<html></html>"))
+	if errors.Is(err, html.ErrProcessorClosed) {
+		fmt.Println("✓ ErrProcessorClosed returned after Close()")
 	}
 
-	results, err := processor.ExtractBatch(docs)
+	// ============================================================
+	// 5. Batch Processing Errors
+	// ============================================================
+	fmt.Println("\n5. Batch Processing Errors")
+	fmt.Println("---------------------------")
+
+	processor2, _ := html.New()
+	defer processor2.Close()
+
+	docs := [][]byte{
+		[]byte("<html><body><p>Doc 1 - Valid</p></body></html>"),
+		[]byte(""), // Empty - not an error, just empty result
+		[]byte("<html><body><p>Doc 3 - Valid</p></body></html>"),
+	}
+
+	results, err := processor2.ExtractBatch(docs)
 	if err != nil {
 		fmt.Printf("Batch error: %v\n", err)
-	} else {
-		fmt.Printf("Batch: %d succeeded, %d results\n", len(results), len(results))
-		for i, r := range results {
-			if r != nil {
-				fmt.Printf("  Doc %d: %s (%d words)\n", i+1, r.Title, r.WordCount)
-			}
+	}
+
+	fmt.Printf("Batch results: %d total\n", len(results))
+	for i, r := range results {
+		if r != nil {
+			fmt.Printf("  Doc %d: %s (%d words)\n", i+1, r.Title, r.WordCount)
+		} else {
+			fmt.Printf("  Doc %d: nil result\n", i+1)
 		}
 	}
 
-	fmt.Println("Continue processing on individual failures")
-	fmt.Println("Track and report aggregate results")
+	fmt.Println("\n✓ Continue processing on individual failures")
+	fmt.Println("✓ Track and report aggregate results")
+
+	// ============================================================
+	// 6. File Error Handling
+	// ============================================================
+	fmt.Println("\n6. File Error Handling")
+	fmt.Println("----------------------")
+
+	// Non-existent file
+	_, err = processor2.ExtractFromFile("nonexistent.html")
+	if err != nil {
+		var fileErr *html.FileError
+		if errors.As(err, &fileErr) {
+			fmt.Printf("FileError:\n")
+			fmt.Printf("  Path: %s\n", fileErr.Path)
+			fmt.Printf("  Error: %v\n", fileErr.FileErr)
+		}
+
+		if errors.Is(err, html.ErrFileNotFound) {
+			fmt.Println("\n✓ Use errors.Is() to check for file not found")
+		}
+	}
 
 	// ============================================================
 	// Summary
@@ -125,8 +168,15 @@ func main() {
 	fmt.Println("\n=== Error Handling Summary ===")
 	fmt.Println()
 	fmt.Println("1. Always check errors from extraction functions")
-	fmt.Println("2. Use errors.Is() for sentinel errors (ErrInputTooLarge, etc.)")
-	fmt.Println("3. Use errors.As() for custom error types (InputError, ConfigError, FileError)")
+	fmt.Println("2. Use errors.Is() for sentinel errors")
+	fmt.Println("   - ErrInputTooLarge, ErrInvalidHTML, ErrProcessorClosed, etc.")
+	fmt.Println()
+	fmt.Println("3. Use errors.As() for custom error types")
+	fmt.Println("   - InputError, ConfigError, FileError")
+	fmt.Println()
 	fmt.Println("4. Handle processor lifecycle with defer")
+	fmt.Println("   - defer processor.Close()")
+	fmt.Println()
 	fmt.Println("5. Check batch results for individual failures")
+	fmt.Println("   - Results slice may contain nil entries")
 }

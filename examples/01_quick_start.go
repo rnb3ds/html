@@ -48,7 +48,10 @@ func main() {
 	// ============================================================
 	// 3. Reuse processor for multiple documents (efficient)
 	// ============================================================
-	processor, _ := html.New()
+	processor, err := html.New()
+	if err != nil {
+		log.Fatal(err)
+	}
 	defer processor.Close()
 
 	docs := []string{
@@ -65,5 +68,16 @@ func main() {
 		fmt.Printf("   Doc %d: %s (%d words)\n", i+1, result.Title, result.WordCount)
 	}
 
-	fmt.Println("\n✓ Ready to explore more? Check the other examples!")
+	// ============================================================
+	// Summary
+	// ============================================================
+	fmt.Println("\n=== Quick Reference ===")
+	fmt.Println("One-shot extraction:")
+	fmt.Println("  html.ExtractText([]byte(html))     - Plain text only")
+	fmt.Println("  html.Extract([]byte(html))         - Full result with metadata")
+	fmt.Println()
+	fmt.Println("Reusable processor:")
+	fmt.Println("  processor, _ := html.New()")
+	fmt.Println("  defer processor.Close()")
+	fmt.Println("  result, _ := processor.Extract([]byte(html))")
 }

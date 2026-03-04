@@ -99,11 +99,26 @@ func (p *Processor) ExtractAllLinksFromFile(filePath string) (links []LinkResour
 // ============================================================================
 
 // ExtractAllLinks extracts all links from HTML bytes with automatic encoding detection.
-// This is a convenience function that creates a temporary Processor with default settings.
-// For repeated extractions or custom configuration (cache, timeout, etc.), use
-// Processor.ExtractAllLinks instead.
-func ExtractAllLinks(htmlBytes []byte) ([]LinkResource, error) {
-	processor, err := New(DefaultConfig())
+// This is a convenience function that creates a temporary Processor with the given configuration.
+// If no configuration is provided, DefaultConfig() is used.
+//
+// Example usage:
+//
+//	// Simple usage with default configuration
+//	links, err := html.ExtractAllLinks(htmlBytes)
+//
+//	// With custom configuration
+//	cfg := html.DefaultConfig()
+//	cfg.MaxInputSize = 10 * 1024 * 1024
+//	links, err := html.ExtractAllLinks(htmlBytes, cfg)
+//
+//	// With custom link extraction options
+//	cfg := html.DefaultConfig()
+//	cfg.LinkExtraction.IncludeJS = false
+//	cfg.LinkExtraction.IncludeCSS = false
+//	links, err := html.ExtractAllLinks(htmlBytes, cfg)
+func ExtractAllLinks(htmlBytes []byte, cfg ...Config) ([]LinkResource, error) {
+	processor, err := New(resolveConfig(cfg...))
 	if err != nil {
 		return nil, err
 	}
@@ -112,11 +127,26 @@ func ExtractAllLinks(htmlBytes []byte) ([]LinkResource, error) {
 }
 
 // ExtractAllLinksFromFile extracts all links from an HTML file with automatic encoding detection.
-// This is a convenience function that creates a temporary Processor with default settings.
-// For repeated extractions or custom configuration (cache, timeout, etc.), use
-// Processor.ExtractAllLinksFromFile instead.
-func ExtractAllLinksFromFile(filePath string) ([]LinkResource, error) {
-	processor, err := New(DefaultConfig())
+// This is a convenience function that creates a temporary Processor with the given configuration.
+// If no configuration is provided, DefaultConfig() is used.
+//
+// Example usage:
+//
+//	// Simple usage with default configuration
+//	links, err := html.ExtractAllLinksFromFile("page.html")
+//
+//	// With custom configuration
+//	cfg := html.DefaultConfig()
+//	cfg.MaxInputSize = 10 * 1024 * 1024
+//	links, err := html.ExtractAllLinksFromFile("page.html", cfg)
+//
+//	// With custom link extraction options
+//	cfg := html.DefaultConfig()
+//	cfg.LinkExtraction.IncludeJS = false
+//	cfg.LinkExtraction.IncludeCSS = false
+//	links, err := html.ExtractAllLinksFromFile("page.html", cfg)
+func ExtractAllLinksFromFile(filePath string, cfg ...Config) ([]LinkResource, error) {
+	processor, err := New(resolveConfig(cfg...))
 	if err != nil {
 		return nil, err
 	}

@@ -401,9 +401,9 @@ func TestProcessorExtractBatch(t *testing.T) {
 	})
 
 	t.Run("processor batch with custom config", func(t *testing.T) {
-		cfg := html.DefaultConfig()
-		cfg.PreserveImages = false
-		p, err := html.New(cfg)
+		c := html.DefaultConfig()
+		c.PreserveImages = false
+		p, err := html.New(c)
 		if err != nil {
 			t.Fatal(err)
 		}
