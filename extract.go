@@ -23,9 +23,10 @@ var linkPlaceholderRegex = regexp.MustCompile(`\[LINK:(\d+)\]([^\[]*?)\[/LINK\]`
 // Timeout goroutine management constants.
 // These prevent goroutine leaks when many timeout operations occur.
 const (
-	// maxTimeoutGoroutines is the maximum number of concurrent goroutines
-	// that can be spawned for timeout operations. This prevents resource
-	// exhaustion when processing many large documents with timeouts.
+	// maxTimeoutGoroutines limits concurrent timeout goroutines to prevent
+	// resource exhaustion. Value 1000 allows ~1GB of goroutine stack overhead
+	// assuming 1MB stack per goroutine, which is a reasonable safety limit.
+	// When exceeded, new operations return ErrProcessingTimeout immediately.
 	maxTimeoutGoroutines = 1000
 )
 
@@ -33,14 +34,27 @@ const (
 var activeTimeoutGoroutines atomic.Int64
 
 // Extract extracts content from HTML bytes with automatic encoding detection.
-// This is a convenience function that creates a temporary Processor with default settings.
-// For repeated extractions or custom configuration (cache, timeout, etc.), use
-// Processor.Extract instead.
+// This is a convenience function that creates a temporary Processor with the given configuration.
+// If no configuration is provided, DefaultConfig() is used.
 //
 // The method automatically detects the character encoding (Windows-1252, UTF-8, GBK, Shift_JIS, etc.)
 // from the HTML bytes and converts it to UTF-8 before processing.
-func Extract(htmlBytes []byte) (*Result, error) {
-	processor, err := New(DefaultConfig())
+//
+// Example usage:
+//
+//	// Simple usage with default configuration
+//	result, err := html.Extract(htmlBytes)
+//
+//	// With custom configuration
+//	cfg := html.DefaultConfig()
+//	cfg.MaxInputSize = 10 * 1024 * 1024
+//	result, err := html.Extract(htmlBytes, cfg)
+//
+//	// Using preset configurations
+//	result, err := html.Extract(htmlBytes, html.TextOnlyConfig())
+//	result, err := html.Extract(htmlBytes, html.MarkdownConfig())
+func Extract(htmlBytes []byte, cfg ...Config) (*Result, error) {
+	processor, err := New(resolveConfig(cfg...))
 	if err != nil {
 		return nil, fmt.Errorf("create processor: %w", err)
 	}
@@ -49,14 +63,27 @@ func Extract(htmlBytes []byte) (*Result, error) {
 }
 
 // ExtractFromFile extracts content from an HTML file with automatic encoding detection.
-// This is a convenience function that creates a temporary Processor with default settings.
-// For repeated extractions or custom configuration (cache, timeout, etc.), use
-// Processor.ExtractFromFile instead.
+// This is a convenience function that creates a temporary Processor with the given configuration.
+// If no configuration is provided, DefaultConfig() is used.
 //
 // The method automatically detects the character encoding (Windows-1252, UTF-8, GBK, Shift_JIS, etc.)
 // from the HTML file and converts it to UTF-8 before processing.
-func ExtractFromFile(filePath string) (*Result, error) {
-	processor, err := New(DefaultConfig())
+//
+// Example usage:
+//
+//	// Simple usage with default configuration
+//	result, err := html.ExtractFromFile("page.html")
+//
+//	// With custom configuration
+//	cfg := html.DefaultConfig()
+//	cfg.MaxInputSize = 10 * 1024 * 1024
+//	result, err := html.ExtractFromFile("page.html", cfg)
+//
+//	// Using preset configurations
+//	result, err := html.ExtractFromFile("page.html", html.TextOnlyConfig())
+//	result, err := html.ExtractFromFile("page.html", html.MarkdownConfig())
+func ExtractFromFile(filePath string, cfg ...Config) (*Result, error) {
+	processor, err := New(resolveConfig(cfg...))
 	if err != nil {
 		return nil, fmt.Errorf("create processor: %w", err)
 	}
@@ -65,14 +92,26 @@ func ExtractFromFile(filePath string) (*Result, error) {
 }
 
 // ExtractText extracts plain text from HTML bytes with automatic encoding detection.
-// This is a convenience function that creates a temporary Processor with default settings.
-// For repeated extractions or custom configuration (cache, timeout, etc.), use
-// Processor.ExtractText instead.
+// This is a convenience function that creates a temporary Processor with the given configuration.
+// If no configuration is provided, DefaultConfig() is used.
 //
 // The method automatically detects the character encoding (Windows-1252, UTF-8, GBK, Shift_JIS, etc.)
 // from the HTML bytes and converts it to UTF-8 before processing.
-func ExtractText(htmlBytes []byte) (string, error) {
-	processor, err := New(DefaultConfig())
+//
+// Example usage:
+//
+//	// Simple usage with default configuration
+//	text, err := html.ExtractText(htmlBytes)
+//
+//	// With custom configuration
+//	cfg := html.DefaultConfig()
+//	cfg.MaxInputSize = 10 * 1024 * 1024
+//	text, err := html.ExtractText(htmlBytes, cfg)
+//
+//	// Using preset configuration for text-only extraction
+//	text, err := html.ExtractText(htmlBytes, html.TextOnlyConfig())
+func ExtractText(htmlBytes []byte, cfg ...Config) (string, error) {
+	processor, err := New(resolveConfig(cfg...))
 	if err != nil {
 		return "", fmt.Errorf("create processor: %w", err)
 	}
@@ -81,14 +120,26 @@ func ExtractText(htmlBytes []byte) (string, error) {
 }
 
 // ExtractTextFromFile extracts plain text from an HTML file with automatic encoding detection.
-// This is a convenience function that creates a temporary Processor with default settings.
-// For repeated extractions or custom configuration (cache, timeout, etc.), use
-// Processor.ExtractTextFromFile instead.
+// This is a convenience function that creates a temporary Processor with the given configuration.
+// If no configuration is provided, DefaultConfig() is used.
 //
 // The method automatically detects the character encoding (Windows-1252, UTF-8, GBK, Shift_JIS, etc.)
 // from the HTML file and converts it to UTF-8 before processing.
-func ExtractTextFromFile(filePath string) (string, error) {
-	processor, err := New(DefaultConfig())
+//
+// Example usage:
+//
+//	// Simple usage with default configuration
+//	text, err := html.ExtractTextFromFile("page.html")
+//
+//	// With custom configuration
+//	cfg := html.DefaultConfig()
+//	cfg.MaxInputSize = 10 * 1024 * 1024
+//	text, err := html.ExtractTextFromFile("page.html", cfg)
+//
+//	// Using preset configuration for text-only extraction
+//	text, err := html.ExtractTextFromFile("page.html", html.TextOnlyConfig())
+func ExtractTextFromFile(filePath string, cfg ...Config) (string, error) {
+	processor, err := New(resolveConfig(cfg...))
 	if err != nil {
 		return "", fmt.Errorf("create processor: %w", err)
 	}
@@ -135,20 +186,25 @@ func (p *Processor) Extract(htmlBytes []byte) (result *Result, err error) {
 		return nil, fmt.Errorf("encoding detection failed: %w", convErr)
 	}
 
-	// Use the converted UTF-8 string for cache key
-	cacheKey := p.generateCacheKey(utf8String, config)
-	if cached := p.cache.Get(cacheKey); cached != nil {
-		p.stats.cacheHits.Add(1)
-		p.stats.totalProcessed.Add(1)
-		if cachedResult, ok := cached.(*Result); ok {
-			return cachedResult, nil
+	// Check cache only if caching is enabled
+	var cacheKey string
+	if p.config.MaxCacheEntries > 0 {
+		cacheKey = p.generateCacheKey(utf8String, config)
+		if cached := p.cache.Get(cacheKey); cached != nil {
+			p.stats.cacheHits.Add(1)
+			p.stats.totalProcessed.Add(1)
+			if cachedResult, ok := cached.(*Result); ok {
+				return cachedResult, nil
+			}
 		}
+		p.stats.cacheMisses.Add(1)
 	}
-	p.stats.cacheMisses.Add(1)
 
 	// Process the content
 	if p.config.ProcessingTimeout > 0 {
-		result, err = p.processWithTimeout(utf8String, config)
+		result, err = withTimeout(p.config.ProcessingTimeout, func() (*Result, error) {
+			return p.processContent(utf8String, config)
+		})
 	} else {
 		result, err = p.processContent(utf8String, config)
 	}
@@ -169,7 +225,8 @@ func (p *Processor) Extract(htmlBytes []byte) (result *Result, err error) {
 	p.stats.totalProcessTime.Add(int64(processingTime))
 	p.stats.totalProcessed.Add(1)
 
-	if p.config.MaxCacheEntries > 0 {
+	// Only cache if caching is enabled and we have a cache key
+	if p.config.MaxCacheEntries > 0 && cacheKey != "" {
 		p.cache.Set(cacheKey, result)
 	}
 
@@ -287,16 +344,6 @@ func withTimeout[T any](timeout time.Duration, fn func() (T, error)) (T, error) 
 		// The activeTimeoutGoroutines counter ensures we don't spawn too many.
 		return zero, ErrProcessingTimeout
 	}
-}
-
-func (p *Processor) processWithTimeout(htmlContent string, config ExtractConfig) (*Result, error) {
-	result, err := withTimeout(p.config.ProcessingTimeout, func() (*Result, error) {
-		return p.processContent(htmlContent, config)
-	})
-	if err != nil {
-		return nil, err
-	}
-	return result, nil
 }
 
 func (p *Processor) processContent(htmlContent string, opts ExtractConfig) (*Result, error) {
@@ -453,13 +500,18 @@ func (p *Processor) extractArticleNode(doc *Node) *Node {
 	}
 	// Pre-allocate map with initial capacity to reduce resizing
 	candidates := make(map[*Node]int, initialMapCap)
+
+	// Determine scorer once outside the loop to avoid repeated nil checks
+	scorer := p.scorer
+	useDefaultScorer := scorer == nil
+
 	internal.WalkNodes(doc, func(n *Node) bool {
 		if n.Type == ElementNode {
 			var score int
-			if p.scorer != nil {
-				score = p.scorer.Score(n)
-			} else {
+			if useDefaultScorer {
 				score = internal.ScoreContentNode(n)
+			} else {
+				score = scorer.Score(n)
 			}
 			if score > 0 {
 				candidates[n] = score

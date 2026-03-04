@@ -32,7 +32,8 @@ func main() {
 				<main>
 					<article>
 						<h1>Understanding Go Generics</h1>
-						<p>Generics allow writing flexible code.</p>
+						<p>Generics allow writing flexible code that works with multiple types.</p>
+						<p>They were introduced in Go 1.18 and have become a powerful tool.</p>
 					</article>
 				</main>
 				<footer>© 2024</footer>
@@ -42,19 +43,14 @@ func main() {
 
 	result, _ := processor.Extract([]byte(blogHTML))
 	fmt.Printf("Title: %s\n", result.Title)
-	fmt.Printf("Content: %s\n", truncateText(result.Text, 80))
-	fmt.Printf("Images: %d (noise removed)\n\n", len(result.Images))
-	for _, img := range result.Images {
-		fmt.Printf("  Image: %s (alt: %q)\n", img.URL, img.Alt)
-		if img.IsDecorative {
-			fmt.Printf("  Decorative: %v\n", img.IsDecorative)
-		}
-	}
+	fmt.Printf("Content: %s\n", truncateText(result.Text, 100))
+	fmt.Printf("Words: %d\n", result.WordCount)
+	fmt.Printf("Reading time: %v\n\n", result.ReadingTime)
 
 	// ============================================================
 	// Use Case 2: Newsletter Processing
 	// ============================================================
-	fmt.Println("\nUse Case 2: Newsletter Content")
+	fmt.Println("Use Case 2: Newsletter Content")
 	fmt.Println("------------------------------")
 
 	newsletterHTML := `
@@ -63,8 +59,8 @@ func main() {
 				<p style="display:none">Unsubscribe | View in browser</p>
 				<table width="600">
 					<tr><td><h1>Weekly Tech Digest</h1></td></tr>
-					<tr><td><p>This week in tech...</p></td></tr>
-					<tr><td><p>Subscribe to tutorials</p></td></tr>
+					<tr><td><p>This week in tech news and updates.</p></td></tr>
+					<tr><td><p>Subscribe for more tutorials.</p></td></tr>
 				</table>
 			</body>
 		</html>
@@ -72,49 +68,52 @@ func main() {
 
 	result, _ = processor.Extract([]byte(newsletterHTML))
 	fmt.Printf("Title: %s\n", result.Title)
-	fmt.Printf("Content: %s\n", truncateText(result.Text, 80))
-	fmt.Println("  - Ignored hidden content")
-	fmt.Println("  - Extracted main content from tables")
-	fmt.Println()
+	fmt.Printf("Content length: %d chars\n", len(result.Text))
+	fmt.Println("  ✓ Ignored hidden content")
+	fmt.Println("  ✓ Extracted main content from tables\n")
 
 	// ============================================================
-	// Use Case 3: RSS Feed Processing
+	// Use Case 3: RSS Feed Item Processing
 	// ============================================================
-	fmt.Println("\nUse Case 3: RSS Feed Items")
+	fmt.Println("Use Case 3: RSS Feed Items")
 	fmt.Println("--------------------------")
 
-	rssItems := []string{
-		`<item><title>Go 1.22 Released</title><description><p>New features.</p></description></item>`,
-		`<item><title>Go 1.21 Released</title><description><p>Bug fixes.</p></description></item>`,
-		`<item><title>Go 1.20 Released</title><description><p>Performance improvements.</p></description></item>`,
+	rssItems := []struct {
+		title string
+		desc  string
+	}{
+		{"Go 1.22 Released", "<p>New features include enhanced for loops.</p>"},
+		{"Go 1.21 Released", "<p>Bug fixes and performance improvements.</p>"},
+		{"Go 1.20 Released", "<p>PGO support and coverage tooling.</p>"},
 	}
 
+	fmt.Println("Processing RSS feed items:")
 	for i, item := range rssItems {
-		content := extractDescription(item)
+		content := item.desc
 		result, err := processor.Extract([]byte(content))
 		if err != nil {
 			continue
 		}
-		fmt.Printf("  [%d] %s (%d words)\n", i+1, result.Title, result.WordCount)
+		fmt.Printf("  [%d] %s (%d words)\n", i+1, item.title, result.WordCount)
 	}
 	fmt.Println()
 
 	// ============================================================
 	// Use Case 4: Documentation Content
 	// ============================================================
-	fmt.Println("\nUse Case 4: Documentation Extraction")
+	fmt.Println("Use Case 4: Documentation Extraction")
 	fmt.Println("------------------------------------")
 
 	docsHTML := `
 		<html>
 			<head><title>API Reference</title></head>
 			<body>
-				<aside>Sidebar nav</aside>
+				<aside>Sidebar navigation</aside>
 				<main>
 					<h1>API Reference</h1>
-					<p>This document describes the API endpoints.</p>
-					<p>Refer to the examples for practical implementations.</p>
-					<pre>func New() *Processor</pre>
+					<p>This document describes the available API endpoints.</p>
+					<pre><code>func New(cfg Config) (*Processor, error)</code></pre>
+					<p>Creates a new processor with the given configuration.</p>
 				</main>
 			</body>
 		</html>
@@ -123,44 +122,112 @@ func main() {
 	result, _ = processor.Extract([]byte(docsHTML))
 	fmt.Printf("Title: %s\n", result.Title)
 	fmt.Printf("Content length: %d chars\n", len(result.Text))
-	fmt.Println("  - Removed sidebar navigation")
-	fmt.Println("  - Extracted documentation and code")
+	fmt.Println("  ✓ Removed sidebar navigation")
+	fmt.Println("  ✓ Preserved code blocks\n")
+
+	// ============================================================
+	// Use Case 5: Batch Content Extraction
+	// ============================================================
+	fmt.Println("Use Case 5: Batch Content Extraction")
+	fmt.Println("-------------------------------------")
+
+	// Simulate multiple HTML pages
+	pages := [][]byte{
+		[]byte(`<html><head><title>Page 1</title></head><body><article><h1>First</h1><p>Content 1</p></article></body></html>`),
+		[]byte(`<html><head><title>Page 2</title></head><body><article><h1>Second</h1><p>Content 2</p></article></body></html>`),
+		[]byte(`<html><head><title>Page 3</title></head><body><article><h1>Third</h1><p>Content 3</p></article></body></html>`),
+	}
+
+	results, _ := processor.ExtractBatch(pages)
+	fmt.Printf("Processed %d pages:\n", len(results))
+	for i, r := range results {
+		if r != nil {
+			fmt.Printf("  [%d] %s (%d words)\n", i+1, r.Title, r.WordCount)
+		}
+	}
 	fmt.Println()
 
 	// ============================================================
-	// Use Case 5: File Extraction Pattern
+	// Use Case 6: Link Crawler Pattern
 	// ============================================================
-	fmt.Println("\nUse Case 5: File Extraction Pattern")
-	fmt.Println("-----------------------------------")
+	fmt.Println("Use Case 6: Link Crawler Pattern")
+	fmt.Println("---------------------------------")
 
-	fmt.Println("Single file:")
-	fmt.Println("  result, err := processor.ExtractFromFile(\"article.html\")")
+	pageWithLinks := `
+		<html>
+			<head><base href="https://example.com/blog/"></head>
+			<body>
+				<a href="/post/1">Post 1</a>
+				<a href="/post/2">Post 2</a>
+				<a href="https://external.com">External</a>
+				<img src="image.jpg">
+			</body>
+		</html>
+	`
 
-	fmt.Println("\nBatch files:")
-	fmt.Println("  results, err := processor.ExtractBatchFiles([]string{\"a.html\", \"b.html\"})")
+	links, _ := processor.ExtractAllLinks([]byte(pageWithLinks))
+	fmt.Printf("Found %d links:\n", len(links))
+
+	// Group by type
+	internalLinks := 0
+	externalLinks := 0
+	for _, link := range links {
+		if link.Type == "link" {
+			if strings.Contains(link.URL, "example.com") || !strings.HasPrefix(link.URL, "http") {
+				internalLinks++
+			} else {
+				externalLinks++
+			}
+		}
+	}
+	fmt.Printf("  Internal: %d\n", internalLinks)
+	fmt.Printf("  External: %d\n", externalLinks)
 	fmt.Println()
-	fmt.Println("  for i, r := range results {")
-	fmt.Println("    if r != nil {")
-	fmt.Println("      fmt.Printf(\"%s (%d words)\\n\", r.Title, r.WordCount)")
-	fmt.Println("    }")
-	fmt.Println("  }")
 
-	fmt.Println("\n=== Summary ===")
+	// ============================================================
+	// Use Case 7: Markdown Conversion
+	// ============================================================
+	fmt.Println("Use Case 7: Markdown Conversion")
+	fmt.Println("--------------------------------")
+
+	htmlToConvert := `
+		<html>
+			<body>
+				<h1>Title</h1>
+				<p>Paragraph with <strong>bold</strong> text.</p>
+				<img src="photo.jpg" alt="Photo">
+				<a href="https://example.com">Link</a>
+			</body>
+		</html>
+	`
+
+	markdown, _ := processor.ExtractToMarkdown([]byte(htmlToConvert))
+	fmt.Printf("Markdown output:\n%s\n\n", truncateText(markdown, 150))
+
+	// ============================================================
+	// Use Case 8: JSON API Response
+	// ============================================================
+	fmt.Println("Use Case 8: JSON API Response")
+	fmt.Println("------------------------------")
+
+	jsonData, _ := processor.ExtractToJSON([]byte(htmlToConvert))
+	fmt.Printf("JSON output (%d bytes)\n", len(jsonData))
+	fmt.Println("  Use for REST API responses")
+	fmt.Println("  Includes all metadata (title, word count, etc.)")
+	fmt.Println()
+
+	// ============================================================
+	// Summary
+	// ============================================================
+	fmt.Println("=== Use Case Summary ===")
 	fmt.Println("1. Blog extraction: Clean content, noise removal")
 	fmt.Println("2. Newsletter: Table content, hidden elements")
 	fmt.Println("3. RSS feeds: Batch processing of descriptions")
 	fmt.Println("4. Documentation: Code blocks, sidebars")
-	fmt.Println("5. File operations: Single and batch extraction")
-}
-
-// extractDescription extracts content from RSS item description tag
-func extractDescription(item string) string {
-	start := strings.Index(item, "<description>")
-	end := strings.Index(item, "</description>")
-	if start == -1 || end == -1 {
-		return ""
-	}
-	return item[start+len("<description>") : end]
+	fmt.Println("5. Batch extraction: Parallel processing")
+	fmt.Println("6. Link crawler: URL resolution and filtering")
+	fmt.Println("7. Markdown: Content conversion")
+	fmt.Println("8. JSON API: Structured output")
 }
 
 // truncateText shortens text for display, respecting multi-byte characters.

@@ -30,7 +30,7 @@ func main() {
 	}
 	defer scorerProcessor.Close()
 
-	sampleHTML := "<html><body><nav>Navigation links</nav><article><h1>Article Title</h1><p>This is a substantial paragraph with meaningful content.</p></article><aside>Sidebar content</aside></body></html>"
+	sampleHTML := "<html><body><nav>Navigation links</nav><article><h1>Article Title</h1><p>This is a substantial paragraph with meaningful content that meets the minimum length requirement.</p></article><aside>Sidebar content</aside></body></html>"
 
 	result, err := scorerProcessor.Extract([]byte(sampleHTML))
 	if err != nil {
@@ -41,44 +41,10 @@ func main() {
 	fmt.Printf("Content length: %d chars\n\n", len(result.Text))
 
 	// ============================================================
-	// 2. Statistics and Monitoring
+	// 2. Audit System (Security Logging)
 	// ============================================================
-	fmt.Println("2. Statistics & Monitoring")
-	fmt.Println("-----------------------------")
-
-	processor, _ := html.New()
-	defer processor.Close()
-
-	// Process documents to generate statistics
-	for i := 0; i < 5; i++ {
-		doc := []byte(fmt.Sprintf("<article><h1>Doc %d</h1><p>Content</p></article>", i))
-		processor.Extract(doc)
-		// Same document again (cache hit)
-		processor.Extract(doc)
-	}
-
-	stats := processor.GetStatistics()
-	fmt.Printf("Total Processed: %d\n", stats.TotalProcessed)
-	fmt.Printf("Cache Hits: %d\n", stats.CacheHits)
-	fmt.Printf("Cache Misses: %d\n", stats.CacheMisses)
-	fmt.Printf("Avg Process Time: %v\n", stats.AverageProcessTime)
-
-	if stats.TotalProcessed > 0 {
-		hitRate := float64(stats.CacheHits) / float64(stats.TotalProcessed) * 100
-		fmt.Printf("Cache Hit Rate: %.1f%%\n", hitRate)
-	}
-
-	// Clear and reset
-	processor.ClearCache()
-	processor.ResetStatistics()
-	stats = processor.GetStatistics()
-	fmt.Printf("\nAfter ClearCache/ResetStatistics: %d processed\n", stats.TotalProcessed)
-
-	// ============================================================
-	// 3. Audit System (Security Logging)
-	// ============================================================
-	fmt.Println("\n3. Audit System (Security Logging)")
-	fmt.Println("---------------------------------")
+	fmt.Println("2. Audit System (Security Logging)")
+	fmt.Println("-----------------------------------")
 
 	// Create channel sink for audit entries
 	channelSink := html.NewChannelAuditSink(100)
@@ -93,7 +59,15 @@ func main() {
 	defer auditProcessor.Close()
 
 	// Process potentially dangerous HTML
-	dangerousHTML := "<html><body><script>alert('xss')</script><a href=\"javascript:void(0)\">Click</a><img src=\"x.png\" onerror=\"alert(1)\"></body></html>"
+	dangerousHTML := `
+		<html>
+			<body>
+				<script>alert('xss')</script>
+				<a href="javascript:void(0)">Click</a>
+				<img src="x.png" onerror="alert(1)">
+			</body>
+		</html>
+	`
 
 	auditProcessor.Extract([]byte(dangerousHTML))
 
@@ -109,10 +83,24 @@ func main() {
 	}
 
 	// ============================================================
+	// 3. Audit Sinks (Output Destinations)
+	// ============================================================
+	fmt.Println("\n3. Audit Sinks")
+	fmt.Println("--------------")
+
+	fmt.Println("Built-in audit sinks:")
+	fmt.Println("  • LoggerAuditSink   - Writes to standard logger")
+	fmt.Println("  • ChannelAuditSink  - Sends to Go channel")
+	fmt.Println("  • WriterAuditSink   - Writes to io.Writer")
+	fmt.Println("  • MultiSink         - Combines multiple sinks")
+	fmt.Println("  • FilteredSink      - Filters by custom criteria")
+	fmt.Println("  • LevelFilteredSink - Filters by severity level")
+
+	// ============================================================
 	// 4. Security Configuration
 	// ============================================================
 	fmt.Println("\n4. Security Configuration")
-	fmt.Println("---------------------------")
+	fmt.Println("-------------------------")
 
 	// High security config
 	secureConfig := html.HighSecurityConfig()
@@ -120,6 +108,8 @@ func main() {
 	fmt.Printf("  MaxInputSize: %d MB\n", secureConfig.MaxInputSize/(1024*1024))
 	fmt.Printf("  EnableSanitization: %v\n", secureConfig.EnableSanitization)
 	fmt.Printf("  MaxDepth: %d\n", secureConfig.MaxDepth)
+	fmt.Printf("  ProcessingTimeout: %v\n", secureConfig.ProcessingTimeout)
+	fmt.Printf("  Audit.Enabled: %v\n", secureConfig.Audit.Enabled)
 
 	secureProcessor, _ := html.New(secureConfig)
 	defer secureProcessor.Close()
@@ -131,7 +121,7 @@ func main() {
 	// 5. File Processing Patterns
 	// ============================================================
 	fmt.Println("\n5. File Processing Patterns")
-	fmt.Println("--------------------------")
+	fmt.Println("----------------------------")
 
 	fmt.Println("Single file:")
 	fmt.Println("  result, err := processor.ExtractFromFile(\"article.html\")")
@@ -145,14 +135,27 @@ func main() {
 	fmt.Println("  result := processor.ExtractBatchFilesWithContext(ctx, paths)")
 
 	// ============================================================
+	// 6. Type Aliases for HTML Processing
+	// ============================================================
+	fmt.Println("\n6. Type Aliases")
+	fmt.Println("---------------")
+	fmt.Println("The package provides type aliases from golang.org/x/net/html:")
+	fmt.Println("  • html.Node        - DOM node")
+	fmt.Println("  • html.NodeType    - Node type (ElementNode, TextNode, etc.)")
+	fmt.Println("  • html.Attribute   - Node attribute")
+	fmt.Println()
+	fmt.Println("These are useful when implementing custom Scorers.")
+
+	// ============================================================
 	// Summary
 	// ============================================================
 	fmt.Println("\n=== Advanced Features Summary ===")
 	fmt.Println("1. Custom Scorers: Implement html.Scorer interface for domain-specific extraction")
-	fmt.Println("2. Statistics: Track processing metrics and cache hit rates")
-	fmt.Println("3. Audit System: Monitor security events and blocked content")
+	fmt.Println("2. Audit System: Monitor security events and blocked content")
+	fmt.Println("3. Audit Sinks: Multiple output destinations for audit logs")
 	fmt.Println("4. Security Configs: Use HighSecurityConfig() for sensitive data processing")
 	fmt.Println("5. File Operations: Single file, batch, and context-aware processing")
+	fmt.Println("6. Type Aliases: Direct access to golang.org/x/net/html types")
 }
 
 // ArticleScorer is a custom scorer that prioritizes article content.

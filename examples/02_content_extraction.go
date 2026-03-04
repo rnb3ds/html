@@ -41,13 +41,19 @@ func main() {
 	fmt.Println("-----------------------")
 
 	// Default: all media preserved
-	fmt.Println("DefaultConfig():  All media (images, links, videos, audios)")
+	fmt.Println("DefaultConfig():  All media preserved")
 
 	// Text-only: no media
 	textOnlyProcessor, _ := html.New(html.TextOnlyConfig())
 	defer textOnlyProcessor.Close()
 	result, _ := textOnlyProcessor.Extract([]byte(sampleHTML))
 	fmt.Printf("TextOnlyConfig(): %d chars, %d images\n\n", len(result.Text), len(result.Images))
+
+	// Markdown: images as markdown
+	mdProcessor, _ := html.New(html.MarkdownConfig())
+	defer mdProcessor.Close()
+	mdResult, _ := mdProcessor.Extract([]byte(sampleHTML))
+	fmt.Printf("MarkdownConfig(): %d chars, images inline as markdown\n\n", len(mdResult.Text))
 
 	// ============================================================
 	// 2. Custom Configuration
@@ -93,16 +99,20 @@ func main() {
 	fmt.Println("-----------------------")
 
 	// Markdown table (default)
-	mdProcessor, _ := html.New(html.MarkdownConfig())
-	defer mdProcessor.Close()
-	mdResult, _ := mdProcessor.Extract([]byte(sampleHTML))
-	fmt.Println("Markdown table:")
-	fmt.Println(mdResult.Text[:min(150, len(mdResult.Text))] + "...")
+	fmt.Println("Markdown table (default):")
+	mdProcessor2, _ := html.New(html.MarkdownConfig())
+	defer mdProcessor2.Close()
+	mdResult2, _ := mdProcessor2.Extract([]byte(sampleHTML))
+	if len(mdResult2.Text) > 150 {
+		fmt.Printf("%s...\n\n", mdResult2.Text[:150])
+	} else {
+		fmt.Printf("%s\n\n", mdResult2.Text)
+	}
 
 	// ============================================================
 	// 5. JSON Output
 	// ============================================================
-	fmt.Println("\n5. JSON Output")
+	fmt.Println("5. JSON Output")
 	fmt.Println("--------------")
 
 	processor, _ := html.New()
@@ -116,21 +126,29 @@ func main() {
 	var data map[string]interface{}
 	json.Unmarshal(jsonBytes, &data)
 	pretty, _ := json.MarshalIndent(data, "", "  ")
-	fmt.Printf("%s\n", string(pretty[:min(400, len(pretty))])+"...")
+	if len(pretty) > 400 {
+		fmt.Printf("%s...\n\n", string(pretty[:400]))
+	} else {
+		fmt.Printf("%s\n\n", pretty)
+	}
 
 	// ============================================================
 	// 6. Markdown Output
 	// ============================================================
-	fmt.Println("\n6. Markdown Output")
+	fmt.Println("6. Markdown Output")
 	fmt.Println("------------------")
 
 	markdown, _ := processor.ExtractToMarkdown([]byte(sampleHTML))
-	fmt.Printf("%s\n", markdown[:min(200, len(markdown))]+"...")
+	if len(markdown) > 200 {
+		fmt.Printf("%s...\n\n", markdown[:200])
+	} else {
+		fmt.Printf("%s\n\n", markdown)
+	}
 
 	// ============================================================
 	// 7. File Operations
 	// ============================================================
-	fmt.Println("\n7. File Operations")
+	fmt.Println("7. File Operations")
 	fmt.Println("------------------")
 	fmt.Println("  processor.ExtractFromFile(\"article.html\")")
 	fmt.Println("  processor.ExtractToJSONFromFile(\"article.html\")")
@@ -155,11 +173,4 @@ func main() {
 	fmt.Println("Link formats:   none | markdown | html")
 	fmt.Println("Table formats:  markdown | html")
 	fmt.Println("Output methods: Extract(), ExtractToJSON(), ExtractToMarkdown()")
-}
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }

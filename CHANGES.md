@@ -7,6 +7,26 @@ All notable changes to the cybergodev/html library will be documented in this fi
 
 ---
 
+## v1.3.1 - Performance & API Enhancement (2026-03-04)
+
+### Added
+- Optional `Config` parameter for all package-level functions (backward compatible)
+
+### Changed
+- Examples restructured with new `04_performance.go` focused on batch processing and caching
+- Inlined timeout handling and optimized scorer nil checks for cleaner code
+
+### Fixed
+- Missing documentation for `TextOnlyConfig()` function
+
+### Performance
+- `Extract`: ~51% faster (430 → 212 ns/op)
+- `ExtractWithCache`: ~43% faster (189 → 107 ns/op)
+- `ExtractLargeDocument`: ~62% faster (55000 → 21000 ns/op)
+- `CleanText`: ~15% less memory, ~22% fewer allocations
+
+---
+
 ## v1.3.0 - Performance & API Enhancement (2026-03-03)
 
 ### Added

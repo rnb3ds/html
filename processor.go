@@ -77,28 +77,28 @@ type Processor struct {
 //	cfg := html.DefaultConfig()
 //	cfg.Scorer = myScorer
 //	processor, err := html.New(cfg)
-func New(cfgs ...Config) (*Processor, error) {
-	cfg := resolveConfig(cfgs...)
-	if err := cfg.Validate(); err != nil {
+func New(cfg ...Config) (*Processor, error) {
+	c := resolveConfig(cfg...)
+	if err := c.Validate(); err != nil {
 		return nil, err
 	}
 
 	p := &Processor{
-		config: &cfg,
-		cache:  internal.NewCache(cfg.MaxCacheEntries, cfg.CacheTTL),
-		audit:  NewAuditCollector(cfg.Audit),
+		config: &c,
+		cache:  internal.NewCache(c.MaxCacheEntries, c.CacheTTL),
+		audit:  NewAuditCollector(c.Audit),
 	}
 
 	// Set up scorer from config
-	if cfg.Scorer != nil {
-		p.scorer = &internalScorerWrapper{scorer: cfg.Scorer}
+	if c.Scorer != nil {
+		p.scorer = &internalScorerWrapper{scorer: c.Scorer}
 	} else {
 		p.scorer = internal.NewDefaultScorer()
 	}
 
 	// Start background cache cleanup if TTL and cleanup interval are configured
-	if cfg.CacheTTL > 0 && cfg.CacheCleanup > 0 {
-		p.cache.StartCleanup(cfg.CacheCleanup)
+	if c.CacheTTL > 0 && c.CacheCleanup > 0 {
+		p.cache.StartCleanup(c.CacheCleanup)
 	}
 
 	return p, nil
@@ -112,21 +112,21 @@ func New(cfgs ...Config) (*Processor, error) {
 //
 // This design allows both simple usage (html.New()) and custom configuration
 // (html.New(cfg)) while maintaining backward compatibility.
-func resolveConfig(cfgs ...Config) Config {
+func resolveConfig(cfg ...Config) Config {
 	// Fast path: no config provided
-	if len(cfgs) == 0 {
+	if len(cfg) == 0 {
 		return DefaultConfig()
 	}
 
-	cfg := cfgs[0]
+	c := cfg[0]
 
 	// Check if config is empty (all zero values)
 	// An empty config indicates the user wants default behavior
-	if cfg.isEmpty() {
+	if c.isEmpty() {
 		return DefaultConfig()
 	}
 
-	return cfg
+	return c
 }
 
 // isEmpty checks if the Config has all zero values.
