@@ -14,63 +14,49 @@ import (
 )
 
 // TestXSSPrevention tests that dangerous scripts are removed from content
+// Consolidates basic, SVG, and MathML XSS payloads into a single table-driven test
 func TestXSSPrevention(t *testing.T) {
 	t.Parallel()
 
-	p, err := html.New(html.DefaultConfig())
+	p, err := html.New()
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer p.Close()
 
+	// Consolidated XSS payloads organized by category
 	xssPayloads := []struct {
-		name string
-		html string
+		category string
+		name     string
+		html     string
 	}{
-		{
-			name: "basic script tag",
-			html: `<html><body><script>alert('XSS')</script><p>Content</p></body></html>`,
-		},
-		{
-			name: "script with src",
-			html: `<html><body><script src="http://evil.com/xss.js"></script><p>Content</p></body></html>`,
-		},
-		{
-			name: "onclick attribute",
-			html: `<html><body><div onclick="alert('XSS')">Content</div></body></html>`,
-		},
-		{
-			name: "javascript href",
-			html: `<html><body><a href="javascript:alert('XSS')">Click</a><p>Content</p></body></html>`,
-		},
-		{
-			name: "iframe injection",
-			html: `<html><body><iframe src="http://evil.com"></iframe><p>Content</p></body></html>`,
-		},
-		{
-			name: "embed tag",
-			html: `<html><body><embed src="evil.swf"><p>Content</p></body></html>`,
-		},
-		{
-			name: "object tag",
-			html: `<html><body><object data="evil.swf"></object><p>Content</p></body></html>`,
-		},
-		{
-			name: "onerror attribute",
-			html: `<html><body><img src=x onerror="alert('XSS')"><p>Content</p></body></html>`,
-		},
-		{
-			name: "onload attribute",
-			html: `<html><body><body onload="alert('XSS')"><p>Content</p></body></html>`,
-		},
-		{
-			name: "multiple event handlers",
-			html: `<html><body><div onmouseover="alert('XSS')" onmouseout="alert('XSS2')">Content</div></body></html>`,
-		},
+		// Basic XSS payloads
+		{"basic", "script tag", `<html><body><script>alert('XSS')</script><p>Content</p></body></html>`},
+		{"basic", "script with src", `<html><body><script src="http://evil.com/xss.js"></script><p>Content</p></body></html>`},
+		{"basic", "onclick attribute", `<html><body><div onclick="alert('XSS')">Content</div></body></html>`},
+		{"basic", "javascript href", `<html><body><a href="javascript:alert('XSS')">Click</a><p>Content</p></body></html>`},
+		{"basic", "iframe injection", `<html><body><iframe src="http://evil.com"></iframe><p>Content</p></body></html>`},
+		{"basic", "embed tag", `<html><body><embed src="evil.swf"><p>Content</p></body></html>`},
+		{"basic", "object tag", `<html><body><object data="evil.swf"></object><p>Content</p></body></html>`},
+		{"basic", "onerror attribute", `<html><body><img src=x onerror="alert('XSS')"><p>Content</p></body></html>`},
+		{"basic", "onload attribute", `<html><body><body onload="alert('XSS')"><p>Content</p></body></html>`},
+		{"basic", "multiple event handlers", `<html><body><div onmouseover="alert('XSS')" onmouseout="alert('XSS2')">Content</div></body></html>`},
+
+		// SVG XSS payloads
+		{"svg", "onload event", `<html><body><svg onload="alert('XSS')"><circle cx="50"/></svg><p>Content</p></body></html>`},
+		{"svg", "embedded script", `<html><body><svg><script>alert('XSS')</script></svg><p>Content</p></body></html>`},
+		{"svg", "foreignObject", `<html><body><svg><foreignObject><body onload="alert('XSS')"></body></foreignObject></svg><p>Content</p></body></html>`},
+		{"svg", "animate element", `<html><body><svg><animate onbegin="alert('XSS')" attributeName="x"/></svg><p>Content</p></body></html>`},
+		{"svg", "use xlink", `<html><body><svg><use xlink:href="data:image/svg+xml,<svg onload='alert(1)'/>"/></svg><p>Content</p></body></html>`},
+		{"svg", "set element", `<html><body><svg><set onbegin="alert('XSS')"/></svg><p>Content</p></body></html>`},
+
+		// MathML XSS payloads
+		{"mathml", "annotation-xml", `<html><body><math><annotation-xml encoding="application/xhtml+xml"><script>alert('XSS')</script></annotation-xml></math><p>Content</p></body></html>`},
+		{"mathml", "javascript href", `<html><body><math href="javascript:alert('XSS')"><mtext>click</mtext></math><p>Content</p></body></html>`},
 	}
 
 	for _, tt := range xssPayloads {
-		t.Run(tt.name, func(t *testing.T) {
+		t.Run(tt.category+"/"+tt.name, func(t *testing.T) {
 			result, err := p.Extract([]byte(tt.html))
 			if err != nil {
 				t.Fatalf("Extract() failed: %v", err)
@@ -81,7 +67,8 @@ func TestXSSPrevention(t *testing.T) {
 			if strings.Contains(extractedText, "alert") ||
 				strings.Contains(extractedText, "javascript:") ||
 				strings.Contains(extractedText, "onerror") ||
-				strings.Contains(extractedText, "onclick") {
+				strings.Contains(extractedText, "onclick") ||
+				strings.Contains(extractedText, "onload") {
 				t.Errorf("XSS payload not sanitized: %s", extractedText)
 			}
 
@@ -99,7 +86,7 @@ func TestXSSPrevention(t *testing.T) {
 func TestPathTraversalPrevention(t *testing.T) {
 	t.Parallel()
 
-	p, err := html.New(html.DefaultConfig())
+	p, err := html.New()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -133,10 +120,10 @@ func TestPathTraversalPrevention(t *testing.T) {
 func TestLargeInputDoSPrevention(t *testing.T) {
 	t.Parallel()
 
-	config := html.DefaultConfig()
-	config.MaxInputSize = 1024 // 1KB limit for testing
+	cfg := html.DefaultConfig()
+	cfg.MaxInputSize = 1024 // 1KB limit for testing
 
-	p, err := html.New(config)
+	p, err := html.New(cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -158,10 +145,10 @@ func TestLargeInputDoSPrevention(t *testing.T) {
 func TestDeepNestingDoSPrevention(t *testing.T) {
 	t.Parallel()
 
-	config := html.DefaultConfig()
-	config.MaxDepth = 50 // Low limit for testing
+	cfg := html.DefaultConfig()
+	cfg.MaxDepth = 50 // Low limit for testing
 
-	p, err := html.New(config)
+	p, err := html.New(cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -214,7 +201,7 @@ func TestDeepNestingDoSPrevention(t *testing.T) {
 func TestMalformedHTMLHandling(t *testing.T) {
 	t.Parallel()
 
-	p, err := html.New(html.DefaultConfig())
+	p, err := html.New()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -276,7 +263,7 @@ func TestMalformedHTMLHandling(t *testing.T) {
 func TestDataURLInjection(t *testing.T) {
 	t.Parallel()
 
-	p, err := html.New(html.DefaultConfig())
+	p, err := html.New()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -331,7 +318,7 @@ func TestDataURLInjection(t *testing.T) {
 func TestInvalidUTF8Handling(t *testing.T) {
 	t.Parallel()
 
-	p, err := html.New(html.DefaultConfig())
+	p, err := html.New()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -387,7 +374,7 @@ func TestInvalidUTF8Handling(t *testing.T) {
 func TestControlCharacterHandling(t *testing.T) {
 	t.Parallel()
 
-	p, err := html.New(html.DefaultConfig())
+	p, err := html.New()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -432,7 +419,7 @@ func TestControlCharacterHandling(t *testing.T) {
 func TestNullByteInjection(t *testing.T) {
 	t.Parallel()
 
-	p, err := html.New(html.DefaultConfig())
+	p, err := html.New()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -482,7 +469,7 @@ func TestNullByteInjection(t *testing.T) {
 func TestProtocolRelativeURLSafety(t *testing.T) {
 	t.Parallel()
 
-	p, err := html.New(html.DefaultConfig())
+	p, err := html.New()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -511,8 +498,8 @@ func TestProtocolRelativeURLSafety(t *testing.T) {
 
 // TestBenchmarkDoSPrevention benchmarks DoS prevention overhead
 func BenchmarkDoSPreventionChecks(b *testing.B) {
-	config := html.DefaultConfig()
-	p, _ := html.New(config)
+	cfg := html.DefaultConfig()
+	p, _ := html.New(cfg)
 	defer p.Close()
 
 	// Normal HTML content
@@ -524,125 +511,28 @@ func BenchmarkDoSPreventionChecks(b *testing.B) {
 	}
 }
 
-// TestSVGXSSPrevention tests that SVG-based XSS attacks are blocked
-func TestSVGXSSPrevention(t *testing.T) {
-	t.Parallel()
-
-	p, err := html.New(html.DefaultConfig())
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer p.Close()
-
-	svgPayloads := []struct {
-		name string
-		html string
-	}{
-		{
-			name: "svg with onload event",
-			html: `<html><body><svg onload="alert('XSS')"><circle cx="50"/></svg><p>Content</p></body></html>`,
-		},
-		{
-			name: "svg with embedded script",
-			html: `<html><body><svg><script>alert('XSS')</script></svg><p>Content</p></body></html>`,
-		},
-		{
-			name: "svg with foreignObject",
-			html: `<html><body><svg><foreignObject><body onload="alert('XSS')"></body></foreignObject></svg><p>Content</p></body></html>`,
-		},
-		{
-			name: "svg animate element",
-			html: `<html><body><svg><animate onbegin="alert('XSS')" attributeName="x"/></svg><p>Content</p></body></html>`,
-		},
-		{
-			name: "svg use xlink",
-			html: `<html><body><svg><use xlink:href="data:image/svg+xml,<svg onload='alert(1)'/>"/></svg><p>Content</p></body></html>`,
-		},
-		{
-			name: "svg set element",
-			html: `<html><body><svg><set onbegin="alert('XSS')"/></svg><p>Content</p></body></html>`,
-		},
-	}
-
-	for _, tt := range svgPayloads {
-		t.Run(tt.name, func(t *testing.T) {
-			result, err := p.Extract([]byte(tt.html))
-			if err != nil {
-				t.Fatalf("Extract() failed: %v", err)
-			}
-
-			extractedText := strings.ToLower(result.Text)
-			if strings.Contains(extractedText, "alert") {
-				t.Errorf("SVG XSS payload not sanitized: %s", extractedText)
-			}
-			if strings.Contains(extractedText, "onload") {
-				t.Errorf("SVG onload event not removed: %s", extractedText)
-			}
-		})
-	}
-}
-
-// TestMathMLXSSPrevention tests that MathML-based XSS attacks are blocked
-func TestMathMLXSSPrevention(t *testing.T) {
-	t.Parallel()
-
-	p, err := html.New(html.DefaultConfig())
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer p.Close()
-
-	mathPayloads := []struct {
-		name string
-		html string
-	}{
-		{
-			name: "math with annotation-xml",
-			html: `<html><body><math><annotation-xml encoding="application/xhtml+xml"><script>alert('XSS')</script></annotation-xml></math><p>Content</p></body></html>`,
-		},
-		{
-			name: "math with javascript href",
-			html: `<html><body><math href="javascript:alert('XSS')"><mtext>click</mtext></math><p>Content</p></body></html>`,
-		},
-	}
-
-	for _, tt := range mathPayloads {
-		t.Run(tt.name, func(t *testing.T) {
-			result, err := p.Extract([]byte(tt.html))
-			if err != nil {
-				t.Fatalf("Extract() failed: %v", err)
-			}
-
-			extractedText := strings.ToLower(result.Text)
-			if strings.Contains(extractedText, "alert") {
-				t.Errorf("MathML XSS payload not sanitized: %s", extractedText)
-			}
-		})
-	}
-}
-
 // TestHighSecurityConfig tests the high-security configuration
 func TestHighSecurityConfig(t *testing.T) {
 	t.Parallel()
 
-	config := html.HighSecurityConfig()
+	cfg := html.HighSecurityConfig()
 
 	// Verify security-enhanced settings
-	if config.MaxInputSize > 10*1024*1024 {
-		t.Errorf("HighSecurityConfig MaxInputSize should be <= 10MB, got %d", config.MaxInputSize)
+	if cfg.MaxInputSize > 10*1024*1024 {
+		t.Errorf("HighSecurityConfig MaxInputSize should be <= 10MB, got %d", cfg.MaxInputSize)
 	}
-	if config.MaxDepth > 100 {
-		t.Errorf("HighSecurityConfig MaxDepth should be <= 100, got %d", config.MaxDepth)
+	if cfg.MaxDepth > 100 {
+		t.Errorf("HighSecurityConfig MaxDepth should be <= 100, got %d", cfg.MaxDepth)
 	}
-	if config.ProcessingTimeout > 15*time.Second {
-		t.Errorf("HighSecurityConfig ProcessingTimeout should be <= 15s, got %v", config.ProcessingTimeout)
+	if cfg.ProcessingTimeout > 15*time.Second {
+		t.Errorf("HighSecurityConfig ProcessingTimeout should be <= 15s, got %v", cfg.ProcessingTimeout)
 	}
-	if !config.EnableSanitization {
+	if !cfg.EnableSanitization {
 		t.Error("HighSecurityConfig should always have EnableSanitization=true")
 	}
 
 	// Test that high-security config works
-	p, err := html.New(config)
+	p, err := html.New(cfg)
 	if err != nil {
 		t.Fatalf("Failed to create processor with HighSecurityConfig: %v", err)
 	}

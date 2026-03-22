@@ -35,6 +35,8 @@ const (
 	highLinkDensityThreshold    = 0.5
 	mediumLinkDensityThreshold  = 0.3
 	lowLinkDensityThreshold     = 0.15
+	highContentDensityThreshold = 0.7
+	lowContentDensityThreshold  = 0.3
 	highDensityMultiplier       = 1.2
 	lowDensityMultiplier        = 0.7
 	highLinkDensityPenalty      = 0.2

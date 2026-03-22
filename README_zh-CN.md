@@ -1,14 +1,28 @@
 # HTML 库
 
-[![Go Version](https://img.shields.io/badge/Go-1.22+-00ADD8?logo=go)](https://golang.org)
-[![pkg.go.dev](https://pkg.go.dev/badge/github.com/cybergodev/html.svg)](https://pkg.go.dev/github.com/cybergodev/html)
+[![Go Version](https://img.shields.io/badge/Go-1.24+-00ADD8?logo=go)](https://golang.org)
+[![GoDoc](https://pkg.go.dev/badge/github.com/cybergodev/html.svg)](https://pkg.go.dev/github.com/cybergodev/html)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Performance](https://img.shields.io/badge/performance-high%20performance-green.svg)](https://github.com/cybergodev/html)
-[![Thread Safe](https://img.shields.io/badge/thread%20safe-yes-brightgreen.svg)](https://github.com/cybergodev/html)
+[![Go Report Card](https://goreportcard.com/badge/github.com/cybergodev/html)](https://goreportcard.com/report/github.com/cybergodev/html)
 
-**一个用于智能 HTML 内容提取的 Go 库。** 兼容 `golang.org/x/net/html` —— 可作为直接替代品使用，并获得增强的内容提取功能。
+**一个高性能的 Go 库，用于智能 HTML 内容提取。** 兼容 `golang.org/x/net/html` —— 可作为直接替代品使用，并获得增强的内容提取功能。
 
-**[📖 English Documentation](README.md)** - 英文文档
+**[📖 English Documentation](README.md)**
+
+---
+
+## 🎯 为什么选择这个库？
+
+| 特性 | 描述 |
+|------|------|
+| 🚀 **一行代码提取** | 单个函数调用即可从 HTML 提取纯净文本 |
+| 🔍 **智能文章检测** | 使用评分算法识别主要内容 |
+| 🌐 **自动编码检测** | 支持 UTF-8、Windows-1252、GBK、Shift_JIS 等 |
+| 🔄 **批量处理** | 支持 Worker Pool 和 Context 的并行提取 |
+| 📦 **多种输出格式** | 文本、Markdown、JSON |
+| 🛡️ **安全优先** | HTML 净化、XSS 防护、审计日志 |
+| 🧵 **线程安全** | 无需外部同步即可并发使用 |
+| 🔗 **golang.org/x/net/html 兼容** | 零代码更改的直接替代品 |
 
 ---
 
@@ -17,6 +31,8 @@
 ```bash
 go get github.com/cybergodev/html
 ```
+
+**系统要求**：Go 1.24+
 
 ---
 
@@ -31,7 +47,7 @@ import (
 )
 
 func main() {
-    // 从 HTML 中提取纯文本（单行代码）
+    // 一行代码：从 HTML 中提取纯净文本
     htmlBytes := []byte(`
         <html>
             <nav>导航栏</nav>
@@ -44,44 +60,22 @@ func main() {
     if err != nil {
         panic(err)
     }
-    fmt.Println(text) // "你好世界\n这里是内容..."
+    fmt.Println(text)
+    // 输出: "你好世界\n这里是内容..."
 }
 ```
 
 **自动完成的工作：**
-- 移除导航、页脚、广告、脚本
-- 使用评分算法检测主要内容
-- 处理字符编码（UTF-8、Windows-1252、GBK 等）
-- 清理空白字符
-
----
-
-## ✨ 核心特性
-
-| 特性 | 描述 |
-|------|------|
-| **文章检测** | 使用评分算法识别主要内容（文本密度、链接密度、语义标签） |
-| **智能文本提取** | 保留结构、处理换行、计算字数和阅读时间 |
-| **媒体提取** | 提取图片、视频、音频及其元数据（URL、尺寸、alt 文本） |
-| **链接分析** | 外部/内部链接检测、nofollow 识别、锚文本提取 |
-| **内容缓存** | 基于 FNV-128a 的键值，支持 TTL 和 LRU 淘汰策略 |
-| **批处理** | 支持 Worker Pool 和 Context 的并行提取 |
-| **线程安全** | 无需外部同步即可并发使用 |
-| **安全性** | HTML 净化、输入验证、审计日志 |
-
-### 应用场景
-
-- **新闻聚合器**：从新闻网站提取文章内容
-- **网页爬虫**：从 HTML 页面获取结构化数据
-- **内容管理**：将 HTML 转换为 Markdown 或其他格式
-- **搜索引擎**：索引主要内容，排除导航和广告
-- **数据分析**：大规模提取和分析网页内容
+- ✅ 移除导航、页脚、广告、脚本
+- ✅ 使用评分算法检测主要内容
+- ✅ 处理字符编码（UTF-8、Windows-1252、GBK 等）
+- ✅ 清理空白字符
 
 ---
 
 ## 🚀 使用指南
 
-### 包级函数（最简单）
+### 1️⃣ 包级函数（最简单）
 
 对于单次提取，使用包级函数：
 
@@ -99,7 +93,7 @@ func main() {
     // 仅提取文本
     text, _ := html.ExtractText(htmlBytes)
 
-    // 提取所有内容
+    // 提取所有内容（含元数据）
     result, _ := html.Extract(htmlBytes)
     fmt.Println(result.Title)     // "标题"
     fmt.Println(result.Text)      // "内容在这里..."
@@ -116,7 +110,7 @@ func main() {
 
 ---
 
-### Processor 使用（推荐用于多次提取）
+### 2️⃣ Processor 使用（推荐用于多次提取）
 
 对于多次提取，创建 Processor 以利用缓存和连接池：
 
@@ -155,7 +149,7 @@ func main() {
 
 ---
 
-### 自定义配置
+### 3️⃣ 自定义配置
 
 ```go
 package main
@@ -168,18 +162,13 @@ import (
 func main() {
     htmlBytes := []byte(`<html><body><h1>标题</h1><img src="img.jpg"><p>内容</p></body></html>`)
 
-    config := html.Config{
-        // 提取设置
-        ExtractArticle:    true,       // 自动检测主要内容
-        PreserveImages:    true,       // 提取图片元数据
-        PreserveLinks:     true,       // 提取链接元数据
-        PreserveVideos:    false,      // 跳过视频
-        PreserveAudios:    false,      // 跳过音频
-        ImageFormat:       "none",     // 选项: "none", "markdown", "html", "placeholder"
-        LinkFormat:        "none",     // 选项: "none", "markdown", "html"
-        TableFormat:       "markdown", // 选项: "markdown", "html"
-        Encoding:          "",         // 自动检测，或指定: "utf-8", "windows-1252" 等
-    }
+    // 从 DefaultConfig 开始并自定义
+    config := html.DefaultConfig()
+    config.PreserveVideos = false       // 跳过视频
+    config.PreserveAudios = false       // 跳过音频
+    config.InlineImageFormat = "none"   // 选项: "none", "markdown", "html", "placeholder"
+    config.InlineLinkFormat = "none"    // 选项: "none", "markdown", "html"
+    config.TableFormat = "markdown"     // 选项: "markdown", "html"
 
     processor, _ := html.New(config)
     defer processor.Close()
@@ -191,7 +180,7 @@ func main() {
 
 ---
 
-### 预设配置
+### 4️⃣ 预设配置
 
 ```go
 // 仅文本 - 不保留媒体
@@ -209,7 +198,7 @@ processor, _ := html.New(html.HighSecurityConfig())
 
 ---
 
-### 高级配置
+### 5️⃣ 高级配置
 
 ```go
 package main
@@ -392,10 +381,12 @@ defer processor.Close()
 // 提取（从字节）
 processor.Extract(htmlBytes []byte) (*Result, error)
 processor.ExtractText(htmlBytes []byte) (string, error)
+processor.ExtractWithContext(ctx context.Context, htmlBytes []byte) (*Result, error)
 
 // 提取（从文件）
 processor.ExtractFromFile(filePath string) (*Result, error)
 processor.ExtractTextFromFile(filePath string) (string, error)
+processor.ExtractFromFileWithContext(ctx context.Context, filePath string) (*Result, error)
 
 // 格式转换
 processor.ExtractToMarkdown(htmlBytes []byte) (string, error)
@@ -406,6 +397,7 @@ processor.ExtractToJSONFromFile(filePath string) ([]byte, error)
 // 链接
 processor.ExtractAllLinks(htmlBytes []byte) ([]LinkResource, error)
 processor.ExtractAllLinksFromFile(filePath string) ([]LinkResource, error)
+processor.ExtractAllLinksWithContext(ctx context.Context, htmlBytes []byte) ([]LinkResource, error)
 
 // 批处理
 processor.ExtractBatch(contents [][]byte) ([]*Result, error)
@@ -432,7 +424,7 @@ html.MarkdownConfig() Config       // Markdown 图片格式
 
 ---
 
-## 结果结构
+## 📋 结果结构
 
 ```go
 type Result struct {
@@ -443,8 +435,8 @@ type Result struct {
     Videos         []VideoInfo   `json:"videos,omitempty"`
     Audios         []AudioInfo   `json:"audios,omitempty"`
     WordCount      int           `json:"word_count"`
-    ReadingTime    time.Duration `json:"reading_time_ms"`    // JSON: 毫秒
-    ProcessingTime time.Duration `json:"processing_time_ms"` // JSON: 毫秒
+    ReadingTime    time.Duration `json:"reading_time_ms"`
+    ProcessingTime time.Duration `json:"processing_time_ms"`
 }
 
 type ImageInfo struct {
@@ -506,55 +498,64 @@ type Statistics struct {
 
 ---
 
-## 默认配置值
+## ⚙️ 配置参考
 
-**DefaultConfig():**
+### Config 结构体
+
 ```go
-Config{
-    MaxInputSize:       50 * 1024 * 1024, // 50MB
-    MaxCacheEntries:    2000,
-    CacheTTL:           1 * time.Hour,
-    CacheCleanup:       5 * time.Minute,
-    WorkerPoolSize:     4,
-    EnableSanitization: true,
-    MaxDepth:           500,
-    ProcessingTimeout:  30 * time.Second,
+type Config struct {
+    // === 资源管理 ===
+    MaxInputSize      int           // 最大 HTML 输入大小（默认：50MB）
+    MaxCacheEntries   int           // 最大缓存条目数（默认：2000，0=禁用）
+    CacheTTL          time.Duration // 缓存生存时间（默认：1 小时）
+    CacheCleanup      time.Duration // 后台清理间隔（默认：5 分钟）
+    WorkerPoolSize    int           // 批处理并发数（默认：4）
+    ProcessingTimeout time.Duration // 最大处理时间（默认：30s，0=无超时）
 
-    // 提取设置
-    ExtractArticle:     true,
-    PreserveImages:     true,
-    PreserveLinks:      true,
-    PreserveVideos:     true,
-    PreserveAudios:     true,
-    ImageFormat:        "none",
-    LinkFormat:         "none",
-    TableFormat:        "markdown",
+    // === 安全 ===
+    EnableSanitization bool        // HTML 净化（默认：true）
+    MaxDepth           int         // 最大 HTML 嵌套深度（默认：500）
+    Audit              AuditConfig // 安全审计日志
+
+    // === 内容提取 ===
+    ExtractArticle bool // 启用文章检测（默认：true）
+    PreserveImages bool // 提取图片（默认：true）
+    PreserveLinks  bool // 提取链接（默认：true）
+    PreserveVideos bool // 提取视频（默认：true）
+    PreserveAudios bool // 提取音频（默认：true）
+
+    // === 输出格式 ===
+    InlineImageFormat string // "none", "markdown", "html", "placeholder"
+    InlineLinkFormat  string // "none", "markdown", "html"
+    TableFormat       string // "markdown", "html"
+    Encoding          string // 输入编码（空=自动检测）
+
+    // === 链接提取 ===
+    ResolveRelativeURLs  bool   // 解析相对 URL（默认：true）
+    BaseURL              string // 解析基准 URL
+    IncludeImages        bool   // 包含图片 URL（默认：true）
+    IncludeVideos        bool   // 包含视频 URL（默认：true）
+    IncludeAudios        bool   // 包含音频 URL（默认：true）
+    IncludeCSS           bool   // 包含 CSS URL（默认：true）
+    IncludeJS            bool   // 包含 JS URL（默认：true）
+    IncludeContentLinks  bool   // 包含锚点链接（默认：true）
+    IncludeExternalLinks bool   // 包含外部链接（默认：true）
+    IncludeIcons         bool   // 包含图标 URL（默认：true）
 }
 ```
 
-**HighSecurityConfig():**
-```go
-Config{
-    MaxInputSize:       10 * 1024 * 1024, // 10MB - 为安全而减小
-    MaxCacheEntries:    500,              // 减小缓存大小
-    CacheTTL:           30 * time.Minute, // 更短的 TTL
-    CacheCleanup:       1 * time.Minute,  // 更频繁的清理
-    WorkerPoolSize:     2,                // 更少的 worker
-    EnableSanitization: true,
-    MaxDepth:           100,              // 减小深度限制
-    ProcessingTimeout:  10 * time.Second, // 更短的超时
+### 默认配置值对比
 
-    // 提取设置（与 DefaultConfig 相同）
-    ExtractArticle:     true,
-    PreserveImages:     true,
-    PreserveLinks:      true,
-    PreserveVideos:     true,
-    PreserveAudios:     true,
-    ImageFormat:        "none",
-    LinkFormat:         "none",
-    TableFormat:        "markdown",
-}
-```
+| 设置 | 默认值 | 高安全配置 |
+|------|--------|-----------|
+| MaxInputSize | 50 MB | 10 MB |
+| MaxCacheEntries | 2000 | 500 |
+| CacheTTL | 1 小时 | 30 分钟 |
+| CacheCleanup | 5 分钟 | 1 分钟 |
+| WorkerPoolSize | 4 | 2 |
+| ProcessingTimeout | 30s | 10s |
+| MaxDepth | 500 | 100 |
+| Audit | 禁用 | 启用 |
 
 ---
 
@@ -641,7 +642,7 @@ processor, _ := html.New(config)
 
 ---
 
-## 示例代码
+## 📁 示例代码
 
 完整的可运行示例请参见 [examples/](examples) 目录：
 
@@ -658,7 +659,7 @@ processor, _ := html.New(config)
 
 ---
 
-## 兼容性
+## 🔄 兼容性
 
 本库是 `golang.org/x/net/html` 的**直接替代品**：
 
@@ -680,7 +681,7 @@ escaped := html.EscapeString("<script>")
 
 ---
 
-## 线程安全
+## 🧵 线程安全
 
 `Processor` 可安全并发使用：
 
@@ -701,16 +702,22 @@ wg.Wait()
 
 ---
 
-## 🤝 贡献
+## 🎯 应用场景
 
-欢迎贡献！提交 PR 前请阅读贡献指南。
-
-## 📄 许可证
-
-MIT 许可证 - 详情见 [LICENSE](LICENSE) 文件。
+- **新闻聚合器**：从新闻网站提取文章内容
+- **网页爬虫**：从 HTML 页面获取结构化数据
+- **内容管理**：将 HTML 转换为 Markdown 或其他格式
+- **搜索引擎**：索引主要内容，排除导航和广告
+- **数据分析**：大规模提取和分析网页内容
+- **RSS 订阅生成器**：提取内容用于订阅源创建
+- **归档工具**：保存网页内容
 
 ---
 
-**用心为 Go 社区打造**
+## 📄 许可证
 
-如果这个项目对你有帮助，请给个 Star！
+MIT 许可证 - 详见 [LICENSE](LICENSE) 文件。
+
+---
+
+如果这个项目对你有帮助，请给一个 Star! ⭐

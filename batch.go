@@ -4,8 +4,6 @@ import (
 	"context"
 	"fmt"
 	"sync"
-
-	"github.com/cybergodev/html/internal"
 )
 
 // BatchResult holds the results of a batch extraction operation.
@@ -25,7 +23,7 @@ type BatchResult struct {
 }
 
 // extractFunc is a function type for extracting content from a single input.
-type extractFunc func(config ExtractConfig) (*Result, error)
+type extractFunc func() (*Result, error)
 
 // ExtractBatch extracts content from multiple HTML byte slices concurrently.
 // The concurrency level is controlled by the WorkerPoolSize configuration (default: 4).
@@ -40,13 +38,12 @@ func (p *Processor) ExtractBatch(htmlContents [][]byte) ([]*Result, error) {
 		return []*Result{}, nil
 	}
 
-	config := p.getExtractConfig()
 	extractors := make([]extractFunc, len(htmlContents))
 	for i, content := range htmlContents {
 		extractors[i] = p.extractorForBytes(content)
 	}
 
-	return p.runBatch(extractors, config, nil)
+	return p.runBatch(extractors, nil)
 }
 
 // ExtractBatchWithContext extracts content from multiple HTML byte slices concurrently with context support.
@@ -62,13 +59,12 @@ func (p *Processor) ExtractBatchWithContext(ctx context.Context, htmlContents []
 		return &BatchResult{Results: []*Result{}, Errors: []error{}}
 	}
 
-	config := p.getExtractConfig()
 	extractors := make([]extractFunc, len(htmlContents))
 	for i, content := range htmlContents {
 		extractors[i] = p.extractorForBytes(content)
 	}
 
-	return p.runBatchWithContext(ctx, extractors, config)
+	return p.runBatchWithContext(ctx, extractors)
 }
 
 // ExtractBatchFiles extracts content from multiple HTML files concurrently.
@@ -84,13 +80,12 @@ func (p *Processor) ExtractBatchFiles(filePaths []string) ([]*Result, error) {
 		return []*Result{}, nil
 	}
 
-	config := p.getExtractConfig()
 	extractors := make([]extractFunc, len(filePaths))
 	for i, path := range filePaths {
 		extractors[i] = p.extractorForFile(path)
 	}
 
-	return p.runBatch(extractors, config, filePaths)
+	return p.runBatch(extractors, filePaths)
 }
 
 // ExtractBatchFilesWithContext extracts content from multiple HTML files concurrently with context support.
@@ -106,31 +101,34 @@ func (p *Processor) ExtractBatchFilesWithContext(ctx context.Context, filePaths 
 		return &BatchResult{Results: []*Result{}, Errors: []error{}}
 	}
 
-	config := p.getExtractConfig()
 	extractors := make([]extractFunc, len(filePaths))
 	for i, path := range filePaths {
 		extractors[i] = p.extractorForFile(path)
 	}
 
-	return p.runBatchWithContext(ctx, extractors, config)
+	return p.runBatchWithContext(ctx, extractors)
 }
 
 // extractorForBytes creates an extractFunc for byte slice input.
 func (p *Processor) extractorForBytes(htmlBytes []byte) extractFunc {
-	return func(config ExtractConfig) (*Result, error) {
-		return p.extractWithConfig(htmlBytes, config)
+	return func() (*Result, error) {
+		return p.extractInternal(htmlBytes)
 	}
 }
 
 // extractorForFile creates an extractFunc for file path input.
 func (p *Processor) extractorForFile(filePath string) extractFunc {
-	return func(config ExtractConfig) (*Result, error) {
-		return p.extractFromFileWithConfig(filePath, config)
+	return func() (*Result, error) {
+		data, err := p.validateAndReadFile(filePath)
+		if err != nil {
+			return nil, err
+		}
+		return p.extractInternal(data)
 	}
 }
 
 // runBatch executes a batch of extractions concurrently without context.
-func (p *Processor) runBatch(extractors []extractFunc, config ExtractConfig, names []string) ([]*Result, error) {
+func (p *Processor) runBatch(extractors []extractFunc, names []string) ([]*Result, error) {
 	results := make([]*Result, len(extractors))
 	errs := make([]error, len(extractors))
 	sem := make(chan struct{}, p.config.WorkerPoolSize)
@@ -150,7 +148,7 @@ func (p *Processor) runBatch(extractors []extractFunc, config ExtractConfig, nam
 				wg.Done()
 			}()
 
-			results[idx], errs[idx] = extract(config)
+			results[idx], errs[idx] = extract()
 		}(i, extractor)
 	}
 
@@ -159,7 +157,7 @@ func (p *Processor) runBatch(extractors []extractFunc, config ExtractConfig, nam
 }
 
 // runBatchWithContext executes a batch of extractions concurrently with context support.
-func (p *Processor) runBatchWithContext(ctx context.Context, extractors []extractFunc, config ExtractConfig) *BatchResult {
+func (p *Processor) runBatchWithContext(ctx context.Context, extractors []extractFunc) *BatchResult {
 	br := &BatchResult{
 		Results: make([]*Result, len(extractors)),
 		Errors:  make([]error, len(extractors)),
@@ -216,7 +214,7 @@ func (p *Processor) runBatchWithContext(ctx context.Context, extractors []extrac
 			default:
 			}
 
-			result, err := extract(config)
+			result, err := extract()
 			mu.Lock()
 			defer mu.Unlock()
 
@@ -247,36 +245,31 @@ func (p *Processor) closedBatchResult(count int) *BatchResult {
 	return br
 }
 
-// extractWithConfig extracts content using the provided config (internal helper for batch operations).
-func (p *Processor) extractWithConfig(htmlBytes []byte, config ExtractConfig) (*Result, error) {
-	// Use the internal extraction logic directly with the provided config
-	return p.extractInternal(htmlBytes, config)
-}
+// extractInternal performs the actual extraction using the processor's config.
+// This method is used by batch processing to avoid the overhead of full Extract.
+func (p *Processor) extractInternal(htmlBytes []byte) (*Result, error) {
+	// Validate processor state and input size
+	if err := p.validateInput(htmlBytes); err != nil {
+		return nil, err
+	}
 
-// extractFromFileWithConfig extracts content from file using the provided config (internal helper for batch operations).
-func (p *Processor) extractFromFileWithConfig(filePath string, config ExtractConfig) (*Result, error) {
-	data, err := p.validateAndReadFile(filePath)
+	startTime := now()
+
+	utf8String, err := p.detectEncoding(htmlBytes)
 	if err != nil {
 		return nil, err
 	}
 
-	return p.extractInternal(data, config)
-}
-
-// extractInternal performs the actual extraction with the given config.
-func (p *Processor) extractInternal(htmlBytes []byte, config ExtractConfig) (*Result, error) {
-	if p == nil || p.closed.Load() {
-		return nil, ErrProcessorClosed
+	result, err := p.processContent(utf8String)
+	if err != nil {
+		p.stats.errorCount.Add(1)
+		return nil, err
 	}
 
-	if len(htmlBytes) > p.config.MaxInputSize {
-		return nil, fmt.Errorf("%w: size=%d, max=%d", ErrInputTooLarge, len(htmlBytes), p.config.MaxInputSize)
-	}
+	// Update statistics
+	processingTime := since(startTime)
+	p.stats.totalProcessTime.Add(int64(processingTime))
+	p.stats.totalProcessed.Add(1)
 
-	utf8String, _, convErr := internal.DetectAndConvertToUTF8String(htmlBytes, config.Encoding)
-	if convErr != nil {
-		return nil, fmt.Errorf("encoding detection failed: %w", convErr)
-	}
-
-	return p.processContent(utf8String, config)
+	return result, nil
 }

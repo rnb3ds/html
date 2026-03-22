@@ -92,9 +92,9 @@ func main() {
 
 	// Batch processing with worker pool
 	fmt.Println("Batch (worker pool):")
-	batchConfig := html.DefaultConfig()
-	batchConfig.WorkerPoolSize = 4
-	batchProcessor, _ := html.New(batchConfig)
+	batchCfg := html.DefaultConfig()
+	batchCfg.WorkerPoolSize = 4
+	batchProcessor, _ := html.New(batchCfg)
 	defer batchProcessor.Close()
 
 	start = time.Now()
@@ -171,20 +171,20 @@ func main() {
 	fmt.Println("6. Configuration Tuning")
 	fmt.Println("-----------------------")
 
-	perfConfig := html.DefaultConfig()
-	perfConfig.MaxCacheEntries = 5000     // More cache for repeated content
-	perfConfig.CacheTTL = 2 * time.Hour   // Longer TTL for stable content
-	perfConfig.WorkerPoolSize = 8         // Match CPU cores for CPU-bound work
-	perfConfig.CacheCleanup = time.Minute // Frequent cleanup for memory efficiency
+	perfCfg := html.DefaultConfig()
+	perfCfg.MaxCacheEntries = 5000     // More cache for repeated content
+	perfCfg.CacheTTL = 2 * time.Hour   // Longer TTL for stable content
+	perfCfg.WorkerPoolSize = 8         // Match CPU cores for CPU-bound work
+	perfCfg.CacheCleanup = time.Minute // Frequent cleanup for memory efficiency
 
-	perfProcessor, _ := html.New(perfConfig)
+	perfProcessor, _ := html.New(perfCfg)
 	defer perfProcessor.Close()
 
 	fmt.Println("Performance-optimized config:")
-	fmt.Printf("  MaxCacheEntries: %d\n", perfConfig.MaxCacheEntries)
-	fmt.Printf("  CacheTTL: %v\n", perfConfig.CacheTTL)
-	fmt.Printf("  WorkerPoolSize: %d\n", perfConfig.WorkerPoolSize)
-	fmt.Printf("  CacheCleanup: %v\n\n", perfConfig.CacheCleanup)
+	fmt.Printf("  MaxCacheEntries: %d\n", perfCfg.MaxCacheEntries)
+	fmt.Printf("  CacheTTL: %v\n", perfCfg.CacheTTL)
+	fmt.Printf("  WorkerPoolSize: %d\n", perfCfg.WorkerPoolSize)
+	fmt.Printf("  CacheCleanup: %v\n\n", perfCfg.CacheCleanup)
 
 	// ============================================================
 	// 7. Statistics Monitoring

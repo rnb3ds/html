@@ -7,12 +7,10 @@ import (
 // ExtractToMarkdown extracts content from HTML and returns it in Markdown format.
 // The method automatically detects the character encoding (Windows-1252, UTF-8, GBK, Shift_JIS, etc.)
 // from the HTML bytes and converts it to UTF-8 before processing.
-// This method configures the extractor to use markdown format for inline images.
-// It uses the processor's configuration (cache, timeout, etc.) for extraction.
+// This method configures the extractor to use markdown format for inline images and links.
+// Thread-safe: creates a config copy to avoid modifying shared state.
 func (p *Processor) ExtractToMarkdown(htmlBytes []byte) (string, error) {
-	config := p.getExtractConfig()
-	config.InlineImageFormat = "markdown"
-	result, err := p.extractInternal(htmlBytes, config)
+	result, err := p.extractWithFormats(htmlBytes, "markdown", "markdown")
 	if err != nil {
 		return "", err
 	}
@@ -22,12 +20,10 @@ func (p *Processor) ExtractToMarkdown(htmlBytes []byte) (string, error) {
 // ExtractToMarkdownFromFile extracts content from an HTML file and returns it in Markdown format.
 // The method automatically detects the character encoding (Windows-1252, UTF-8, GBK, Shift_JIS, etc.)
 // from the HTML file and converts it to UTF-8 before processing.
-// This method configures the extractor to use markdown format for inline images.
-// It uses the processor's configuration (cache, timeout, etc.) for extraction.
+// This method configures the extractor to use markdown format for inline images and links.
+// Thread-safe: creates a config copy to avoid modifying shared state.
 func (p *Processor) ExtractToMarkdownFromFile(filePath string) (string, error) {
-	config := p.getExtractConfig()
-	config.InlineImageFormat = "markdown"
-	result, err := p.extractFromFileWithConfig(filePath, config)
+	result, err := p.extractFromFileWithFormats(filePath, "markdown", "markdown")
 	if err != nil {
 		return "", err
 	}
@@ -63,102 +59,62 @@ func (p *Processor) ExtractToJSONFromFile(filePath string) ([]byte, error) {
 // ============================================================================
 
 // ExtractToMarkdown extracts content from HTML and returns it in Markdown format.
-// This is a convenience function that creates a temporary Processor with the given configuration.
-// If no configuration is provided, DefaultConfig() is used.
+// This is a convenience function that uses a pooled Processor for efficiency.
 //
-// Example usage:
-//
-//	// Simple usage with default configuration
-//	markdown, err := html.ExtractToMarkdown(htmlBytes)
-//
-//	// With custom configuration
-//	cfg := html.DefaultConfig()
-//	cfg.MaxInputSize = 10 * 1024 * 1024
-//	markdown, err := html.ExtractToMarkdown(htmlBytes, cfg)
-//
-//	// Using preset configuration optimized for Markdown output
-//	markdown, err := html.ExtractToMarkdown(htmlBytes, html.MarkdownConfig())
+// An optional Config can be provided to customize extraction behavior.
+// If no config is provided, DefaultConfig() is used.
 func ExtractToMarkdown(htmlBytes []byte, cfg ...Config) (string, error) {
-	processor, err := New(resolveConfig(cfg...))
+	c := resolveConfig(cfg...)
+	processor, err := getProcessorWithConfig(c)
 	if err != nil {
 		return "", err
 	}
-	defer processor.Close()
+	defer putProcessorWithConfig(processor, c)
 	return processor.ExtractToMarkdown(htmlBytes)
 }
 
 // ExtractToMarkdownFromFile extracts content from an HTML file and returns it in Markdown format.
-// This is a convenience function that creates a temporary Processor with the given configuration.
-// If no configuration is provided, DefaultConfig() is used.
+// This is a convenience function that uses a pooled Processor for efficiency.
 //
-// Example usage:
-//
-//	// Simple usage with default configuration
-//	markdown, err := html.ExtractToMarkdownFromFile("page.html")
-//
-//	// With custom configuration
-//	cfg := html.DefaultConfig()
-//	cfg.MaxInputSize = 10 * 1024 * 1024
-//	markdown, err := html.ExtractToMarkdownFromFile("page.html", cfg)
-//
-//	// Using preset configuration optimized for Markdown output
-//	markdown, err := html.ExtractToMarkdownFromFile("page.html", html.MarkdownConfig())
+// An optional Config can be provided to customize extraction behavior.
+// If no config is provided, DefaultConfig() is used.
 func ExtractToMarkdownFromFile(filePath string, cfg ...Config) (string, error) {
-	processor, err := New(resolveConfig(cfg...))
+	c := resolveConfig(cfg...)
+	processor, err := getProcessorWithConfig(c)
 	if err != nil {
 		return "", err
 	}
-	defer processor.Close()
+	defer putProcessorWithConfig(processor, c)
 	return processor.ExtractToMarkdownFromFile(filePath)
 }
 
 // ExtractToJSON extracts content from HTML and returns it as JSON.
-// This is a convenience function that creates a temporary Processor with the given configuration.
-// If no configuration is provided, DefaultConfig() is used.
+// This is a convenience function that uses a pooled Processor for efficiency.
 //
-// Example usage:
-//
-//	// Simple usage with default configuration
-//	jsonData, err := html.ExtractToJSON(htmlBytes)
-//
-//	// With custom configuration
-//	cfg := html.DefaultConfig()
-//	cfg.MaxInputSize = 10 * 1024 * 1024
-//	jsonData, err := html.ExtractToJSON(htmlBytes, cfg)
-//
-//	// Using preset configuration
-//	jsonData, err := html.ExtractToJSON(htmlBytes, html.TextOnlyConfig())
+// An optional Config can be provided to customize extraction behavior.
+// If no config is provided, DefaultConfig() is used.
 func ExtractToJSON(htmlBytes []byte, cfg ...Config) ([]byte, error) {
-	processor, err := New(resolveConfig(cfg...))
+	c := resolveConfig(cfg...)
+	processor, err := getProcessorWithConfig(c)
 	if err != nil {
 		return nil, err
 	}
-	defer processor.Close()
+	defer putProcessorWithConfig(processor, c)
 	return processor.ExtractToJSON(htmlBytes)
 }
 
 // ExtractToJSONFromFile extracts content from an HTML file and returns it as JSON.
-// This is a convenience function that creates a temporary Processor with the given configuration.
-// If no configuration is provided, DefaultConfig() is used.
+// This is a convenience function that uses a pooled Processor for efficiency.
 //
-// Example usage:
-//
-//	// Simple usage with default configuration
-//	jsonData, err := html.ExtractToJSONFromFile("page.html")
-//
-//	// With custom configuration
-//	cfg := html.DefaultConfig()
-//	cfg.MaxInputSize = 10 * 1024 * 1024
-//	jsonData, err := html.ExtractToJSONFromFile("page.html", cfg)
-//
-//	// Using preset configuration
-//	jsonData, err := html.ExtractToJSONFromFile("page.html", html.TextOnlyConfig())
+// An optional Config can be provided to customize extraction behavior.
+// If no config is provided, DefaultConfig() is used.
 func ExtractToJSONFromFile(filePath string, cfg ...Config) ([]byte, error) {
-	processor, err := New(resolveConfig(cfg...))
+	c := resolveConfig(cfg...)
+	processor, err := getProcessorWithConfig(c)
 	if err != nil {
 		return nil, err
 	}
-	defer processor.Close()
+	defer putProcessorWithConfig(processor, c)
 	return processor.ExtractToJSONFromFile(filePath)
 }
 
@@ -190,4 +146,54 @@ func (r *Result) MarshalJSON() ([]byte, error) {
 		ReadingTimeMS:    r.ReadingTime.Milliseconds(),
 	}
 	return json.Marshal(jr)
+}
+
+// extractWithFormats extracts content using temporary format settings.
+// This creates a config copy to avoid race conditions when modifying format settings.
+func (p *Processor) extractWithFormats(htmlBytes []byte, imageFormat, linkFormat string) (*Result, error) {
+	if p == nil || p.closed.Load() {
+		return nil, ErrProcessorClosed
+	}
+
+	// Create a copy of config with modified format settings
+	p.configMu.Lock()
+	cfg := *p.config // Value copy to avoid race conditions
+	p.configMu.Unlock()
+
+	cfg.InlineImageFormat = imageFormat
+	cfg.InlineLinkFormat = linkFormat
+
+	// Create a temporary processor with the modified config
+	tempP := &Processor{
+		config: &cfg,
+		cache:  p.cache,
+		scorer: p.scorer,
+		audit:  p.audit,
+	}
+
+	return tempP.extractCore(htmlBytes)
+}
+
+// extractFromFileWithFormats extracts content from file using temporary format settings.
+func (p *Processor) extractFromFileWithFormats(filePath, imageFormat, linkFormat string) (*Result, error) {
+	if p == nil || p.closed.Load() {
+		return nil, ErrProcessorClosed
+	}
+
+	data, err := p.validateAndReadFile(filePath)
+	if err != nil {
+		return nil, err
+	}
+
+	return p.extractWithFormats(data, imageFormat, linkFormat)
+}
+
+// extractCore performs extraction without format modification logic.
+// Used by extractWithFormats to avoid recursion through Extract.
+//
+// This method exists as a hook point for potential future extensions
+// where internal extraction might need different behavior than the
+// public Extract method. Currently it delegates directly to Extract.
+func (p *Processor) extractCore(htmlBytes []byte) (*Result, error) {
+	return p.Extract(htmlBytes)
 }

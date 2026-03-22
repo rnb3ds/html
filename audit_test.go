@@ -19,10 +19,10 @@ func TestAuditLoggingEnabled(t *testing.T) {
 	auditConfig.Enabled = true
 	auditConfig.IncludeRawValues = true
 
-	config := html.DefaultConfig()
-	config.Audit = auditConfig
+	cfg := html.DefaultConfig()
+	cfg.Audit = auditConfig
 
-	p, err := html.New(config)
+	p, err := html.New(cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -86,10 +86,10 @@ func TestAuditLoggingDisabled(t *testing.T) {
 	auditConfig := html.DefaultAuditConfig()
 	auditConfig.Enabled = false
 
-	config := html.DefaultConfig()
-	config.Audit = auditConfig
+	cfg := html.DefaultConfig()
+	cfg.Audit = auditConfig
 
-	p, err := html.New(config)
+	p, err := html.New(cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -115,11 +115,11 @@ func TestAuditInputViolation(t *testing.T) {
 	auditConfig := html.DefaultAuditConfig()
 	auditConfig.Enabled = true
 
-	config := html.DefaultConfig()
-	config.MaxInputSize = 1000 // 1KB limit
-	config.Audit = auditConfig
+	cfg := html.DefaultConfig()
+	cfg.MaxInputSize = 1000 // 1KB limit
+	cfg.Audit = auditConfig
 
-	p, err := html.New(config)
+	p, err := html.New(cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -159,10 +159,10 @@ func TestAuditPathTraversal(t *testing.T) {
 	auditConfig := html.DefaultAuditConfig()
 	auditConfig.Enabled = true
 
-	config := html.DefaultConfig()
-	config.Audit = auditConfig
+	cfg := html.DefaultConfig()
+	cfg.Audit = auditConfig
 
-	p, err := html.New(config)
+	p, err := html.New(cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -234,10 +234,10 @@ func TestAuditRawValueTruncation(t *testing.T) {
 	auditConfig.IncludeRawValues = true
 	auditConfig.MaxRawValueLength = 50
 
-	config := html.DefaultConfig()
-	config.Audit = auditConfig
+	cfg := html.DefaultConfig()
+	cfg.Audit = auditConfig
 
-	p, err := html.New(config)
+	p, err := html.New(cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -270,10 +270,10 @@ func TestAuditExcludeRawValues(t *testing.T) {
 	auditConfig.Enabled = true
 	auditConfig.IncludeRawValues = false
 
-	config := html.DefaultConfig()
-	config.Audit = auditConfig
+	cfg := html.DefaultConfig()
+	cfg.Audit = auditConfig
 
-	p, err := html.New(config)
+	p, err := html.New(cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -296,13 +296,10 @@ func TestAuditExcludeRawValues(t *testing.T) {
 	}
 }
 
-// TestLoggerAuditSink tests the logger audit sink
-func TestLoggerAuditSink(t *testing.T) {
+// TestAuditSinks tests all audit sink implementations
+// Consolidates Logger, Writer, and Channel sink tests into a single table-driven test
+func TestAuditSinks(t *testing.T) {
 	t.Parallel()
-
-	var buf bytes.Buffer
-	sink := html.NewLoggerAuditSinkWithWriter(&buf)
-	defer sink.Close()
 
 	entry := html.AuditEntry{
 		Timestamp: time.Now(),
@@ -312,65 +309,85 @@ func TestLoggerAuditSink(t *testing.T) {
 		Tag:       "script",
 	}
 
-	sink.Write(entry)
-
-	output := buf.String()
-	if !strings.Contains(output, "Test message") {
-		t.Errorf("Expected output to contain message, got: %s", output)
+	tests := []struct {
+		name       string
+		create     func() (html.AuditSink, func() string)
+		validate   func(t *testing.T, output string)
+		needsClose bool
+	}{
+		{
+			name: "LoggerSink",
+			create: func() (html.AuditSink, func() string) {
+				var buf bytes.Buffer
+				sink := html.NewLoggerAuditSinkWithWriter(&buf)
+				return sink, buf.String
+			},
+			validate: func(t *testing.T, output string) {
+				if !strings.Contains(output, "Test message") {
+					t.Errorf("Expected output to contain message, got: %s", output)
+				}
+			},
+			needsClose: true,
+		},
+		{
+			name: "WriterSink",
+			create: func() (html.AuditSink, func() string) {
+				var buf bytes.Buffer
+				sink := html.NewWriterAuditSink(&buf)
+				return sink, buf.String
+			},
+			validate: func(t *testing.T, output string) {
+				if output == "" {
+					t.Error("Expected output from writer sink")
+				}
+				var decoded html.AuditEntry
+				if err := json.Unmarshal([]byte(output), &decoded); err != nil {
+					t.Errorf("Output should be valid JSON: %v", err)
+				}
+			},
+			needsClose: false,
+		},
+		{
+			name: "ChannelSink",
+			create: func() (html.AuditSink, func() string) {
+				sink := html.NewChannelAuditSink(10)
+				result := make(chan string, 1)
+				go func() {
+					select {
+					case received := <-sink.Channel():
+						result <- received.Message
+					case <-time.After(time.Second):
+						result <- "timeout"
+					}
+				}()
+				return sink, func() string {
+					select {
+					case r := <-result:
+						return r
+					case <-time.After(100 * time.Millisecond):
+						return ""
+					}
+				}
+			},
+			validate: func(t *testing.T, output string) {
+				if output != entry.Message {
+					t.Errorf("Expected message '%s', got '%s'", entry.Message, output)
+				}
+			},
+			needsClose: true,
+		},
 	}
-}
 
-// TestWriterAuditSink tests the writer audit sink
-func TestWriterAuditSink(t *testing.T) {
-	t.Parallel()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sink, getOutput := tt.create()
+			if tt.needsClose {
+				defer sink.Close()
+			}
 
-	var buf bytes.Buffer
-	sink := html.NewWriterAuditSink(&buf)
-
-	entry := html.AuditEntry{
-		Timestamp: time.Now(),
-		EventType: html.AuditEventBlockedTag,
-		Level:     html.AuditLevelWarning,
-		Message:   "Test message",
-	}
-
-	sink.Write(entry)
-
-	output := buf.String()
-	if output == "" {
-		t.Error("Expected output from writer sink")
-	}
-
-	// Verify it's valid JSON
-	var decoded html.AuditEntry
-	if err := json.Unmarshal([]byte(output), &decoded); err != nil {
-		t.Errorf("Output should be valid JSON: %v", err)
-	}
-}
-
-// TestChannelAuditSink tests the channel audit sink
-func TestChannelAuditSink(t *testing.T) {
-	t.Parallel()
-
-	sink := html.NewChannelAuditSink(10)
-	defer sink.Close()
-
-	entry := html.AuditEntry{
-		Timestamp: time.Now(),
-		EventType: html.AuditEventBlockedTag,
-		Level:     html.AuditLevelWarning,
-		Message:   "Test message",
-	}
-
-	sink.Write(entry)
-
-	select {
-	case received := <-sink.Channel():
-		if received.Message != entry.Message {
-			t.Errorf("Expected message '%s', got '%s'", entry.Message, received.Message)
-		}
-	case <-time.After(time.Second):
-		t.Error("Expected to receive entry from channel")
+			sink.Write(entry)
+			tt.validate(t, getOutput())
+		})
 	}
 }
 
@@ -592,21 +609,21 @@ func TestFilteredSink(t *testing.T) {
 func TestHighSecurityConfigAudit(t *testing.T) {
 	t.Parallel()
 
-	config := html.HighSecurityConfig()
+	cfg := html.HighSecurityConfig()
 
-	if !config.Audit.Enabled {
+	if !cfg.Audit.Enabled {
 		t.Error("HighSecurityConfig should have audit enabled")
 	}
-	if !config.Audit.LogBlockedTags {
+	if !cfg.Audit.LogBlockedTags {
 		t.Error("HighSecurityConfig should log blocked tags")
 	}
-	if !config.Audit.LogBlockedAttrs {
+	if !cfg.Audit.LogBlockedAttrs {
 		t.Error("HighSecurityConfig should log blocked attributes")
 	}
-	if !config.Audit.LogBlockedURLs {
+	if !cfg.Audit.LogBlockedURLs {
 		t.Error("HighSecurityConfig should log blocked URLs")
 	}
-	if !config.Audit.IncludeRawValues {
+	if !cfg.Audit.IncludeRawValues {
 		t.Error("HighSecurityConfig should include raw values for forensics")
 	}
 }
@@ -655,10 +672,10 @@ func TestAuditWithCustomSink(t *testing.T) {
 	auditConfig.Enabled = true
 	auditConfig.Sink = customSink
 
-	config := html.DefaultConfig()
-	config.Audit = auditConfig
+	cfg := html.DefaultConfig()
+	cfg.Audit = auditConfig
 
-	p, err := html.New(config)
+	p, err := html.New(cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -683,9 +700,9 @@ func TestAuditWithCustomSink(t *testing.T) {
 // BenchmarkAuditLogging benchmarks the overhead of audit logging
 func BenchmarkAuditLogging(b *testing.B) {
 	b.Run("disabled", func(b *testing.B) {
-		config := html.DefaultConfig()
-		config.Audit.Enabled = false
-		p, _ := html.New(config)
+		cfg := html.DefaultConfig()
+		cfg.Audit.Enabled = false
+		p, _ := html.New(cfg)
 		defer p.Close()
 
 		htmlContent := []byte(`<html><body><h1>Test</h1><p>Content</p></body></html>`)
@@ -697,9 +714,9 @@ func BenchmarkAuditLogging(b *testing.B) {
 	})
 
 	b.Run("enabled", func(b *testing.B) {
-		config := html.DefaultConfig()
-		config.Audit.Enabled = true
-		p, _ := html.New(config)
+		cfg := html.DefaultConfig()
+		cfg.Audit.Enabled = true
+		p, _ := html.New(cfg)
 		defer p.Close()
 
 		htmlContent := []byte(`<html><body><h1>Test</h1><p>Content</p></body></html>`)
@@ -712,9 +729,9 @@ func BenchmarkAuditLogging(b *testing.B) {
 	})
 
 	b.Run("enabled_with_xss", func(b *testing.B) {
-		config := html.DefaultConfig()
-		config.Audit.Enabled = true
-		p, _ := html.New(config)
+		cfg := html.DefaultConfig()
+		cfg.Audit.Enabled = true
+		p, _ := html.New(cfg)
 		defer p.Close()
 
 		htmlContent := []byte(`<html><body><script>alert(1)</script><p>Content</p></body></html>`)
@@ -916,9 +933,9 @@ func TestClearAuditLog(t *testing.T) {
 		auditConfig := html.DefaultAuditConfig()
 		auditConfig.Enabled = true
 
-		config := html.DefaultConfig()
-		config.Audit = auditConfig
-		p, err := html.New(config)
+		cfg := html.DefaultConfig()
+		cfg.Audit = auditConfig
+		p, err := html.New(cfg)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -951,9 +968,9 @@ func TestClearAuditLog(t *testing.T) {
 		auditConfig := html.DefaultAuditConfig()
 		auditConfig.Enabled = true
 
-		config := html.DefaultConfig()
-		config.Audit = auditConfig
-		p, _ := html.New(config)
+		cfg := html.DefaultConfig()
+		cfg.Audit = auditConfig
+		p, _ := html.New(cfg)
 		defer p.Close()
 
 		// First extraction
@@ -966,6 +983,274 @@ func TestClearAuditLog(t *testing.T) {
 		entries := p.GetAuditLog()
 		if len(entries) == 0 {
 			t.Error("Expected new audit entries after clear")
+		}
+	})
+}
+
+// TestRecordBlockedAttrDisabled tests RecordBlockedAttr when disabled.
+func TestRecordBlockedAttrDisabled(t *testing.T) {
+	t.Parallel()
+
+	t.Run("LogBlockedAttrs disabled does not record", func(t *testing.T) {
+		config := html.DefaultAuditConfig()
+		config.Enabled = true
+		config.LogBlockedAttrs = false
+		collector := html.NewAuditCollector(config)
+		defer collector.Close()
+
+		collector.RecordBlockedAttr("onclick", "alert(1)")
+
+		entries := collector.GetEntries()
+		if len(entries) != 0 {
+			t.Errorf("Expected 0 entries when LogBlockedAttrs disabled, got %d", len(entries))
+		}
+	})
+
+	t.Run("nil collector handles gracefully", func(t *testing.T) {
+		var collector *html.AuditCollector
+		// Should not panic
+		collector.RecordBlockedAttr("onclick", "alert(1)")
+	})
+}
+
+// TestRecordBlockedURLDisabled tests RecordBlockedURL when disabled.
+func TestRecordBlockedURLDisabled(t *testing.T) {
+	t.Parallel()
+
+	t.Run("LogBlockedURLs disabled does not record", func(t *testing.T) {
+		config := html.DefaultAuditConfig()
+		config.Enabled = true
+		config.LogBlockedURLs = false
+		collector := html.NewAuditCollector(config)
+		defer collector.Close()
+
+		collector.RecordBlockedURL("javascript:alert(1)", "javascript scheme")
+
+		entries := collector.GetEntries()
+		if len(entries) != 0 {
+			t.Errorf("Expected 0 entries when LogBlockedURLs disabled, got %d", len(entries))
+		}
+	})
+
+	t.Run("nil collector handles gracefully", func(t *testing.T) {
+		var collector *html.AuditCollector
+		// Should not panic
+		collector.RecordBlockedURL("javascript:alert(1)", "javascript scheme")
+	})
+}
+
+// TestRecordDepthViolation tests RecordDepthViolation method.
+func TestRecordDepthViolation(t *testing.T) {
+	t.Parallel()
+
+	t.Run("records depth violation event", func(t *testing.T) {
+		config := html.HighSecurityAuditConfig()
+		config.LogDepthViolations = true
+		collector := html.NewAuditCollector(config)
+		defer collector.Close()
+
+		collector.RecordDepthViolation(150, 100)
+
+		entries := collector.GetEntries()
+		if len(entries) != 1 {
+			t.Fatalf("Expected 1 entry, got %d", len(entries))
+		}
+
+		if entries[0].EventType != html.AuditEventDepthViolation {
+			t.Errorf("Expected EventType %s, got %s", html.AuditEventDepthViolation, entries[0].EventType)
+		}
+		if entries[0].Depth != 150 {
+			t.Errorf("Expected Depth 150, got %d", entries[0].Depth)
+		}
+		if entries[0].MaxDepth != 100 {
+			t.Errorf("Expected MaxDepth 100, got %d", entries[0].MaxDepth)
+		}
+	})
+
+	t.Run("LogDepthViolations disabled does not record", func(t *testing.T) {
+		config := html.DefaultAuditConfig()
+		config.Enabled = true
+		config.LogDepthViolations = false
+		collector := html.NewAuditCollector(config)
+		defer collector.Close()
+
+		collector.RecordDepthViolation(150, 100)
+
+		entries := collector.GetEntries()
+		if len(entries) != 0 {
+			t.Errorf("Expected 0 entries when LogDepthViolations disabled, got %d", len(entries))
+		}
+	})
+
+	t.Run("nil collector handles gracefully", func(t *testing.T) {
+		var collector *html.AuditCollector
+		// Should not panic
+		collector.RecordDepthViolation(150, 100)
+	})
+
+	t.Run("disabled audit does not record", func(t *testing.T) {
+		config := html.DefaultAuditConfig()
+		config.Enabled = false
+		config.LogDepthViolations = true
+		collector := html.NewAuditCollector(config)
+		defer collector.Close()
+
+		collector.RecordDepthViolation(150, 100)
+
+		entries := collector.GetEntries()
+		if len(entries) != 0 {
+			t.Errorf("Expected 0 entries when disabled, got %d", len(entries))
+		}
+	})
+}
+
+// TestRecordTimeout tests RecordTimeout method.
+func TestRecordTimeout(t *testing.T) {
+	t.Parallel()
+
+	t.Run("records timeout event", func(t *testing.T) {
+		config := html.HighSecurityAuditConfig()
+		config.LogTimeouts = true
+		collector := html.NewAuditCollector(config)
+		defer collector.Close()
+
+		collector.RecordTimeout(5 * time.Second)
+
+		entries := collector.GetEntries()
+		if len(entries) != 1 {
+			t.Fatalf("Expected 1 entry, got %d", len(entries))
+		}
+
+		if entries[0].EventType != html.AuditEventTimeout {
+			t.Errorf("Expected EventType %s, got %s", html.AuditEventTimeout, entries[0].EventType)
+		}
+		if entries[0].Level != html.AuditLevelWarning {
+			t.Errorf("Expected Level %s, got %s", html.AuditLevelWarning, entries[0].Level)
+		}
+	})
+
+	t.Run("LogTimeouts disabled does not record", func(t *testing.T) {
+		config := html.DefaultAuditConfig()
+		config.Enabled = true
+		config.LogTimeouts = false
+		collector := html.NewAuditCollector(config)
+		defer collector.Close()
+
+		collector.RecordTimeout(5 * time.Second)
+
+		entries := collector.GetEntries()
+		if len(entries) != 0 {
+			t.Errorf("Expected 0 entries when LogTimeouts disabled, got %d", len(entries))
+		}
+	})
+
+	t.Run("nil collector handles gracefully", func(t *testing.T) {
+		var collector *html.AuditCollector
+		// Should not panic
+		collector.RecordTimeout(5 * time.Second)
+	})
+
+	t.Run("disabled audit does not record", func(t *testing.T) {
+		config := html.DefaultAuditConfig()
+		config.Enabled = false
+		config.LogTimeouts = true
+		collector := html.NewAuditCollector(config)
+		defer collector.Close()
+
+		collector.RecordTimeout(5 * time.Second)
+
+		entries := collector.GetEntries()
+		if len(entries) != 0 {
+			t.Errorf("Expected 0 entries when disabled, got %d", len(entries))
+		}
+	})
+}
+
+// TestMultiSinkClose tests MultiSink Close method edge cases.
+func TestMultiSinkClose(t *testing.T) {
+	t.Parallel()
+
+	t.Run("close with nil sinks", func(t *testing.T) {
+		multi := html.NewMultiSink(nil, nil)
+		err := multi.Close()
+		if err != nil {
+			t.Errorf("Close() returned error: %v", err)
+		}
+	})
+
+	t.Run("close with mixed nil and valid sinks", func(t *testing.T) {
+		var buf bytes.Buffer
+		sink := html.NewWriterAuditSink(&buf)
+		multi := html.NewMultiSink(nil, sink, nil)
+
+		err := multi.Close()
+		if err != nil {
+			t.Errorf("Close() returned error: %v", err)
+		}
+	})
+}
+
+// TestLevelFilteredSinkClose tests LevelFilteredSink Close method edge cases.
+func TestLevelFilteredSinkClose(t *testing.T) {
+	t.Parallel()
+
+	t.Run("close with nil sink", func(t *testing.T) {
+		filtered := html.NewLevelFilteredSink(nil, html.AuditLevelWarning)
+		err := filtered.Close()
+		if err != nil {
+			t.Errorf("Close() with nil sink returned error: %v", err)
+		}
+	})
+}
+
+// TestLoggerAuditSinkWriteEdgeCases tests LoggerAuditSink Write edge cases.
+func TestLoggerAuditSinkWriteEdgeCases(t *testing.T) {
+	t.Parallel()
+
+	t.Run("write with empty message", func(t *testing.T) {
+		var buf bytes.Buffer
+		sink := html.NewLoggerAuditSinkWithWriter(&buf)
+
+		entry := html.AuditEntry{
+			Timestamp: time.Now(),
+			EventType: html.AuditEventBlockedTag,
+			Message:   "",
+		}
+
+		sink.Write(entry)
+		// Should still log something even with empty message
+		if buf.String() == "" {
+			t.Error("Expected some output even with empty message")
+		}
+	})
+}
+
+// TestWriterAuditSinkWriteEdgeCases tests WriterAuditSink Write edge cases.
+func TestWriterAuditSinkWriteEdgeCases(t *testing.T) {
+	t.Parallel()
+
+	t.Run("write with complex metadata", func(t *testing.T) {
+		var buf bytes.Buffer
+		sink := html.NewWriterAuditSink(&buf)
+
+		entry := html.AuditEntry{
+			Timestamp: time.Now(),
+			EventType: html.AuditEventBlockedTag,
+			Message:   "Test",
+			Metadata: map[string]any{
+				"string": "value",
+				"number": 123,
+				"bool":   true,
+				"nested": map[string]any{"key": "value"},
+			},
+		}
+
+		sink.Write(entry)
+
+		// Verify JSON is valid
+		var decoded html.AuditEntry
+		if err := json.Unmarshal(buf.Bytes(), &decoded); err != nil {
+			t.Errorf("Output should be valid JSON: %v", err)
 		}
 	})
 }

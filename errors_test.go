@@ -222,80 +222,38 @@ func TestNewFileErrorPathVariants(t *testing.T) {
 	}
 }
 
+// TestSentinelErrors verifies all sentinel errors exist and have meaningful messages
 func TestSentinelErrors(t *testing.T) {
 	t.Parallel()
 
-	t.Run("ErrInputTooLarge", func(t *testing.T) {
-		if html.ErrInputTooLarge == nil {
-			t.Error("ErrInputTooLarge should not be nil")
-		}
-		if html.ErrInputTooLarge.Error() == "" {
-			t.Error("ErrInputTooLarge should have a message")
-		}
-	})
+	sentinelErrors := []struct {
+		name string
+		err  error
+		msg  string // Expected substring in error message
+	}{
+		{"ErrInputTooLarge", html.ErrInputTooLarge, "input"},
+		{"ErrInvalidHTML", html.ErrInvalidHTML, "invalid"},
+		{"ErrProcessorClosed", html.ErrProcessorClosed, "closed"},
+		{"ErrMaxDepthExceeded", html.ErrMaxDepthExceeded, "depth"},
+		{"ErrInvalidConfig", html.ErrInvalidConfig, "config"},
+		{"ErrProcessingTimeout", html.ErrProcessingTimeout, "timeout"},
+		{"ErrFileNotFound", html.ErrFileNotFound, "not found"},
+		{"ErrInvalidFilePath", html.ErrInvalidFilePath, "path"},
+	}
 
-	t.Run("ErrInvalidHTML", func(t *testing.T) {
-		if html.ErrInvalidHTML == nil {
-			t.Error("ErrInvalidHTML should not be nil")
-		}
-		if html.ErrInvalidHTML.Error() == "" {
-			t.Error("ErrInvalidHTML should have a message")
-		}
-	})
-
-	t.Run("ErrProcessorClosed", func(t *testing.T) {
-		if html.ErrProcessorClosed == nil {
-			t.Error("ErrProcessorClosed should not be nil")
-		}
-		if html.ErrProcessorClosed.Error() == "" {
-			t.Error("ErrProcessorClosed should have a message")
-		}
-	})
-
-	t.Run("ErrMaxDepthExceeded", func(t *testing.T) {
-		if html.ErrMaxDepthExceeded == nil {
-			t.Error("ErrMaxDepthExceeded should not be nil")
-		}
-		if html.ErrMaxDepthExceeded.Error() == "" {
-			t.Error("ErrMaxDepthExceeded should have a message")
-		}
-	})
-
-	t.Run("ErrInvalidConfig", func(t *testing.T) {
-		if html.ErrInvalidConfig == nil {
-			t.Error("ErrInvalidConfig should not be nil")
-		}
-		if html.ErrInvalidConfig.Error() == "" {
-			t.Error("ErrInvalidConfig should have a message")
-		}
-	})
-
-	t.Run("ErrProcessingTimeout", func(t *testing.T) {
-		if html.ErrProcessingTimeout == nil {
-			t.Error("ErrProcessingTimeout should not be nil")
-		}
-		if html.ErrProcessingTimeout.Error() == "" {
-			t.Error("ErrProcessingTimeout should have a message")
-		}
-	})
-
-	t.Run("ErrFileNotFound", func(t *testing.T) {
-		if html.ErrFileNotFound == nil {
-			t.Error("ErrFileNotFound should not be nil")
-		}
-		if html.ErrFileNotFound.Error() == "" {
-			t.Error("ErrFileNotFound should have a message")
-		}
-	})
-
-	t.Run("ErrInvalidFilePath", func(t *testing.T) {
-		if html.ErrInvalidFilePath == nil {
-			t.Error("ErrInvalidFilePath should not be nil")
-		}
-		if html.ErrInvalidFilePath.Error() == "" {
-			t.Error("ErrInvalidFilePath should have a message")
-		}
-	})
+	for _, tt := range sentinelErrors {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.err == nil {
+				t.Errorf("%s should not be nil", tt.name)
+			}
+			if tt.err.Error() == "" {
+				t.Errorf("%s should have a message", tt.name)
+			}
+			if !strings.Contains(tt.err.Error(), tt.msg) {
+				t.Errorf("%s message should contain %q, got %q", tt.name, tt.msg, tt.err.Error())
+			}
+		})
+	}
 }
 
 func TestErrorIsUsage(t *testing.T) {

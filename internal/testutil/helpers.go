@@ -4,7 +4,10 @@ package testutil
 import (
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
+
+	"github.com/cybergodev/html"
 )
 
 // CreateTempHTML creates a temporary HTML file with the given content.
@@ -12,12 +15,6 @@ import (
 func CreateTempHTML(t *testing.T, content string) string {
 	t.Helper()
 	return CreateTempHTMLWithEncoding(t, []byte(content), "test_*.html")
-}
-
-// CreateTempHTMLWithName creates a temporary HTML file with a specific name pattern.
-func CreateTempHTMLWithName(t *testing.T, content string, namePattern string) string {
-	t.Helper()
-	return CreateTempHTMLWithEncoding(t, []byte(content), namePattern)
 }
 
 // CreateTempHTMLWithEncoding creates a temporary HTML file with specific encoding bytes.
@@ -104,12 +101,28 @@ func AssertFalse(t *testing.T, condition bool, msg string) {
 	}
 }
 
-// AssertLen asserts that the slice/map has the expected length.
-func AssertLen[T any](t *testing.T, slice []T, want int, msg string) {
+// NewTestProcessor creates a Processor for testing with automatic cleanup.
+// If no config is provided, uses DefaultConfig().
+func NewTestProcessor(t *testing.T, cfg ...html.Config) *html.Processor {
 	t.Helper()
-	if got := len(slice); got != want {
-		t.Errorf("%s: got length %d, want %d", msg, got, want)
+
+	var c html.Config
+	if len(cfg) > 0 {
+		c = cfg[0]
+	} else {
+		c = html.DefaultConfig()
 	}
+
+	p, err := html.New(c)
+	if err != nil {
+		t.Fatalf("Failed to create processor: %v", err)
+	}
+
+	t.Cleanup(func() {
+		p.Close()
+	})
+
+	return p
 }
 
 // containsString is a helper to check if s contains substr.
@@ -126,6 +139,47 @@ func findSubstring(s, substr string) bool {
 		}
 	}
 	return false
+}
+
+// CreateBatchTempFiles creates multiple temporary HTML files for batch testing.
+// Returns slice of file paths. Files are automatically cleaned up after the test.
+func CreateBatchTempFiles(t *testing.T, contents []string) []string {
+	t.Helper()
+
+	tmpDir := t.TempDir()
+	files := make([]string, len(contents))
+
+	for i, content := range contents {
+		files[i] = filepath.Join(tmpDir, "file_"+string(rune('A'+i%26))+".html")
+		if err := os.WriteFile(files[i], []byte(content), 0644); err != nil {
+			t.Fatalf("Failed to create temp file %d: %v", i, err)
+		}
+	}
+
+	return files
+}
+
+// RunConcurrent executes fn concurrently n times, collecting any errors.
+// Returns a slice of errors from each goroutine (nil if successful).
+func RunConcurrent(n int, fn func(int) error) []error {
+	var wg sync.WaitGroup
+	errs := make([]error, n)
+	var errsMu sync.Mutex
+
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			if err := fn(idx); err != nil {
+				errsMu.Lock()
+				errs[idx] = err
+				errsMu.Unlock()
+			}
+		}(i)
+	}
+
+	wg.Wait()
+	return errs
 }
 
 // CommonHTMLSnippets contains common HTML test snippets.

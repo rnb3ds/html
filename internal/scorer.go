@@ -190,9 +190,9 @@ func (s *DefaultScorer) Score(node *html.Node) int {
 
 	// Apply content density multiplier
 	contentDensity := calculateDensityFromMetrics(metrics)
-	if contentDensity > 0.7 {
+	if contentDensity > highContentDensityThreshold {
 		score = int(float64(score) * highDensityMultiplier)
-	} else if contentDensity < 0.3 {
+	} else if contentDensity < lowContentDensityThreshold {
 		score = int(float64(score) * lowDensityMultiplier)
 	}
 
@@ -299,8 +299,8 @@ func (s *DefaultScorer) scoreAttributes(n *html.Node) int {
 }
 
 // calculatePatternScore calculates score based on pattern matching.
-// Optimized with prefix filtering to only check patterns whose first character
-// appears in the value string, reducing unnecessary pattern matching.
+// Optimized with a fixed-size array instead of map allocation for valueChars,
+// and prefix filtering to only check patterns whose first character appears in value.
 func (s *DefaultScorer) calculatePatternScore(value string, patterns map[string]int) int {
 	if len(value) == 0 || len(patterns) == 0 {
 		return 0
@@ -308,8 +308,10 @@ func (s *DefaultScorer) calculatePatternScore(value string, patterns map[string]
 
 	score := 0
 
-	// Build a set of unique first characters in the value (lowercase)
-	valueChars := make(map[byte]bool)
+	// Use a fixed-size array instead of map allocation
+	// This avoids heap allocation and is cache-friendly
+	var valueChars [128]bool // Covers ASCII alphanumeric range
+
 	for i := 0; i < len(value); i++ {
 		c := value[i]
 		// Convert to lowercase for case-insensitive matching
@@ -323,7 +325,10 @@ func (s *DefaultScorer) calculatePatternScore(value string, patterns map[string]
 	}
 
 	// Only check patterns whose first character appears in value
-	for char := range valueChars {
+	for char := byte(0); char < 128; char++ {
+		if !valueChars[char] {
+			continue
+		}
 		if candidates, ok := s.patternPrefixes[char]; ok {
 			for _, ps := range candidates {
 				// Only check patterns that belong to the input patterns map
@@ -345,7 +350,12 @@ var (
 	defaultScorer     *DefaultScorer
 )
 
-// getDefaultScorer returns the global default scorer instance, initializing it lazily.
+// getDefaultScorer returns a shared DefaultScorer instance.
+// This is an optimization for cases where multiple processors use the default
+// scorer, reducing memory allocation by sharing a single instance.
+//
+// Note: This function is currently unused but reserved for future optimization.
+// It may be used when implementing processor pooling or shared scorer instances.
 func getDefaultScorer() *DefaultScorer {
 	defaultScorerOnce.Do(func() {
 		defaultScorer = NewDefaultScorer()

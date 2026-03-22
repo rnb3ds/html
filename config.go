@@ -3,6 +3,7 @@ package html
 import (
 	"fmt"
 	"regexp"
+	"strings"
 	"time"
 )
 
@@ -19,28 +20,49 @@ const (
 
 // Configuration limits - reference Default* constants for consistency
 const (
-	maxConfigInputSize    = DefaultMaxInputSize // Match DefaultMaxInputSize
-	maxConfigWorkerSize   = 256
-	maxConfigDepth        = DefaultMaxDepth // Match DefaultMaxDepth
-	maxConfigCacheEntries = 100000          // Maximum 100K cache entries
+	// maxConfigInputSize limits the maximum allowed MaxInputSize configuration.
+	// This matches DefaultMaxInputSize (50MB) to prevent memory exhaustion.
+	maxConfigInputSize = DefaultMaxInputSize
+
+	// maxConfigWorkerSize limits the maximum worker pool size.
+	// Value 256 prevents excessive goroutine creation while allowing
+	// high-throughput batch processing on powerful machines.
+	maxConfigWorkerSize = 256
+
+	// maxConfigDepth limits the maximum HTML nesting depth.
+	// This matches DefaultMaxDepth (500) to prevent stack overflow.
+	maxConfigDepth = DefaultMaxDepth
+
+	// maxConfigCacheEntries limits the maximum number of cache entries.
+	// Value 100,000 entries ≈ 100MB assuming 1KB average entry size.
+	maxConfigCacheEntries = 100000
 
 	// Processing limits
+	// maxHTMLForRegex limits HTML size for regex-based media URL detection.
+	// Above 1MB, regex operations become slow and could cause ReDoS.
 	maxHTMLForRegex = 1000000
-	maxRegexMatches = 1000
-	maxCacheKeySize = 64 * 1024
-	cacheKeySample  = 4096
 
-	// Buffer size estimates
-	initialTextSize   = 4096
-	initialSliceCap   = 16
-	initialMapCap     = 8
-	imageHTMLBufExtra = 64
-	extractTagCap     = 16
-	linkMapCap        = 64
+	// maxRegexMatches limits the number of regex matches to prevent
+	// excessive memory allocation on HTML with many media URLs.
+	maxRegexMatches = 1000
+
+	// maxCacheKeySize limits the content size used for cache key generation.
+	// For content larger than 64KB, multi-point sampling is used instead.
+	maxCacheKeySize = 64 * 1024
+
+	// cacheKeySample is the sample size for cache key generation on large content.
+	cacheKeySample = 4096
+
+	// Buffer size estimates for pre-allocation
+	initialTextSize   = 4096 // Initial capacity for text builder
+	initialSliceCap   = 16   // Initial capacity for result slices
+	initialMapCap     = 8    // Initial capacity for result maps
+	imageHTMLBufExtra = 64   // Extra buffer for HTML image tag generation
+	extractTagCap     = 16   // Initial capacity for tag attribute extraction
+	linkMapCap        = 64   // Initial capacity for link deduplication map
 
 	// Processing thresholds
-	wordsPerMinute       = 200
-	maxShortStringLength = 32
+	wordsPerMinute = 200 // Average reading speed for reading time estimation
 )
 
 // Pre-compiled regex patterns for media URL detection.
@@ -49,261 +71,208 @@ var (
 	audioRegex = regexp.MustCompile(`(?i)https?://[^\s<>"',;)}\]]{1,500}\.(?:mp3|wav|ogg|m4a|aac|flac|wma|opus|oga)`)
 )
 
-// Config holds the processor configuration.
-// It unifies processor settings, extraction options, and link extraction settings
-// into a single configuration struct for simpler API usage.
+// ============================================================================
+// Flat Configuration Structure
+// ============================================================================
+
+// Config is the unified configuration for the HTML processor.
+// All configuration options are flat for ease of use.
+// Zero-value is not usable; start from DefaultConfig().
+//
+// Example:
+//
+//	cfg := html.DefaultConfig()
+//	cfg.MaxInputSize = 10 * 1024 * 1024
+//	cfg.InlineImageFormat = "markdown"
+//	cfg.IncludeJS = false
+//	processor, err := html.New(cfg)
 type Config struct {
-	// Processor settings
-	MaxInputSize       int
-	MaxCacheEntries    int
-	CacheTTL           time.Duration
-	CacheCleanup       time.Duration // Interval for background cleanup of expired cache entries (0 = disabled)
-	WorkerPoolSize     int
-	EnableSanitization bool
-	MaxDepth           int
-	ProcessingTimeout  time.Duration
-	Audit              AuditConfig
-	Scorer             Scorer `json:"-"` // Optional custom scorer for content extraction
+	// === Resource Management ===
+	MaxInputSize      int           // Maximum HTML input size in bytes. Default: 50MB. Must be positive and <= 50MB.
+	MaxCacheEntries   int           // Maximum number of cache entries. Set to 0 to disable caching. Default: 2000.
+	CacheTTL          time.Duration // Time-to-live for cache entries. Default: 1 hour.
+	CacheCleanup      time.Duration // Interval for background cleanup of expired cache entries. Set to 0 to disable. Default: 5 minutes.
+	WorkerPoolSize    int           // Number of concurrent workers for batch processing. Default: 4. Must be positive and <= 256.
+	ProcessingTimeout time.Duration // Maximum time allowed for processing a single document. Default: 30 seconds. Set to 0 for no timeout.
 
-	// Extraction settings
-	ExtractArticle bool
-	PreserveImages bool
-	PreserveLinks  bool
-	PreserveVideos bool
-	PreserveAudios bool
-	ImageFormat    string // Format for inline images: "none", "markdown", "html", "placeholder"
-	LinkFormat     string // Format for inline links: "none", "markdown", "html"
-	TableFormat    string // Format for tables: "markdown", "html"
-	Encoding       string // Character encoding of input HTML (empty for auto-detection)
+	// === Security ===
+	EnableSanitization bool        // Controls whether HTML sanitization is applied. Default: true. Should only be disabled for trusted input.
+	MaxDepth           int         // Maximum allowed nesting depth of HTML elements. Prevents stack overflow. Default: 500.
+	Audit              AuditConfig // Security audit logging configuration.
 
-	// Link extraction settings
-	LinkExtraction LinkExtractionOptions
+	// === Content Extraction ===
+	ExtractArticle bool // Enables article extraction mode. When true, identifies and extracts main content. Default: true.
+	PreserveImages bool // Controls whether images are preserved in output. Default: true.
+	PreserveLinks  bool // Controls whether links are preserved in output. Default: true.
+	PreserveVideos bool // Controls whether video elements are extracted. Default: true.
+	PreserveAudios bool // Controls whether audio elements are extracted. Default: true.
+
+	// === Output Formats ===
+	InlineImageFormat string // How images are formatted in text output. Options: "none", "markdown", "html", "placeholder". Default: "none".
+	InlineLinkFormat  string // How links are formatted in text output. Options: "none", "markdown", "html". Default: "none".
+	TableFormat       string // How tables are formatted in output. Options: "markdown", "html". Default: "markdown".
+	Encoding          string // Character encoding of input HTML. Leave empty for auto-detection. Common: "utf-8", "windows-1252", "gbk".
+
+	// === Link Extraction ===
+	ResolveRelativeURLs  bool   // Controls whether relative URLs are resolved to absolute URLs. Requires BaseURL. Default: true.
+	BaseURL              string // Base URL for resolving relative URLs. Example: "https://example.com"
+	IncludeImages        bool   // Controls whether image URLs are included in link extraction. Default: true.
+	IncludeVideos        bool   // Controls whether video URLs are included in link extraction. Default: true.
+	IncludeAudios        bool   // Controls whether audio URLs are included in link extraction. Default: true.
+	IncludeCSS           bool   // Controls whether CSS stylesheet URLs are included in link extraction. Default: true.
+	IncludeJS            bool   // Controls whether JavaScript URLs are included in link extraction. Default: true.
+	IncludeContentLinks  bool   // Controls whether content links (a[href]) are included. Default: true.
+	IncludeExternalLinks bool   // Controls whether external links are included. Default: true.
+	IncludeIcons         bool   // Controls whether favicon/icon URLs are included in link extraction. Default: true.
+
+	// === Extension ===
+	Scorer Scorer `json:"-"` // Optional custom scorer for content extraction. If nil, the default scorer is used.
 }
 
-// LinkExtractionOptions holds the link extraction configuration.
-type LinkExtractionOptions struct {
-	ResolveRelativeURLs  bool
-	BaseURL              string
-	IncludeImages        bool
-	IncludeVideos        bool
-	IncludeAudios        bool
-	IncludeCSS           bool
-	IncludeJS            bool
-	IncludeContentLinks  bool
-	IncludeExternalLinks bool
-	IncludeIcons         bool
-}
-
-// DefaultConfig returns the default processor configuration.
+// DefaultConfig returns a Config with all default values.
 func DefaultConfig() Config {
 	return Config{
-		// Processor settings
-		MaxInputSize:       DefaultMaxInputSize,
-		MaxCacheEntries:    DefaultMaxCacheEntries,
-		CacheTTL:           DefaultCacheTTL,
-		CacheCleanup:       DefaultCacheCleanup,
-		WorkerPoolSize:     DefaultWorkerPoolSize,
+		// Resource Management
+		MaxInputSize:      DefaultMaxInputSize,
+		MaxCacheEntries:   DefaultMaxCacheEntries,
+		CacheTTL:          DefaultCacheTTL,
+		CacheCleanup:      DefaultCacheCleanup,
+		WorkerPoolSize:    DefaultWorkerPoolSize,
+		ProcessingTimeout: DefaultProcessingTimeout,
+
+		// Security
 		EnableSanitization: true,
 		MaxDepth:           DefaultMaxDepth,
-		ProcessingTimeout:  DefaultProcessingTimeout,
 		Audit:              DefaultAuditConfig(),
 
-		// Extraction settings
+		// Content Extraction
 		ExtractArticle: true,
 		PreserveImages: true,
 		PreserveLinks:  true,
 		PreserveVideos: true,
 		PreserveAudios: true,
-		ImageFormat:    "none",
-		LinkFormat:     "none",
-		TableFormat:    "markdown",
 
-		// Link extraction settings
-		LinkExtraction: LinkExtractionOptions{
-			ResolveRelativeURLs:  true,
-			IncludeImages:        true,
-			IncludeVideos:        true,
-			IncludeAudios:        true,
-			IncludeCSS:           true,
-			IncludeJS:            true,
-			IncludeContentLinks:  true,
-			IncludeExternalLinks: true,
-			IncludeIcons:         true,
-		},
+		// Output Formats
+		InlineImageFormat: "none",
+		InlineLinkFormat:  "none",
+		TableFormat:       "markdown",
+
+		// Link Extraction
+		ResolveRelativeURLs:  true,
+		IncludeImages:        true,
+		IncludeVideos:        true,
+		IncludeAudios:        true,
+		IncludeCSS:           true,
+		IncludeJS:            true,
+		IncludeContentLinks:  true,
+		IncludeExternalLinks: true,
+		IncludeIcons:         true,
 	}
-}
-
-// HighSecurityConfig returns a configuration optimized for high-security environments.
-// This configuration uses stricter limits to mitigate potential DoS attacks and
-// is recommended for financial, healthcare, and government applications.
-//
-// Security enhancements over DefaultConfig:
-//   - Smaller MaxInputSize (10MB vs 50MB) to limit memory exposure
-//   - Lower MaxDepth (100 vs 500) to prevent deep nesting attacks
-//   - Shorter ProcessingTimeout (10s vs 30s) for faster attack detection
-//   - Fewer cache entries to reduce memory footprint
-//   - Shorter cache TTL and more frequent cleanup
-//   - Audit logging enabled for compliance requirements
-func HighSecurityConfig() Config {
-	return Config{
-		// Processor settings
-		MaxInputSize:       10 * 1024 * 1024, // 10MB - reduced for security
-		MaxCacheEntries:    500,              // Reduced cache size
-		CacheTTL:           30 * time.Minute, // Shorter TTL
-		CacheCleanup:       time.Minute,      // More frequent cleanup
-		WorkerPoolSize:     2,                // Fewer workers for controlled resource usage
-		EnableSanitization: true,             // Always enabled in high-security mode
-		MaxDepth:           100,              // Reduced depth limit
-		ProcessingTimeout:  10 * time.Second, // Shorter timeout
-		Audit:              HighSecurityAuditConfig(),
-
-		// Extraction settings (same as DefaultConfig)
-		ExtractArticle: true,
-		PreserveImages: true,
-		PreserveLinks:  true,
-		PreserveVideos: true,
-		PreserveAudios: true,
-		ImageFormat:    "none",
-		LinkFormat:     "none",
-		TableFormat:    "markdown",
-
-		// Link extraction settings (same as DefaultConfig)
-		LinkExtraction: LinkExtractionOptions{
-			ResolveRelativeURLs:  true,
-			IncludeImages:        true,
-			IncludeVideos:        true,
-			IncludeAudios:        true,
-			IncludeCSS:           true,
-			IncludeJS:            true,
-			IncludeContentLinks:  true,
-			IncludeExternalLinks: true,
-			IncludeIcons:         true,
-		},
-	}
-}
-
-// TextOnlyConfig returns a configuration optimized for plain text extraction.
-// This disables all media preservation (images, links, videos, audios).
-func TextOnlyConfig() Config {
-	cfg := DefaultConfig()
-	cfg.PreserveImages = false
-	cfg.PreserveLinks = false
-	cfg.PreserveVideos = false
-	cfg.PreserveAudios = false
-	return cfg
-}
-
-// MarkdownConfig returns a configuration optimized for Markdown output.
-// This enables markdown format for inline images.
-func MarkdownConfig() Config {
-	cfg := DefaultConfig()
-	cfg.ImageFormat = "markdown"
-	return cfg
 }
 
 // Validate validates the configuration and returns an error if invalid.
 func (c Config) Validate() error {
 	switch {
 	case c.MaxInputSize <= 0:
-		return fmt.Errorf("%w: MaxInputSize must be positive, got %d", ErrInvalidConfig, c.MaxInputSize)
+		return NewConfigError("MaxInputSize", c.MaxInputSize, "must be positive")
 	case c.MaxInputSize > maxConfigInputSize:
-		return fmt.Errorf("%w: MaxInputSize too large (max %d), got %d", ErrInvalidConfig, maxConfigInputSize, c.MaxInputSize)
+		return NewConfigError("MaxInputSize", c.MaxInputSize, fmt.Sprintf("exceeds maximum %d", maxConfigInputSize))
 	case c.MaxCacheEntries < 0:
-		return fmt.Errorf("%w: MaxCacheEntries cannot be negative, got %d", ErrInvalidConfig, c.MaxCacheEntries)
+		return NewConfigError("MaxCacheEntries", c.MaxCacheEntries, "cannot be negative")
 	case c.MaxCacheEntries > maxConfigCacheEntries:
-		return fmt.Errorf("%w: MaxCacheEntries too large (max %d), got %d", ErrInvalidConfig, maxConfigCacheEntries, c.MaxCacheEntries)
+		return NewConfigError("MaxCacheEntries", c.MaxCacheEntries, fmt.Sprintf("exceeds maximum %d", maxConfigCacheEntries))
 	case c.CacheTTL < 0:
-		return fmt.Errorf("%w: CacheTTL cannot be negative, got %v", ErrInvalidConfig, c.CacheTTL)
+		return NewConfigError("CacheTTL", c.CacheTTL, "cannot be negative")
 	case c.WorkerPoolSize <= 0:
-		return fmt.Errorf("%w: WorkerPoolSize must be positive, got %d", ErrInvalidConfig, c.WorkerPoolSize)
+		return NewConfigError("WorkerPoolSize", c.WorkerPoolSize, "must be positive")
 	case c.WorkerPoolSize > maxConfigWorkerSize:
-		return fmt.Errorf("%w: WorkerPoolSize too large (max %d), got %d", ErrInvalidConfig, maxConfigWorkerSize, c.WorkerPoolSize)
+		return NewConfigError("WorkerPoolSize", c.WorkerPoolSize, fmt.Sprintf("exceeds maximum %d", maxConfigWorkerSize))
 	case c.MaxDepth <= 0:
-		return fmt.Errorf("%w: MaxDepth must be positive, got %d", ErrInvalidConfig, c.MaxDepth)
+		return NewConfigError("MaxDepth", c.MaxDepth, "must be positive")
 	case c.MaxDepth > maxConfigDepth:
-		return fmt.Errorf("%w: MaxDepth too large (max %d), got %d", ErrInvalidConfig, maxConfigDepth, c.MaxDepth)
+		return NewConfigError("MaxDepth", c.MaxDepth, fmt.Sprintf("exceeds maximum %d", maxConfigDepth))
 	case c.ProcessingTimeout < 0:
-		return fmt.Errorf("%w: ProcessingTimeout cannot be negative, got %v", ErrInvalidConfig, c.ProcessingTimeout)
+		return NewConfigError("ProcessingTimeout", c.ProcessingTimeout, "cannot be negative")
 	}
+
+	// Validate format strings
+	if err := validateFormat("InlineImageFormat", c.InlineImageFormat, []string{"none", "markdown", "html", "placeholder"}); err != nil {
+		return err
+	}
+	if err := validateFormat("InlineLinkFormat", c.InlineLinkFormat, []string{"none", "markdown", "html"}); err != nil {
+		return err
+	}
+	if err := validateFormat("TableFormat", c.TableFormat, []string{"markdown", "html"}); err != nil {
+		return err
+	}
+
 	return nil
 }
 
-// ExtractConfig holds the extraction configuration.
-// This is an internal type used to pass extraction options to processing functions.
-// For public API usage, prefer Config with DefaultConfig().
-type ExtractConfig struct {
-	ExtractArticle    bool
-	PreserveImages    bool
-	PreserveLinks     bool
-	PreserveVideos    bool
-	PreserveAudios    bool
-	InlineImageFormat string
-	InlineLinkFormat  string
-	TableFormat       string
-	// Encoding specifies the character encoding of the input HTML.
-	// If empty, the encoding will be auto-detected from meta tags or BOM.
-	// Common values: "utf-8", "windows-1252", "iso-8859-1", "shift_jis", etc.
-	Encoding string
-}
-
-// defaultExtractConfig caches the default extraction configuration to avoid repeated allocations.
-var defaultExtractConfig = ExtractConfig{
-	ExtractArticle:    true,
-	PreserveImages:    true,
-	PreserveLinks:     true,
-	PreserveVideos:    true,
-	PreserveAudios:    true,
-	InlineImageFormat: "none",
-	InlineLinkFormat:  "none",
-	TableFormat:       "markdown",
-}
-
-// DefaultExtractConfig returns the default extraction configuration.
-// For new code, prefer using Config with DefaultConfig().
-func DefaultExtractConfig() ExtractConfig {
-	return defaultExtractConfig
-}
-
-// TextOnlyExtractConfig returns an ExtractConfig for extracting plain text only.
-// This disables all media preservation and uses no inline image format.
-// For new code, prefer TextOnlyConfig().
-func TextOnlyExtractConfig() ExtractConfig {
-	return ExtractConfig{
-		ExtractArticle:    true,
-		PreserveImages:    false,
-		PreserveLinks:     false,
-		PreserveVideos:    false,
-		PreserveAudios:    false,
-		InlineImageFormat: "none",
-		InlineLinkFormat:  "none",
-		TableFormat:       "markdown",
+// validateFormat validates that a format string is one of the allowed values.
+// Empty string is allowed (will use default).
+func validateFormat(field, value string, allowed []string) error {
+	if value == "" {
+		return nil // Empty means use default
 	}
+	lowerValue := strings.ToLower(value)
+	for _, a := range allowed {
+		if lowerValue == a {
+			return nil
+		}
+	}
+	return NewConfigError(field, value, fmt.Sprintf("valid values: %s", strings.Join(allowed, ", ")))
 }
 
-// LinkExtractionConfig holds the link extraction configuration.
-// This is an alias for LinkExtractionOptions, used internally for link extraction.
-// For public API usage, prefer Config.LinkExtraction.
-type LinkExtractionConfig = LinkExtractionOptions
+// HighSecurityConfig returns a configuration optimized for high-security environments.
+// This includes reduced limits, shorter timeouts, and comprehensive audit logging.
+func HighSecurityConfig() Config {
+	cfg := DefaultConfig()
 
-// defaultLinkExtractionConfig caches the default link extraction configuration.
-var defaultLinkExtractionConfig = LinkExtractionConfig{
-	ResolveRelativeURLs:  true,
-	BaseURL:              "",
-	IncludeImages:        true,
-	IncludeVideos:        true,
-	IncludeAudios:        true,
-	IncludeCSS:           true,
-	IncludeJS:            true,
-	IncludeContentLinks:  true,
-	IncludeExternalLinks: true,
-	IncludeIcons:         true,
+	// Resource Management - reduced limits
+	cfg.MaxInputSize = 10 * 1024 * 1024 // 10MB
+	cfg.MaxCacheEntries = 500
+	cfg.CacheTTL = 30 * time.Minute
+	cfg.CacheCleanup = time.Minute
+	cfg.WorkerPoolSize = 2
+	cfg.ProcessingTimeout = 10 * time.Second
+
+	// Security - strict settings
+	cfg.MaxDepth = 100
+	cfg.Audit = HighSecurityAuditConfig()
+
+	return cfg
 }
 
-// DefaultLinkExtractionConfig returns the default link extraction configuration.
-// For new code, prefer using DefaultConfig().LinkExtraction.
-func DefaultLinkExtractionConfig() LinkExtractionConfig {
-	return defaultLinkExtractionConfig
+// TextOnlyConfig returns a configuration for extracting plain text only.
+// This disables all media preservation for maximum performance.
+func TextOnlyConfig() Config {
+	cfg := DefaultConfig()
+
+	// Content Extraction - disable all media
+	cfg.PreserveImages = false
+	cfg.PreserveLinks = false
+	cfg.PreserveVideos = false
+	cfg.PreserveAudios = false
+
+	return cfg
 }
+
+// MarkdownConfig returns a configuration optimized for Markdown output.
+// This enables markdown format for inline images and links.
+func MarkdownConfig() Config {
+	cfg := DefaultConfig()
+
+	// Output Formats - enable markdown
+	cfg.InlineImageFormat = "markdown"
+	cfg.InlineLinkFormat = "markdown"
+
+	return cfg
+}
+
+// ============================================================================
+// Result Types
+// ============================================================================
 
 // Result holds the extraction result.
 type Result struct {

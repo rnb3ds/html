@@ -33,28 +33,10 @@ func init() {
 	globalRegistry.register("html", &HTMLRenderer{})
 }
 
-// RegisterRenderer registers a renderer for a given format name.
-// If a renderer with the same name already exists, it will be replaced.
-func RegisterRenderer(format string, renderer Renderer) {
-	globalRegistry.register(format, renderer)
-}
-
-// GetRenderer returns the renderer for the given format.
-// Returns nil if no renderer is registered for the format.
-func GetRenderer(format string) Renderer {
-	return globalRegistry.get(format)
-}
-
 func (r *RendererRegistry) register(format string, renderer Renderer) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.renderers[strings.ToLower(format)] = renderer
-}
-
-func (r *RendererRegistry) get(format string) Renderer {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	return r.renderers[strings.ToLower(format)]
 }
 
 // MarkdownRenderer renders tables in Markdown format.

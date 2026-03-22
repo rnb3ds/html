@@ -23,9 +23,9 @@ func TestErrorHandlingComprehensive(t *testing.T) {
 	t.Parallel()
 
 	t.Run("ErrInputTooLarge - oversized input rejected", func(t *testing.T) {
-		config := html.DefaultConfig()
-		config.MaxInputSize = 10000 // Set lower limit for faster test
-		p, err := html.New(config)
+		cfg := html.DefaultConfig()
+		cfg.MaxInputSize = 10000 // Set lower limit for faster test
+		p, err := html.New(cfg)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -40,9 +40,9 @@ func TestErrorHandlingComprehensive(t *testing.T) {
 	})
 
 	t.Run("ErrInputTooLarge - exact limit boundary", func(t *testing.T) {
-		config := html.DefaultConfig()
-		config.MaxInputSize = 5000
-		p, err := html.New(config)
+		cfg := html.DefaultConfig()
+		cfg.MaxInputSize = 5000
+		p, err := html.New(cfg)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -62,7 +62,7 @@ func TestErrorHandlingComprehensive(t *testing.T) {
 	})
 
 	t.Run("ErrInvalidHTML - malformed HTML handling", func(t *testing.T) {
-		p, _ := html.New(html.DefaultConfig())
+		p, _ := html.New()
 		defer p.Close()
 
 		malformedCases := []struct {
@@ -88,9 +88,9 @@ func TestErrorHandlingComprehensive(t *testing.T) {
 		}
 
 		t.Run("excessively deep nesting", func(t *testing.T) {
-			config := html.DefaultConfig()
-			config.MaxDepth = 100
-			p, err := html.New(config)
+			cfg := html.DefaultConfig()
+			cfg.MaxDepth = 100
+			p, err := html.New(cfg)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -106,9 +106,9 @@ func TestErrorHandlingComprehensive(t *testing.T) {
 	})
 
 	t.Run("ErrProcessingTimeout - timeout enforcement", func(t *testing.T) {
-		config := html.DefaultConfig()
-		config.ProcessingTimeout = 1 * time.Nanosecond
-		p, err := html.New(config)
+		cfg := html.DefaultConfig()
+		cfg.ProcessingTimeout = 1 * time.Nanosecond
+		p, err := html.New(cfg)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -123,7 +123,7 @@ func TestErrorHandlingComprehensive(t *testing.T) {
 	})
 
 	t.Run("ErrFileNotFound - non-existent file", func(t *testing.T) {
-		p, _ := html.New(html.DefaultConfig())
+		p, _ := html.New()
 		defer p.Close()
 
 		_, err := p.ExtractFromFile("non-existent-file-12345.html")
@@ -136,7 +136,7 @@ func TestErrorHandlingComprehensive(t *testing.T) {
 	})
 
 	t.Run("ErrInvalidFilePath - empty and invalid paths", func(t *testing.T) {
-		p, _ := html.New(html.DefaultConfig())
+		p, _ := html.New()
 		defer p.Close()
 
 		// Empty string should return ErrInvalidFilePath
@@ -163,7 +163,7 @@ func TestEdgeCasesComprehensive(t *testing.T) {
 	t.Parallel()
 
 	t.Run("Empty and whitespace-only HTML", func(t *testing.T) {
-		p, _ := html.New(html.DefaultConfig())
+		p, _ := html.New()
 		defer p.Close()
 
 		emptyCases := []string{
@@ -190,7 +190,7 @@ func TestEdgeCasesComprehensive(t *testing.T) {
 	})
 
 	t.Run("Unicode content handling", func(t *testing.T) {
-		p, _ := html.New(html.DefaultConfig())
+		p, _ := html.New()
 		defer p.Close()
 
 		unicodeHTML := `<html><body>
@@ -222,7 +222,7 @@ func TestEdgeCasesComprehensive(t *testing.T) {
 	})
 
 	t.Run("Excessive whitespace handling", func(t *testing.T) {
-		p, _ := html.New(html.DefaultConfig())
+		p, _ := html.New()
 		defer p.Close()
 
 		whitespaceHTML := `<html><body>
@@ -249,7 +249,7 @@ newlines</p>
 	})
 
 	t.Run("Mixed content and scripts", func(t *testing.T) {
-		p, _ := html.New(html.DefaultConfig())
+		p, _ := html.New()
 		defer p.Close()
 
 		mixedHTML := `<html><body>
@@ -273,7 +273,7 @@ newlines</p>
 	})
 
 	t.Run("Entity decoding edge cases", func(t *testing.T) {
-		p, _ := html.New(html.DefaultConfig())
+		p, _ := html.New()
 		defer p.Close()
 
 		entityHTML := `<html><body>
@@ -309,7 +309,7 @@ func TestUnicodeEdgeCases(t *testing.T) {
 	t.Parallel()
 
 	t.Run("zero-width characters", func(t *testing.T) {
-		p, _ := html.New(html.DefaultConfig())
+		p, _ := html.New()
 		defer p.Close()
 
 		// Contains various zero-width characters
@@ -338,7 +338,7 @@ func TestUnicodeEdgeCases(t *testing.T) {
 	})
 
 	t.Run("combining characters", func(t *testing.T) {
-		p, _ := html.New(html.DefaultConfig())
+		p, _ := html.New()
 		defer p.Close()
 
 		// Contains combining characters
@@ -365,7 +365,7 @@ func TestUnicodeEdgeCases(t *testing.T) {
 	})
 
 	t.Run("bidirectional text", func(t *testing.T) {
-		p, _ := html.New(html.DefaultConfig())
+		p, _ := html.New()
 		defer p.Close()
 
 		// Mixed LTR and RTL text
@@ -390,7 +390,7 @@ func TestUnicodeEdgeCases(t *testing.T) {
 	})
 
 	t.Run("surrogate pairs (emoji)", func(t *testing.T) {
-		p, _ := html.New(html.DefaultConfig())
+		p, _ := html.New()
 		defer p.Close()
 
 		// Various emoji including multi-codepoint ones
@@ -413,7 +413,7 @@ func TestUnicodeEdgeCases(t *testing.T) {
 	})
 
 	t.Run("null character in content", func(t *testing.T) {
-		p, _ := html.New(html.DefaultConfig())
+		p, _ := html.New()
 		defer p.Close()
 
 		// HTML with null character
@@ -434,7 +434,7 @@ func TestUnicodeEdgeCases(t *testing.T) {
 	})
 
 	t.Run("maximum valid unicode", func(t *testing.T) {
-		p, _ := html.New(html.DefaultConfig())
+		p, _ := html.New()
 		defer p.Close()
 
 		// Test with maximum valid Unicode code point (U+10FFFF)
@@ -454,7 +454,7 @@ func TestUnicodeEdgeCases(t *testing.T) {
 	})
 
 	t.Run("invalid unicode sequences", func(t *testing.T) {
-		p, _ := html.New(html.DefaultConfig())
+		p, _ := html.New()
 		defer p.Close()
 
 		// Invalid UTF-8 sequences
@@ -490,10 +490,10 @@ func TestMaxDepthBoundaryConditions(t *testing.T) {
 	t.Parallel()
 
 	t.Run("depth exactly at limit", func(t *testing.T) {
-		config := html.DefaultConfig()
-		config.MaxDepth = 50
+		cfg := html.DefaultConfig()
+		cfg.MaxDepth = 50
 
-		p, err := html.New(config)
+		p, err := html.New(cfg)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -522,10 +522,10 @@ func TestMaxDepthBoundaryConditions(t *testing.T) {
 	})
 
 	t.Run("depth one over limit", func(t *testing.T) {
-		config := html.DefaultConfig()
-		config.MaxDepth = 50
+		cfg := html.DefaultConfig()
+		cfg.MaxDepth = 50
 
-		p, err := html.New(config)
+		p, err := html.New(cfg)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -558,10 +558,10 @@ func TestMaxDepthBoundaryConditions(t *testing.T) {
 	})
 
 	t.Run("depth limit zero", func(t *testing.T) {
-		config := html.DefaultConfig()
-		config.MaxDepth = 0
+		cfg := html.DefaultConfig()
+		cfg.MaxDepth = 0
 
-		p, err := html.New(config)
+		p, err := html.New(cfg)
 		// MaxDepth=0 is invalid and should return an error
 		if err == nil {
 			p.Close()
@@ -570,10 +570,10 @@ func TestMaxDepthBoundaryConditions(t *testing.T) {
 	})
 
 	t.Run("depth limit one", func(t *testing.T) {
-		config := html.DefaultConfig()
-		config.MaxDepth = 1
+		cfg := html.DefaultConfig()
+		cfg.MaxDepth = 1
 
-		p, err := html.New(config)
+		p, err := html.New(cfg)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -592,10 +592,10 @@ func TestMaxDepthBoundaryConditions(t *testing.T) {
 	})
 
 	t.Run("very deep nesting with high limit", func(t *testing.T) {
-		config := html.DefaultConfig()
-		config.MaxDepth = 500
+		cfg := html.DefaultConfig()
+		cfg.MaxDepth = 500
 
-		p, err := html.New(config)
+		p, err := html.New(cfg)
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -2,6 +2,7 @@ package html
 
 import (
 	"fmt"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -12,37 +13,137 @@ import (
 // Scorer defines the interface for content scoring algorithms.
 // Implementations can provide custom scoring logic for content extraction.
 // If no custom scorer is provided, the DefaultScorer is used.
+//
+// The ContentNode interface abstracts away the internal HTML parser types,
+// allowing users to implement custom scorers without importing golang.org/x/net/html.
+//
+// # Architecture Notes
+//
+// This public interface uses ContentNode abstraction to hide the internal
+// golang.org/x/net/html dependency. Internally, the scorerAdapter converts
+// between this interface and internal.Scorer which uses *html.Node directly
+// for performance. This dual-interface design provides:
+//   - Clean public API (no external parser types exposed)
+//   - High performance internally (direct node access)
+//   - Flexibility for users to implement custom scoring
 type Scorer interface {
 	// Score calculates a relevance score for a content node.
 	// Higher scores indicate more likely main content.
-	Score(node *Node) int
+	Score(node ContentNode) int
 	// ShouldRemove determines if a node should be removed from the content tree.
-	ShouldRemove(node *Node) bool
+	ShouldRemove(node ContentNode) bool
 }
 
-// internalScorer wraps a public Scorer to implement internal.Scorer.
-type internalScorerWrapper struct {
-	scorer Scorer
+// scorerAdapter adapts the public Scorer interface to the internal Scorer interface.
+type scorerAdapter struct {
+	external Scorer
 }
 
-func (w *internalScorerWrapper) Score(node *stdxhtml.Node) int {
-	return w.scorer.Score(node)
+func (a *scorerAdapter) Score(node *stdxhtml.Node) int {
+	if a.external == nil || node == nil {
+		return 0
+	}
+	return a.external.Score(contentNodeAdapter{node})
 }
 
-func (w *internalScorerWrapper) ShouldRemove(node *stdxhtml.Node) bool {
-	return w.scorer.ShouldRemove(node)
+func (a *scorerAdapter) ShouldRemove(node *stdxhtml.Node) bool {
+	if a.external == nil || node == nil {
+		return false
+	}
+	return a.external.ShouldRemove(contentNodeAdapter{node})
+}
+
+// contentNodeAdapter adapts *stdxhtml.Node to ContentNode interface.
+type contentNodeAdapter struct {
+	*stdxhtml.Node
+}
+
+func (n contentNodeAdapter) Type() string {
+	if n.Node == nil {
+		return ""
+	}
+	switch n.Node.Type {
+	case stdxhtml.ErrorNode:
+		return "error"
+	case stdxhtml.TextNode:
+		return "text"
+	case stdxhtml.DocumentNode:
+		return "document"
+	case stdxhtml.ElementNode:
+		return "element"
+	case stdxhtml.CommentNode:
+		return "comment"
+	case stdxhtml.DoctypeNode:
+		return "doctype"
+	case stdxhtml.RawNode:
+		return "raw"
+	default:
+		return "unknown"
+	}
+}
+
+func (n contentNodeAdapter) Data() string {
+	if n.Node == nil {
+		return ""
+	}
+	return n.Node.Data
+}
+
+func (n contentNodeAdapter) AttrValue(key string) string {
+	if n.Node == nil {
+		return ""
+	}
+	for _, attr := range n.Node.Attr {
+		if attr.Key == key {
+			return attr.Val
+		}
+	}
+	return ""
+}
+
+func (n contentNodeAdapter) Attrs() []NodeAttr {
+	if n.Node == nil {
+		return nil
+	}
+	attrs := make([]NodeAttr, len(n.Node.Attr))
+	for i, attr := range n.Node.Attr {
+		attrs[i] = NodeAttr{Key: attr.Key, Value: attr.Val}
+	}
+	return attrs
+}
+
+func (n contentNodeAdapter) FirstChild() ContentNode {
+	if n.Node == nil || n.Node.FirstChild == nil {
+		return nil
+	}
+	return contentNodeAdapter{n.Node.FirstChild}
+}
+
+func (n contentNodeAdapter) NextSibling() ContentNode {
+	if n.Node == nil || n.Node.NextSibling == nil {
+		return nil
+	}
+	return contentNodeAdapter{n.Node.NextSibling}
+}
+
+func (n contentNodeAdapter) Parent() ContentNode {
+	if n.Node == nil || n.Node.Parent == nil {
+		return nil
+	}
+	return contentNodeAdapter{n.Node.Parent}
 }
 
 // Processor is the main HTML processing engine.
 // It provides methods for extracting content, links, and media from HTML documents
 // with automatic encoding detection and caching support.
 type Processor struct {
-	config *Config
-	cache  *internal.Cache
-	scorer internal.Scorer
-	audit  *AuditCollector
-	closed atomic.Bool
-	stats  struct {
+	config   *Config
+	configMu sync.Mutex // Protects config fields during temporary modifications
+	cache    *internal.Cache
+	scorer   internal.Scorer
+	audit    *AuditCollector
+	closed   atomic.Bool
+	stats    struct {
 		totalProcessed   atomic.Int64
 		cacheHits        atomic.Int64
 		cacheMisses      atomic.Int64
@@ -52,7 +153,7 @@ type Processor struct {
 }
 
 // New creates a new HTML processor with optional configuration.
-// If no configuration is provided or an empty config is given, DefaultConfig() is used.
+// If no configuration is provided, DefaultConfig() is used.
 //
 // Example usage:
 //
@@ -66,19 +167,25 @@ type Processor struct {
 //	// With custom configuration
 //	cfg := html.DefaultConfig()
 //	cfg.MaxInputSize = 10 * 1024 * 1024
+//	cfg.InlineImageFormat = "markdown"
 //	processor, err := html.New(cfg)
 //
 //	// Or use preset configurations
-//	processor, err := html.New(html.MarkdownConfig())
 //	processor, err := html.New(html.HighSecurityConfig())
 //
-// To use a custom Scorer, set the Scorer field on the Config:
+// To use a custom Scorer, set the Scorer field:
 //
 //	cfg := html.DefaultConfig()
 //	cfg.Scorer = myScorer
 //	processor, err := html.New(cfg)
 func New(cfg ...Config) (*Processor, error) {
-	c := resolveConfig(cfg...)
+	var c Config
+	if len(cfg) > 0 {
+		c = cfg[0]
+	} else {
+		c = DefaultConfig()
+	}
+
 	if err := c.Validate(); err != nil {
 		return nil, err
 	}
@@ -90,8 +197,9 @@ func New(cfg ...Config) (*Processor, error) {
 	}
 
 	// Set up scorer from config
+	// Note: Scorer interface uses ContentNode abstraction; adapter converts to internal.Scorer
 	if c.Scorer != nil {
-		p.scorer = &internalScorerWrapper{scorer: c.Scorer}
+		p.scorer = &scorerAdapter{external: c.Scorer}
 	} else {
 		p.scorer = internal.NewDefaultScorer()
 	}
@@ -102,56 +210,6 @@ func New(cfg ...Config) (*Processor, error) {
 	}
 
 	return p, nil
-}
-
-// resolveConfig resolves the configuration with smart defaults.
-// It handles the following cases:
-//   - No config provided: returns DefaultConfig()
-//   - Empty config (all zero values): returns DefaultConfig()
-//   - Valid config provided: returns the provided config
-//
-// This design allows both simple usage (html.New()) and custom configuration
-// (html.New(cfg)) while maintaining backward compatibility.
-func resolveConfig(cfg ...Config) Config {
-	// Fast path: no config provided
-	if len(cfg) == 0 {
-		return DefaultConfig()
-	}
-
-	c := cfg[0]
-
-	// Check if config is empty (all zero values)
-	// An empty config indicates the user wants default behavior
-	if c.isEmpty() {
-		return DefaultConfig()
-	}
-
-	return c
-}
-
-// isEmpty checks if the Config has all zero values.
-// This is used to detect when a user wants default behavior
-// but created an empty Config{} literal.
-func (c Config) isEmpty() bool {
-	return c.MaxInputSize == 0 &&
-		c.MaxCacheEntries == 0 &&
-		c.CacheTTL == 0 &&
-		c.CacheCleanup == 0 &&
-		c.WorkerPoolSize == 0 &&
-		c.MaxDepth == 0 &&
-		c.ProcessingTimeout == 0 &&
-		!c.EnableSanitization &&
-		!c.ExtractArticle &&
-		!c.PreserveImages &&
-		!c.PreserveLinks &&
-		!c.PreserveVideos &&
-		!c.PreserveAudios &&
-		c.ImageFormat == "" &&
-		c.LinkFormat == "" &&
-		c.TableFormat == "" &&
-		c.Encoding == "" &&
-		c.Scorer == nil &&
-		c.Audit.isEmpty()
 }
 
 // GetStatistics returns current processing statistics.
@@ -231,24 +289,36 @@ func (p *Processor) Close() error {
 	return nil
 }
 
-// getExtractConfig returns the ExtractConfig from the processor's unified Config.
-func (p *Processor) getExtractConfig() ExtractConfig {
-	return ExtractConfig{
-		ExtractArticle:    p.config.ExtractArticle,
-		PreserveImages:    p.config.PreserveImages,
-		PreserveLinks:     p.config.PreserveLinks,
-		PreserveVideos:    p.config.PreserveVideos,
-		PreserveAudios:    p.config.PreserveAudios,
-		InlineImageFormat: p.config.ImageFormat,
-		InlineLinkFormat:  p.config.LinkFormat,
-		TableFormat:       p.config.TableFormat,
-		Encoding:          p.config.Encoding,
+// validateInput performs common validation for HTML input.
+// It checks for nil/closed processor and input size limits.
+// Returns an error if validation fails, nil otherwise.
+func (p *Processor) validateInput(htmlBytes []byte) error {
+	if p == nil || p.closed.Load() {
+		return ErrProcessorClosed
 	}
+	if len(htmlBytes) > p.config.MaxInputSize {
+		if p.audit != nil {
+			p.audit.RecordInputViolation(len(htmlBytes), p.config.MaxInputSize, "input_too_large")
+		}
+		p.stats.errorCount.Add(1)
+		return NewInputError("Extract", len(htmlBytes), p.config.MaxInputSize, nil)
+	}
+	return nil
 }
 
-// getLinkExtractionConfig returns the LinkExtractionConfig from the processor's unified Config.
-func (p *Processor) getLinkExtractionConfig() LinkExtractionConfig {
-	return p.config.LinkExtraction
+// detectEncoding detects the character encoding and converts HTML bytes to UTF-8.
+// This is a helper method used by multiple extraction methods to avoid code duplication.
+// It records encoding issues to the audit log if enabled.
+func (p *Processor) detectEncoding(htmlBytes []byte) (string, error) {
+	utf8String, _, convErr := internal.DetectAndConvertToUTF8String(htmlBytes, p.config.Encoding)
+	if convErr != nil {
+		if p.audit != nil {
+			p.audit.RecordEncodingIssue(p.config.Encoding, convErr.Error())
+		}
+		p.stats.errorCount.Add(1)
+		return "", fmt.Errorf("encoding detection failed: %w", convErr)
+	}
+	return utf8String, nil
 }
 
 // validateAndReadFile validates the file path and reads the file contents.
@@ -257,7 +327,7 @@ func (p *Processor) getLinkExtractionConfig() LinkExtractionConfig {
 func (p *Processor) validateAndReadFile(filePath string) ([]byte, error) {
 	// Validate file path
 	if filePath == "" {
-		return nil, fmt.Errorf("%w: empty file path", ErrInvalidFilePath)
+		return nil, NewFileError("ReadFile", filePath, ErrInvalidFilePath)
 	}
 
 	// Clean the file path to resolve any "." or ".." components
@@ -269,15 +339,15 @@ func (p *Processor) validateAndReadFile(filePath string) ([]byte, error) {
 		if p.audit != nil {
 			p.audit.RecordPathTraversal(filePath)
 		}
-		return nil, fmt.Errorf("%w: path traversal detected: %s", ErrInvalidFilePath, cleanPath)
+		return nil, NewFileError("ReadFile", filePath, fmt.Errorf("path traversal detected: %s", cleanPath))
 	}
 
 	data, err := readFile(cleanPath)
 	if err != nil {
 		if osIsNotExist(err) {
-			return nil, fmt.Errorf("%w: %s", ErrFileNotFound, cleanPath)
+			return nil, NewFileError("ReadFile", cleanPath, ErrFileNotFound)
 		}
-		return nil, fmt.Errorf("read file %q: %w", cleanPath, err)
+		return nil, NewFileError("ReadFile", cleanPath, err)
 	}
 
 	return data, nil

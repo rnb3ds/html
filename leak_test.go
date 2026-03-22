@@ -14,10 +14,10 @@ import (
 
 // TestGoroutineLeakInBatchProcessing tests that batch processing doesn't leak goroutines.
 func TestGoroutineLeakInBatchProcessing(t *testing.T) {
-	config := DefaultConfig()
-	config.MaxCacheEntries = 100
-	config.CacheTTL = time.Minute
-	processor, err := New(config)
+	cfg := DefaultConfig()
+	cfg.MaxCacheEntries = 100
+	cfg.CacheTTL = time.Minute
+	processor, err := New(cfg)
 	if err != nil {
 		t.Fatalf("Failed to create processor: %v", err)
 	}
@@ -58,10 +58,10 @@ func TestGoroutineLeakInBatchProcessing(t *testing.T) {
 
 // TestGoroutineLeakInBatchWithContext tests that batch processing with context doesn't leak goroutines.
 func TestGoroutineLeakInBatchWithContext(t *testing.T) {
-	config := DefaultConfig()
-	config.MaxCacheEntries = 100
-	config.CacheTTL = time.Minute
-	processor, err := New(config)
+	cfg := DefaultConfig()
+	cfg.MaxCacheEntries = 100
+	cfg.CacheTTL = time.Minute
+	processor, err := New(cfg)
 	if err != nil {
 		t.Fatalf("Failed to create processor: %v", err)
 	}
@@ -100,7 +100,7 @@ func TestGoroutineLeakInBatchWithContext(t *testing.T) {
 
 // TestGoroutineLeakInCancelledContext tests goroutine cleanup when context is cancelled.
 func TestGoroutineLeakInCancelledContext(t *testing.T) {
-	processor, err := New(DefaultConfig())
+	processor, err := New()
 	if err != nil {
 		t.Fatalf("Failed to create processor: %v", err)
 	}
@@ -227,10 +227,10 @@ func TestGoroutineLeakInChannelAuditSink(t *testing.T) {
 
 // TestMemoryLeakInCache tests that cache doesn't cause memory leaks.
 func TestMemoryLeakInCache(t *testing.T) {
-	config := DefaultConfig()
-	config.MaxCacheEntries = 1000
-	config.CacheTTL = time.Minute
-	processor, err := New(config)
+	cfg := DefaultConfig()
+	cfg.MaxCacheEntries = 1000
+	cfg.CacheTTL = time.Minute
+	processor, err := New(cfg)
 	if err != nil {
 		t.Fatalf("Failed to create processor: %v", err)
 	}
@@ -271,12 +271,12 @@ func TestMemoryLeakInProcessorClose(t *testing.T) {
 	runtime.ReadMemStats(&m1)
 
 	// Create and close many processors
-	config := DefaultConfig()
-	config.MaxCacheEntries = 1000
-	config.CacheTTL = time.Minute
+	cfg := DefaultConfig()
+	cfg.MaxCacheEntries = 1000
+	cfg.CacheTTL = time.Minute
 
 	for i := 0; i < 100; i++ {
-		processor, err := New(config)
+		processor, err := New(cfg)
 		if err != nil {
 			t.Fatalf("Failed to create processor: %v", err)
 		}
@@ -318,11 +318,11 @@ func TestWithTimeoutGoroutineCleanup(t *testing.T) {
 	t.Logf("Initial goroutines: %d", initialGoroutines)
 
 	// Run many quick operations - these should NOT timeout
-	config := DefaultConfig()
-	config.ProcessingTimeout = 5 * time.Second
+	cfg := DefaultConfig()
+	cfg.ProcessingTimeout = 5 * time.Second
 
 	for i := 0; i < 50; i++ {
-		processor, err := New(config)
+		processor, err := New(cfg)
 		if err != nil {
 			t.Fatalf("Failed to create processor: %v", err)
 		}
@@ -354,9 +354,9 @@ func TestWithTimeoutGoroutineCleanup(t *testing.T) {
 // TestWithTimeoutLongRunningOperation tests behavior when operations take longer than timeout.
 // This test documents the expected behavior: goroutines continue until fn() completes.
 func TestWithTimeoutLongRunningOperation(t *testing.T) {
-	config := DefaultConfig()
-	config.ProcessingTimeout = 10 * time.Millisecond
-	processor, err := New(config)
+	cfg := DefaultConfig()
+	cfg.ProcessingTimeout = 10 * time.Millisecond
+	processor, err := New(cfg)
 	if err != nil {
 		t.Fatalf("Failed to create processor: %v", err)
 	}
@@ -390,7 +390,7 @@ func TestWithTimeoutLongRunningOperation(t *testing.T) {
 
 // TestProcessorDoubleClose tests that double Close() calls are safe.
 func TestProcessorDoubleClose(t *testing.T) {
-	processor, err := New(DefaultConfig())
+	processor, err := New()
 	if err != nil {
 		t.Fatalf("Failed to create processor: %v", err)
 	}
@@ -416,7 +416,7 @@ func TestProcessorDoubleClose(t *testing.T) {
 
 // TestConcurrentCloseAndExtract tests safety of concurrent Close() and Extract() calls.
 func TestConcurrentCloseAndExtract(t *testing.T) {
-	processor, err := New(DefaultConfig())
+	processor, err := New()
 	if err != nil {
 		t.Fatalf("Failed to create processor: %v", err)
 	}
@@ -514,11 +514,11 @@ func TestMultiSinkClose(t *testing.T) {
 
 // BenchmarkProcessorCreationWithClose benchmarks processor creation and close cycle.
 func BenchmarkProcessorCreationWithClose(b *testing.B) {
-	config := DefaultConfig()
-	config.MaxCacheEntries = 100
-	config.CacheTTL = time.Minute
+	cfg := DefaultConfig()
+	cfg.MaxCacheEntries = 100
+	cfg.CacheTTL = time.Minute
 	for i := 0; i < b.N; i++ {
-		processor, _ := New(config)
+		processor, _ := New(cfg)
 		_, _ = processor.Extract([]byte(`<html><body><p>Test</p></body></html>`))
 		processor.Close()
 	}
@@ -526,10 +526,10 @@ func BenchmarkProcessorCreationWithClose(b *testing.B) {
 
 // BenchmarkBatchProcessingMemory benchmarks memory usage during batch processing.
 func BenchmarkBatchProcessingMemory(b *testing.B) {
-	config := DefaultConfig()
-	config.MaxCacheEntries = 100
-	config.CacheTTL = time.Minute
-	processor, _ := New(config)
+	cfg := DefaultConfig()
+	cfg.MaxCacheEntries = 100
+	cfg.CacheTTL = time.Minute
+	processor, _ := New(cfg)
 	defer processor.Close()
 
 	contents := make([][]byte, 100)

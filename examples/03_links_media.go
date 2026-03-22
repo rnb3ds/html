@@ -79,10 +79,10 @@ func main() {
 	fmt.Println("----------------------------")
 
 	// Create processor with filtered link extraction
-	filterConfig := html.DefaultConfig()
-	filterConfig.LinkExtraction.IncludeCSS = false
-	filterConfig.LinkExtraction.IncludeJS = false
-	filterProcessor, _ := html.New(filterConfig)
+	filterCfg := html.DefaultConfig()
+	filterCfg.IncludeCSS = false
+	filterCfg.IncludeJS = false
+	filterProcessor, _ := html.New(filterCfg)
 	defer filterProcessor.Close()
 
 	filteredLinks, _ := filterProcessor.ExtractAllLinks([]byte(htmlContent))
@@ -164,7 +164,7 @@ func main() {
 	// Summary
 	// ============================================================
 	fmt.Println("\n=== Quick Reference ===")
-	fmt.Println("Link filtering (in Config.LinkExtraction):")
+	fmt.Println("Link filtering (in Config):")
 	fmt.Println("  IncludeCSS, IncludeJS, IncludeImages, IncludeVideos, IncludeAudios")
 	fmt.Println("  IncludeContentLinks, IncludeExternalLinks, IncludeIcons")
 	fmt.Println()

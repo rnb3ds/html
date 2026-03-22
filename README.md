@@ -1,14 +1,28 @@
 # HTML Library
 
-[![Go Version](https://img.shields.io/badge/Go-1.22+-00ADD8?logo=go)](https://golang.org)
-[![pkg.go.dev](https://pkg.go.dev/badge/github.com/cybergodev/html.svg)](https://pkg.go.dev/github.com/cybergodev/html)
+[![Go Version](https://img.shields.io/badge/Go-1.24+-00ADD8?logo=go)](https://golang.org)
+[![GoDoc](https://pkg.go.dev/badge/github.com/cybergodev/html.svg)](https://pkg.go.dev/github.com/cybergodev/html)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Performance](https://img.shields.io/badge/performance-high%20performance-green.svg)](https://github.com/cybergodev/html)
-[![Thread Safe](https://img.shields.io/badge/thread%20safe-yes-brightgreen.svg)](https://github.com/cybergodev/html)
+[![Go Report Card](https://goreportcard.com/badge/github.com/cybergodev/html)](https://goreportcard.com/report/github.com/cybergodev/html)
 
-**A Go library for intelligent HTML content extraction.** Compatible with `golang.org/x/net/html` — use as a drop-in replacement with enhanced content extraction capabilities.
+**A high-performance Go library for intelligent HTML content extraction.** Drop-in replacement for `golang.org/x/net/html` with enhanced content extraction capabilities.
 
-**[📖 中文文档](README_zh-CN.md)** - Chinese Documentation
+**[📖 中文文档](README_zh-CN.md)**
+
+---
+
+## 🎯 Why This Library?
+
+| Feature | Description |
+|---------|-------------|
+| 🚀 **One-Line Extraction** | Extract clean text from HTML in a single function call |
+| 🔍 **Smart Article Detection** | Identifies main content using scoring algorithms |
+| 🌐 **Auto Encoding Detection** | Handles UTF-8, Windows-1252, GBK, Shift_JIS, etc. |
+| 🔄 **Batch Processing** | Parallel extraction with Worker Pool and Context support |
+| 📦 **Multiple Output Formats** | Text, Markdown, JSON |
+| 🛡️ **Security First** | HTML sanitization, XSS protection, audit logging |
+| 🧵 **Thread-Safe** | Concurrent use without external synchronization |
+| 🔗 **golang.org/x/net/html Compatible** | Drop-in replacement with zero code changes |
 
 ---
 
@@ -17,6 +31,8 @@
 ```bash
 go get github.com/cybergodev/html
 ```
+
+**Requirements**: Go 1.24+
 
 ---
 
@@ -31,7 +47,7 @@ import (
 )
 
 func main() {
-    // Extract plain text from HTML (one-liner)
+    // One-liner: extract clean text from HTML
     htmlBytes := []byte(`
         <html>
             <nav>Navigation Bar</nav>
@@ -44,44 +60,22 @@ func main() {
     if err != nil {
         panic(err)
     }
-    fmt.Println(text) // "Hello World\nContent here..."
+    fmt.Println(text)
+    // Output: "Hello World\nContent here..."
 }
 ```
 
 **What happens automatically:**
-- Removes navigation, footers, ads, scripts
-- Detects main content using scoring algorithms
-- Handles character encoding (UTF-8, Windows-1252, GBK, etc.)
-- Cleans up whitespace
-
----
-
-## ✨ Core Features
-
-| Feature | Description |
-|---------|-------------|
-| **Article Detection** | Identifies main content using scoring (text density, link density, semantic tags) |
-| **Smart Text Extraction** | Preserves structure, handles line breaks, calculates word count and reading time |
-| **Media Extraction** | Extracts images, videos, audio with metadata (URL, dimensions, alt text) |
-| **Link Analysis** | External/internal link detection, nofollow recognition, anchor text extraction |
-| **Content Caching** | FNV-128a based keys with TTL and LRU eviction |
-| **Batch Processing** | Parallel extraction with Worker Pool and Context support |
-| **Thread-Safe** | Concurrent use without external synchronization |
-| **Security** | HTML sanitization, input validation, audit logging |
-
-### Use Cases
-
-- **News Aggregators**: Extract article content from news websites
-- **Web Crawlers**: Fetch structured data from HTML pages
-- **Content Management**: Convert HTML to Markdown or other formats
-- **Search Engines**: Index main content, excluding navigation and ads
-- **Data Analysis**: Extract and analyze web content at scale
+- ✅ Removes navigation, footers, ads, scripts
+- ✅ Detects main content using scoring algorithms
+- ✅ Handles character encoding (UTF-8, Windows-1252, GBK, etc.)
+- ✅ Cleans up whitespace
 
 ---
 
 ## 🚀 Usage Guide
 
-### Package-Level Functions (Simplest)
+### 1️⃣ Package-Level Functions (Simplest)
 
 For one-off extractions, use package-level functions:
 
@@ -99,7 +93,7 @@ func main() {
     // Extract text only
     text, _ := html.ExtractText(htmlBytes)
 
-    // Extract all content
+    // Extract all content with metadata
     result, _ := html.Extract(htmlBytes)
     fmt.Println(result.Title)     // "Title"
     fmt.Println(result.Text)      // "Content here..."
@@ -116,7 +110,7 @@ func main() {
 
 ---
 
-### Processor Usage (Recommended for Multiple Extractions)
+### 2️⃣ Processor Usage (Recommended for Multiple Extractions)
 
 For multiple extractions, create a Processor to leverage caching and connection pooling:
 
@@ -155,7 +149,7 @@ func main() {
 
 ---
 
-### Custom Configuration
+### 3️⃣ Custom Configuration
 
 ```go
 package main
@@ -168,18 +162,13 @@ import (
 func main() {
     htmlBytes := []byte(`<html><body><h1>Title</h1><img src="img.jpg"><p>Content</p></body></html>`)
 
-    config := html.Config{
-        // Extraction settings
-        ExtractArticle:    true,       // Auto-detect main content
-        PreserveImages:    true,       // Extract image metadata
-        PreserveLinks:     true,       // Extract link metadata
-        PreserveVideos:    false,      // Skip videos
-        PreserveAudios:    false,      // Skip audio
-        ImageFormat:       "none",     // Options: "none", "markdown", "html", "placeholder"
-        LinkFormat:        "none",     // Options: "none", "markdown", "html"
-        TableFormat:       "markdown", // Options: "markdown", "html"
-        Encoding:          "",         // Auto-detect, or specify: "utf-8", "windows-1252", etc.
-    }
+    // Start from DefaultConfig and customize
+    config := html.DefaultConfig()
+    config.PreserveVideos = false       // Skip videos
+    config.PreserveAudios = false       // Skip audio
+    config.InlineImageFormat = "none"   // Options: "none", "markdown", "html", "placeholder"
+    config.InlineLinkFormat = "none"    // Options: "none", "markdown", "html"
+    config.TableFormat = "markdown"     // Options: "markdown", "html"
 
     processor, _ := html.New(config)
     defer processor.Close()
@@ -191,7 +180,7 @@ func main() {
 
 ---
 
-### Preset Configurations
+### 4️⃣ Preset Configurations
 
 ```go
 // Text only - no media preservation
@@ -209,7 +198,7 @@ processor, _ := html.New(html.HighSecurityConfig())
 
 ---
 
-### Advanced Configuration
+### 5️⃣ Advanced Configuration
 
 ```go
 package main
@@ -392,10 +381,12 @@ defer processor.Close()
 // Extract (from bytes)
 processor.Extract(htmlBytes []byte) (*Result, error)
 processor.ExtractText(htmlBytes []byte) (string, error)
+processor.ExtractWithContext(ctx context.Context, htmlBytes []byte) (*Result, error)
 
 // Extract (from file)
 processor.ExtractFromFile(filePath string) (*Result, error)
 processor.ExtractTextFromFile(filePath string) (string, error)
+processor.ExtractFromFileWithContext(ctx context.Context, filePath string) (*Result, error)
 
 // Format conversion
 processor.ExtractToMarkdown(htmlBytes []byte) (string, error)
@@ -406,6 +397,7 @@ processor.ExtractToJSONFromFile(filePath string) ([]byte, error)
 // Links
 processor.ExtractAllLinks(htmlBytes []byte) ([]LinkResource, error)
 processor.ExtractAllLinksFromFile(filePath string) ([]LinkResource, error)
+processor.ExtractAllLinksWithContext(ctx context.Context, htmlBytes []byte) ([]LinkResource, error)
 
 // Batch processing
 processor.ExtractBatch(contents [][]byte) ([]*Result, error)
@@ -432,7 +424,7 @@ html.MarkdownConfig() Config       // Markdown image format
 
 ---
 
-## Result Structures
+## 📋 Result Structures
 
 ```go
 type Result struct {
@@ -443,8 +435,8 @@ type Result struct {
     Videos         []VideoInfo   `json:"videos,omitempty"`
     Audios         []AudioInfo   `json:"audios,omitempty"`
     WordCount      int           `json:"word_count"`
-    ReadingTime    time.Duration `json:"reading_time_ms"`    // JSON: milliseconds
-    ProcessingTime time.Duration `json:"processing_time_ms"` // JSON: milliseconds
+    ReadingTime    time.Duration `json:"reading_time_ms"`
+    ProcessingTime time.Duration `json:"processing_time_ms"`
 }
 
 type ImageInfo struct {
@@ -506,55 +498,64 @@ type Statistics struct {
 
 ---
 
-## Default Configuration Values
+## ⚙️ Configuration Reference
 
-**DefaultConfig():**
+### Config Struct
+
 ```go
-Config{
-    MaxInputSize:       50 * 1024 * 1024, // 50MB
-    MaxCacheEntries:    2000,
-    CacheTTL:           1 * time.Hour,
-    CacheCleanup:       5 * time.Minute,
-    WorkerPoolSize:     4,
-    EnableSanitization: true,
-    MaxDepth:           500,
-    ProcessingTimeout:  30 * time.Second,
+type Config struct {
+    // === Resource Management ===
+    MaxInputSize      int           // Maximum HTML input size (default: 50MB)
+    MaxCacheEntries   int           // Maximum cache entries (default: 2000, 0=disabled)
+    CacheTTL          time.Duration // Cache time-to-live (default: 1 hour)
+    CacheCleanup      time.Duration // Background cleanup interval (default: 5 min)
+    WorkerPoolSize    int           // Concurrent workers for batch (default: 4)
+    ProcessingTimeout time.Duration // Max processing time (default: 30s, 0=no timeout)
 
-    // Extraction settings
-    ExtractArticle:     true,
-    PreserveImages:     true,
-    PreserveLinks:      true,
-    PreserveVideos:     true,
-    PreserveAudios:     true,
-    ImageFormat:        "none",
-    LinkFormat:         "none",
-    TableFormat:        "markdown",
+    // === Security ===
+    EnableSanitization bool        // HTML sanitization (default: true)
+    MaxDepth           int         // Max HTML nesting depth (default: 500)
+    Audit              AuditConfig // Security audit logging
+
+    // === Content Extraction ===
+    ExtractArticle bool // Enable article detection (default: true)
+    PreserveImages bool // Extract images (default: true)
+    PreserveLinks  bool // Extract links (default: true)
+    PreserveVideos bool // Extract videos (default: true)
+    PreserveAudios bool // Extract audios (default: true)
+
+    // === Output Formats ===
+    InlineImageFormat string // "none", "markdown", "html", "placeholder"
+    InlineLinkFormat  string // "none", "markdown", "html"
+    TableFormat       string // "markdown", "html"
+    Encoding          string // Input encoding (empty=auto-detect)
+
+    // === Link Extraction ===
+    ResolveRelativeURLs  bool   // Resolve relative URLs (default: true)
+    BaseURL              string // Base URL for resolution
+    IncludeImages        bool   // Include image URLs (default: true)
+    IncludeVideos        bool   // Include video URLs (default: true)
+    IncludeAudios        bool   // Include audio URLs (default: true)
+    IncludeCSS           bool   // Include CSS URLs (default: true)
+    IncludeJS            bool   // Include JS URLs (default: true)
+    IncludeContentLinks  bool   // Include anchor links (default: true)
+    IncludeExternalLinks bool   // Include external links (default: true)
+    IncludeIcons         bool   // Include favicon URLs (default: true)
 }
 ```
 
-**HighSecurityConfig():**
-```go
-Config{
-    MaxInputSize:       10 * 1024 * 1024, // 10MB - reduced for security
-    MaxCacheEntries:    500,              // Reduced cache size
-    CacheTTL:           30 * time.Minute, // Shorter TTL
-    CacheCleanup:       1 * time.Minute,  // More frequent cleanup
-    WorkerPoolSize:     2,                // Fewer workers
-    EnableSanitization: true,
-    MaxDepth:           100,              // Reduced depth limit
-    ProcessingTimeout:  10 * time.Second, // Shorter timeout
+### Default Configuration Values
 
-    // Extraction settings (same as DefaultConfig)
-    ExtractArticle:     true,
-    PreserveImages:     true,
-    PreserveLinks:      true,
-    PreserveVideos:     true,
-    PreserveAudios:     true,
-    ImageFormat:        "none",
-    LinkFormat:         "none",
-    TableFormat:        "markdown",
-}
-```
+| Setting | Default | High Security |
+|---------|---------|---------------|
+| MaxInputSize | 50 MB | 10 MB |
+| MaxCacheEntries | 2000 | 500 |
+| CacheTTL | 1 hour | 30 min |
+| CacheCleanup | 5 min | 1 min |
+| WorkerPoolSize | 4 | 2 |
+| ProcessingTimeout | 30s | 10s |
+| MaxDepth | 500 | 100 |
+| Audit | Disabled | Enabled |
 
 ---
 
@@ -641,7 +642,7 @@ processor, _ := html.New(config)
 
 ---
 
-## Example Code
+## 📁 Example Code
 
 For complete runnable examples, see the [examples/](examples) directory:
 
@@ -658,7 +659,7 @@ For complete runnable examples, see the [examples/](examples) directory:
 
 ---
 
-## Compatibility
+## 🔄 Compatibility
 
 This library is a **drop-in replacement** for `golang.org/x/net/html`:
 
@@ -680,7 +681,7 @@ Re-exported types, constants, and functions:
 
 ---
 
-## Thread Safety
+## 🧵 Thread Safety
 
 `Processor` is safe for concurrent use:
 
@@ -701,16 +702,22 @@ wg.Wait()
 
 ---
 
-## 🤝 Contributing
+## 🎯 Use Cases
 
-Contributions are welcome! Please read the contributing guidelines before submitting a PR.
-
-## 📄 License
-
-MIT License - see [LICENSE](LICENSE) file for details.
+- **News Aggregators**: Extract article content from news websites
+- **Web Crawlers**: Fetch structured data from HTML pages
+- **Content Management**: Convert HTML to Markdown or other formats
+- **Search Engines**: Index main content, excluding navigation and ads
+- **Data Analysis**: Extract and analyze web content at scale
+- **RSS Feed Generators**: Extract content for feed creation
+- **Archive Tools**: Preserve web page content
 
 ---
 
-**Built with care for the Go community**
+## 📄 License
 
-If this project helps you, please give it a Star!
+MIT License - See [LICENSE](LICENSE) file for details.
+
+---
+
+If this project helps you, please give it a Star! ⭐

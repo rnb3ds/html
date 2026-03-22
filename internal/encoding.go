@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"unicode/utf8"
+	"unsafe"
 
 	"golang.org/x/text/encoding"
 	"golang.org/x/text/encoding/charmap"
@@ -609,24 +610,6 @@ func getEncoding(charset string) encoding.Encoding {
 	}
 }
 
-// DetectCharsetFromBytes is a convenience function that detects charset from byte data
-func DetectCharsetFromBytes(data []byte) string {
-	ed := NewEncodingDetector()
-	return ed.DetectCharset(data)
-}
-
-// ConvertToUTF8 is a convenience function that converts data to UTF-8
-func ConvertToUTF8(data []byte, charset string) ([]byte, error) {
-	ed := NewEncodingDetector()
-	return ed.ToUTF8(data, charset)
-}
-
-// DetectAndConvertToUTF8 is a convenience function that detects charset and converts to UTF-8
-func DetectAndConvertToUTF8(data []byte) ([]byte, string, error) {
-	ed := NewEncodingDetector()
-	return ed.DetectAndConvert(data)
-}
-
 // DetectAndConvertToUTF8String detects encoding and converts to UTF-8 string.
 // If forcedEncoding is not empty, it will use that encoding instead of auto-detection.
 // Returns a UTF-8 string and the detected/used encoding.
@@ -664,35 +647,47 @@ func DetectAndConvertToUTF8String(data []byte, forcedEncoding string) (string, s
 }
 
 // isPureASCII checks if data contains only ASCII bytes (0x00-0x7F)
-// Uses 64-bit word reads with loop unrolling for optimal performance.
-// This approach processes 32 bytes per iteration, reducing loop overhead by 4x.
+// Optimized with 64-bit word reads and batch processing for maximum throughput.
+// Processes 64 bytes per iteration using 8 x 64-bit loads.
 func isPureASCII(data []byte) bool {
 	n := len(data)
 	if n == 0 {
 		return true
 	}
 
-	// Use 64-bit reads for maximum throughput
-	// Process data in 32-byte chunks (4 x 64-bit words) for better ILP
-	i := 0
-
-	// Process 32-byte chunks with 64-bit word reads
-	// Using OR mask to detect any byte with high bit set
+	// High bit mask for detecting non-ASCII bytes
 	const highBitMask uint64 = 0x8080808080808080
 
-	for i+32 <= n {
-		// Load 4 x 64-bit words using bounds-checked slicing
-		// The compiler optimizes this to efficient loads
-		w0 := uint64(data[i]) | uint64(data[i+1])<<8 | uint64(data[i+2])<<16 | uint64(data[i+3])<<24 |
-			uint64(data[i+4])<<32 | uint64(data[i+5])<<40 | uint64(data[i+6])<<48 | uint64(data[i+7])<<56
-		w1 := uint64(data[i+8]) | uint64(data[i+9])<<8 | uint64(data[i+10])<<16 | uint64(data[i+11])<<24 |
-			uint64(data[i+12])<<32 | uint64(data[i+13])<<40 | uint64(data[i+14])<<48 | uint64(data[i+15])<<56
-		w2 := uint64(data[i+16]) | uint64(data[i+17])<<8 | uint64(data[i+18])<<16 | uint64(data[i+19])<<24 |
-			uint64(data[i+20])<<32 | uint64(data[i+21])<<40 | uint64(data[i+22])<<48 | uint64(data[i+23])<<56
-		w3 := uint64(data[i+24]) | uint64(data[i+25])<<8 | uint64(data[i+26])<<16 | uint64(data[i+27])<<24 |
-			uint64(data[i+28])<<32 | uint64(data[i+29])<<40 | uint64(data[i+30])<<48 | uint64(data[i+31])<<56
+	// Use unsafe for direct memory reads
+	basePtr := unsafe.Pointer(unsafe.SliceData(data))
+	i := 0
 
-		// Check all 4 words in one expression for better branch prediction
+	// Process 64 bytes at a time (8 x 64-bit words) for maximum throughput
+	for i+64 <= n {
+		// Load 8 words and OR them together
+		w0 := *(*uint64)(unsafe.Add(basePtr, i))
+		w1 := *(*uint64)(unsafe.Add(basePtr, i+8))
+		w2 := *(*uint64)(unsafe.Add(basePtr, i+16))
+		w3 := *(*uint64)(unsafe.Add(basePtr, i+24))
+		w4 := *(*uint64)(unsafe.Add(basePtr, i+32))
+		w5 := *(*uint64)(unsafe.Add(basePtr, i+40))
+		w6 := *(*uint64)(unsafe.Add(basePtr, i+48))
+		w7 := *(*uint64)(unsafe.Add(basePtr, i+56))
+
+		// Single branch: check if any word has high bit set
+		if (w0|w1|w2|w3|w4|w5|w6|w7)&highBitMask != 0 {
+			return false
+		}
+		i += 64
+	}
+
+	// Process remaining 32-byte chunks
+	for i+32 <= n {
+		w0 := *(*uint64)(unsafe.Add(basePtr, i))
+		w1 := *(*uint64)(unsafe.Add(basePtr, i+8))
+		w2 := *(*uint64)(unsafe.Add(basePtr, i+16))
+		w3 := *(*uint64)(unsafe.Add(basePtr, i+24))
+
 		if (w0|w1|w2|w3)&highBitMask != 0 {
 			return false
 		}
@@ -701,8 +696,7 @@ func isPureASCII(data []byte) bool {
 
 	// Process remaining 8-byte chunks
 	for i+8 <= n {
-		w := uint64(data[i]) | uint64(data[i+1])<<8 | uint64(data[i+2])<<16 | uint64(data[i+3])<<24 |
-			uint64(data[i+4])<<32 | uint64(data[i+5])<<40 | uint64(data[i+6])<<48 | uint64(data[i+7])<<56
+		w := *(*uint64)(unsafe.Add(basePtr, i))
 		if w&highBitMask != 0 {
 			return false
 		}
@@ -825,8 +819,10 @@ func (ed *EncodingDetector) scoreUTF8(data []byte) int {
 	return score
 }
 
-// scoreDecodedData scores decoded data from non-UTF-8 encodings
-func (ed *EncodingDetector) scoreDecodedData(decoded, original []byte, charset string) int {
+// scoreDecodedData scores decoded data from non-UTF-8 encodings.
+// The original parameter is reserved for future use (e.g., comparing decoded vs original
+// to detect encoding quality issues) and is currently unused.
+func (ed *EncodingDetector) scoreDecodedData(decoded, _ []byte, charset string) int {
 	score := 0
 
 	// Base score for successful decoding

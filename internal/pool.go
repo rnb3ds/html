@@ -7,6 +7,7 @@ import (
 	"hash/fnv"
 	"strings"
 	"sync"
+	"sync/atomic"
 )
 
 // Pool configuration constants
@@ -20,28 +21,34 @@ const (
 
 // poolDebug enables debug logging for pool corruption detection.
 // This is intentionally not exported - it's for internal debugging only.
-// To enable, set POOL_DEBUG=1 environment variable before import.
-var poolDebug = false
+// To enable, modify this variable to true before using the pool.
+//
+// Example (in test code):
+//
+//	internal.SetPoolDebug(true, log.Printf)
+var poolDebug atomic.Bool
 
 // poolLogger is an optional logger for pool corruption warnings.
-// Set via SetPoolLogger to enable logging.
 var poolLogger struct {
 	mu     sync.Mutex
 	logger func(format string, args ...any)
 }
 
-// SetPoolLogger sets a logger function for pool corruption warnings.
-// Pass nil to disable logging. This is a no-op if poolDebug is false.
-// The logger function should be thread-safe.
-func SetPoolLogger(logger func(format string, args ...any)) {
+// SetPoolDebug enables or disables pool debug logging.
+// When enabled, pool corruption events are logged to the provided logger.
+// This function is intended for development and debugging purposes only.
+//
+// Note: This is an internal API and may change without notice.
+func SetPoolDebug(enabled bool, logger func(format string, args ...any)) {
 	poolLogger.mu.Lock()
-	defer poolLogger.mu.Unlock()
 	poolLogger.logger = logger
+	poolLogger.mu.Unlock()
+	poolDebug.Store(enabled)
 }
 
 // logPoolCorruption logs a pool corruption warning if debugging is enabled.
 func logPoolCorruption(poolName, expectedType string, got any) {
-	if !poolDebug {
+	if !poolDebug.Load() {
 		return
 	}
 	poolLogger.mu.Lock()

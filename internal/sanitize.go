@@ -331,6 +331,19 @@ func isSafeURIWithAudit(uri string, audit AuditRecorder) bool {
 		return false
 	}
 
+	// Check for dangerous protocol-relative URL patterns
+	// Block //javascript:, //vbscript:, etc. with potential whitespace bypass
+	if strings.HasPrefix(trimmed, "//") {
+		restLower := strings.ToLower(strings.TrimLeft(trimmed[2:], " \t\n\r"))
+		if strings.HasPrefix(restLower, "javascript:") ||
+			strings.HasPrefix(restLower, "vbscript:") ||
+			strings.HasPrefix(restLower, "data:") ||
+			strings.HasPrefix(restLower, "file:") {
+			audit.RecordBlockedURL(uri, "dangerous protocol-relative URL")
+			return false
+		}
+	}
+
 	if strings.HasPrefix(lowerURI, "data:") {
 		// Explicitly block SVG data URLs - they can contain JavaScript
 		// This provides defense-in-depth in case SVG tag removal is bypassed
