@@ -215,7 +215,10 @@ func (p *Processor) ExtractAllLinksFromFileWithContext(ctx context.Context, file
 // An optional Config can be provided to customize link extraction behavior.
 // If no config is provided, DefaultConfig() is used.
 func ExtractAllLinks(htmlBytes []byte, cfg ...Config) ([]LinkResource, error) {
-	c := resolveConfig(cfg...)
+	c, err := resolveConfig(cfg...)
+	if err != nil {
+		return nil, err
+	}
 	processor, err := getProcessorWithConfig(c)
 	if err != nil {
 		return nil, err
@@ -230,7 +233,10 @@ func ExtractAllLinks(htmlBytes []byte, cfg ...Config) ([]LinkResource, error) {
 // An optional Config can be provided to customize link extraction behavior.
 // If no config is provided, DefaultConfig() is used.
 func ExtractAllLinksFromFile(filePath string, cfg ...Config) ([]LinkResource, error) {
-	c := resolveConfig(cfg...)
+	c, err := resolveConfig(cfg...)
+	if err != nil {
+		return nil, err
+	}
 	processor, err := getProcessorWithConfig(c)
 	if err != nil {
 		return nil, err
@@ -277,7 +283,7 @@ func (p *Processor) extractAllLinksFromContent(htmlContent string) ([]LinkResour
 }
 
 // detectBaseURL attempts to detect base URL from HTML document.
-func (p *Processor) detectBaseURL(doc *Node) string {
+func (p *Processor) detectBaseURL(doc *stdxhtml.Node) string {
 	if baseNode := internal.FindElementByTag(doc, "base"); baseNode != nil {
 		for _, attr := range baseNode.Attr {
 			if attr.Key == "href" && attr.Val != "" {
@@ -287,8 +293,8 @@ func (p *Processor) detectBaseURL(doc *Node) string {
 	}
 
 	var canonicalURL, canonicalLink, firstAbsoluteURL string
-	internal.WalkNodes(doc, func(n *Node) bool {
-		if n.Type != ElementNode {
+	internal.WalkNodes(doc, func(n *stdxhtml.Node) bool {
+		if n.Type != stdxhtml.ElementNode {
 			return true
 		}
 
@@ -361,9 +367,9 @@ func (p *Processor) resolveURL(baseURL, relativeURL string) string {
 	return internal.ResolveURL(baseURL, relativeURL)
 }
 
-func (p *Processor) extractLinksFromDocument(doc *Node, baseURL string, linkMap map[string]LinkResource) {
-	internal.WalkNodes(doc, func(n *Node) bool {
-		if n.Type != ElementNode {
+func (p *Processor) extractLinksFromDocument(doc *stdxhtml.Node, baseURL string, linkMap map[string]LinkResource) {
+	internal.WalkNodes(doc, func(n *stdxhtml.Node) bool {
+		if n.Type != stdxhtml.ElementNode {
 			return true
 		}
 
@@ -403,7 +409,7 @@ func (p *Processor) extractLinksFromDocument(doc *Node, baseURL string, linkMap 
 	})
 }
 
-func (p *Processor) extractContentLinks(n *Node, baseURL string, linkMap map[string]LinkResource) {
+func (p *Processor) extractContentLinks(n *stdxhtml.Node, baseURL string, linkMap map[string]LinkResource) {
 	var href, title string
 	for _, attr := range n.Attr {
 		switch attr.Key {
@@ -453,7 +459,7 @@ func (p *Processor) extractContentLinks(n *Node, baseURL string, linkMap map[str
 	}
 }
 
-func (p *Processor) extractImageLinks(n *Node, baseURL string, linkMap map[string]LinkResource) {
+func (p *Processor) extractImageLinks(n *stdxhtml.Node, baseURL string, linkMap map[string]LinkResource) {
 	var src, alt, title string
 	for _, attr := range n.Attr {
 		switch attr.Key {
@@ -494,7 +500,7 @@ func (p *Processor) extractImageLinks(n *Node, baseURL string, linkMap map[strin
 	}
 }
 
-func (p *Processor) extractMediaLink(n *Node, baseURL string, linkMap map[string]LinkResource, mediaType string) {
+func (p *Processor) extractMediaLink(n *stdxhtml.Node, baseURL string, linkMap map[string]LinkResource, mediaType string) {
 	var src, title string
 	for _, attr := range n.Attr {
 		if attr.Key == "src" {
@@ -530,7 +536,7 @@ func (p *Processor) extractMediaLink(n *Node, baseURL string, linkMap map[string
 	}
 }
 
-func (p *Processor) extractSourceLinks(n *Node, baseURL string, linkMap map[string]LinkResource) {
+func (p *Processor) extractSourceLinks(n *stdxhtml.Node, baseURL string, linkMap map[string]LinkResource) {
 	var src, mediaType string
 	for _, attr := range n.Attr {
 		switch attr.Key {
@@ -575,7 +581,7 @@ func (p *Processor) extractSourceLinks(n *Node, baseURL string, linkMap map[stri
 	}
 }
 
-func (p *Processor) extractLinkTagLinks(n *Node, baseURL string, linkMap map[string]LinkResource) {
+func (p *Processor) extractLinkTagLinks(n *stdxhtml.Node, baseURL string, linkMap map[string]LinkResource) {
 	var href, rel, linkType, title string
 	for _, attr := range n.Attr {
 		switch attr.Key {
@@ -676,7 +682,7 @@ func (p *Processor) extractLinkTagLinks(n *Node, baseURL string, linkMap map[str
 	}
 }
 
-func (p *Processor) extractScriptLinks(n *Node, baseURL string, linkMap map[string]LinkResource) {
+func (p *Processor) extractScriptLinks(n *stdxhtml.Node, baseURL string, linkMap map[string]LinkResource) {
 	var src string
 	for _, attr := range n.Attr {
 		if attr.Key == "src" {
@@ -709,7 +715,7 @@ func (p *Processor) extractScriptLinks(n *Node, baseURL string, linkMap map[stri
 	}
 }
 
-func (p *Processor) extractEmbedLinks(n *Node, baseURL string, linkMap map[string]LinkResource) {
+func (p *Processor) extractEmbedLinks(n *stdxhtml.Node, baseURL string, linkMap map[string]LinkResource) {
 	var src, title string
 	for _, attr := range n.Attr {
 		switch attr.Key {

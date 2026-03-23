@@ -152,9 +152,9 @@ func HighSecurityAuditConfig() AuditConfig {
 	}
 }
 
-// AuditCollector collects audit entries during processing.
+// auditCollector collects audit entries during processing.
 // It is designed to be thread-safe for concurrent use.
-type AuditCollector struct {
+type auditCollector struct {
 	mu      sync.Mutex
 	entries []AuditEntry
 	config  AuditConfig
@@ -162,13 +162,13 @@ type AuditCollector struct {
 	wg      sync.WaitGroup // WaitGroup for async sink writes
 }
 
-// NewAuditCollector creates a new audit collector with the given configuration.
-func NewAuditCollector(config AuditConfig) *AuditCollector {
+// newAuditCollector creates a new audit collector with the given configuration.
+func newAuditCollector(config AuditConfig) *auditCollector {
 	sink := config.Sink
 	if sink == nil && config.Enabled {
 		sink = NewLoggerAuditSink()
 	}
-	return &AuditCollector{
+	return &auditCollector{
 		entries: make([]AuditEntry, 0),
 		config:  config,
 		sink:    sink,
@@ -176,7 +176,7 @@ func NewAuditCollector(config AuditConfig) *AuditCollector {
 }
 
 // Record adds an audit entry to the collector.
-func (c *AuditCollector) Record(entry AuditEntry) {
+func (c *auditCollector) Record(entry AuditEntry) {
 	if c == nil || !c.config.Enabled {
 		return
 	}
@@ -212,7 +212,7 @@ func (c *AuditCollector) Record(entry AuditEntry) {
 // Wait blocks until all pending async sink writes have completed.
 // This is useful for ensuring all audit entries are written before
 // test completion or processor shutdown.
-func (c *AuditCollector) Wait() {
+func (c *auditCollector) Wait() {
 	if c == nil {
 		return
 	}
@@ -220,7 +220,7 @@ func (c *AuditCollector) Wait() {
 }
 
 // RecordBlockedTag records a blocked tag event.
-func (c *AuditCollector) RecordBlockedTag(tag string) {
+func (c *auditCollector) RecordBlockedTag(tag string) {
 	if c == nil || !c.config.Enabled || !c.config.LogBlockedTags {
 		return
 	}
@@ -233,7 +233,7 @@ func (c *AuditCollector) RecordBlockedTag(tag string) {
 }
 
 // RecordBlockedAttr records a blocked attribute event.
-func (c *AuditCollector) RecordBlockedAttr(attr, value string) {
+func (c *auditCollector) RecordBlockedAttr(attr, value string) {
 	if c == nil || !c.config.Enabled || !c.config.LogBlockedAttrs {
 		return
 	}
@@ -247,7 +247,7 @@ func (c *AuditCollector) RecordBlockedAttr(attr, value string) {
 }
 
 // RecordBlockedURL records a blocked URL event.
-func (c *AuditCollector) RecordBlockedURL(url, reason string) {
+func (c *auditCollector) RecordBlockedURL(url, reason string) {
 	if c == nil || !c.config.Enabled || !c.config.LogBlockedURLs {
 		return
 	}
@@ -261,7 +261,7 @@ func (c *AuditCollector) RecordBlockedURL(url, reason string) {
 }
 
 // RecordInputViolation records an input validation violation.
-func (c *AuditCollector) RecordInputViolation(size, maxSize int, violationType string) {
+func (c *auditCollector) RecordInputViolation(size, maxSize int, violationType string) {
 	if c == nil || !c.config.Enabled || !c.config.LogInputViolations {
 		return
 	}
@@ -275,7 +275,7 @@ func (c *AuditCollector) RecordInputViolation(size, maxSize int, violationType s
 }
 
 // RecordDepthViolation records a depth limit violation.
-func (c *AuditCollector) RecordDepthViolation(depth, maxDepth int) {
+func (c *auditCollector) RecordDepthViolation(depth, maxDepth int) {
 	if c == nil || !c.config.Enabled || !c.config.LogDepthViolations {
 		return
 	}
@@ -289,7 +289,7 @@ func (c *AuditCollector) RecordDepthViolation(depth, maxDepth int) {
 }
 
 // RecordTimeout records a processing timeout event.
-func (c *AuditCollector) RecordTimeout(timeout time.Duration) {
+func (c *auditCollector) RecordTimeout(timeout time.Duration) {
 	if c == nil || !c.config.Enabled || !c.config.LogTimeouts {
 		return
 	}
@@ -302,7 +302,7 @@ func (c *AuditCollector) RecordTimeout(timeout time.Duration) {
 }
 
 // RecordEncodingIssue records an encoding detection issue.
-func (c *AuditCollector) RecordEncodingIssue(encoding, message string) {
+func (c *auditCollector) RecordEncodingIssue(encoding, message string) {
 	if c == nil || !c.config.Enabled || !c.config.LogEncodingIssues {
 		return
 	}
@@ -315,7 +315,7 @@ func (c *AuditCollector) RecordEncodingIssue(encoding, message string) {
 }
 
 // RecordPathTraversal records a path traversal attempt.
-func (c *AuditCollector) RecordPathTraversal(path string) {
+func (c *auditCollector) RecordPathTraversal(path string) {
 	if c == nil || !c.config.Enabled || !c.config.LogPathTraversal {
 		return
 	}
@@ -329,7 +329,7 @@ func (c *AuditCollector) RecordPathTraversal(path string) {
 }
 
 // GetEntries returns all collected audit entries.
-func (c *AuditCollector) GetEntries() []AuditEntry {
+func (c *auditCollector) GetEntries() []AuditEntry {
 	if c == nil {
 		return nil
 	}
@@ -341,7 +341,7 @@ func (c *AuditCollector) GetEntries() []AuditEntry {
 }
 
 // Clear removes all collected entries.
-func (c *AuditCollector) Clear() {
+func (c *auditCollector) Clear() {
 	if c == nil {
 		return
 	}
@@ -352,7 +352,7 @@ func (c *AuditCollector) Clear() {
 
 // Close closes the audit collector and its sink.
 // It waits for all pending async sink writes to complete before closing.
-func (c *AuditCollector) Close() error {
+func (c *auditCollector) Close() error {
 	if c == nil {
 		return nil
 	}
@@ -589,7 +589,7 @@ func (s *LevelFilteredSink) meetsLevel(level AuditLevel) bool {
 
 // auditRecorderAdapter adapts AuditCollector to internal.AuditRecorder interface.
 type auditRecorderAdapter struct {
-	collector *AuditCollector
+	collector *auditCollector
 }
 
 // RecordBlockedTag records a blocked tag event.

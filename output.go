@@ -64,7 +64,10 @@ func (p *Processor) ExtractToJSONFromFile(filePath string) ([]byte, error) {
 // An optional Config can be provided to customize extraction behavior.
 // If no config is provided, DefaultConfig() is used.
 func ExtractToMarkdown(htmlBytes []byte, cfg ...Config) (string, error) {
-	c := resolveConfig(cfg...)
+	c, err := resolveConfig(cfg...)
+	if err != nil {
+		return "", err
+	}
 	processor, err := getProcessorWithConfig(c)
 	if err != nil {
 		return "", err
@@ -79,7 +82,10 @@ func ExtractToMarkdown(htmlBytes []byte, cfg ...Config) (string, error) {
 // An optional Config can be provided to customize extraction behavior.
 // If no config is provided, DefaultConfig() is used.
 func ExtractToMarkdownFromFile(filePath string, cfg ...Config) (string, error) {
-	c := resolveConfig(cfg...)
+	c, err := resolveConfig(cfg...)
+	if err != nil {
+		return "", err
+	}
 	processor, err := getProcessorWithConfig(c)
 	if err != nil {
 		return "", err
@@ -94,7 +100,10 @@ func ExtractToMarkdownFromFile(filePath string, cfg ...Config) (string, error) {
 // An optional Config can be provided to customize extraction behavior.
 // If no config is provided, DefaultConfig() is used.
 func ExtractToJSON(htmlBytes []byte, cfg ...Config) ([]byte, error) {
-	c := resolveConfig(cfg...)
+	c, err := resolveConfig(cfg...)
+	if err != nil {
+		return nil, err
+	}
 	processor, err := getProcessorWithConfig(c)
 	if err != nil {
 		return nil, err
@@ -109,7 +118,10 @@ func ExtractToJSON(htmlBytes []byte, cfg ...Config) ([]byte, error) {
 // An optional Config can be provided to customize extraction behavior.
 // If no config is provided, DefaultConfig() is used.
 func ExtractToJSONFromFile(filePath string, cfg ...Config) ([]byte, error) {
-	c := resolveConfig(cfg...)
+	c, err := resolveConfig(cfg...)
+	if err != nil {
+		return nil, err
+	}
 	processor, err := getProcessorWithConfig(c)
 	if err != nil {
 		return nil, err

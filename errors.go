@@ -35,6 +35,10 @@ var (
 	// ErrInternalPanic is returned when an unexpected panic occurs during processing.
 	// This error indicates an internal bug and should be reported to the library maintainers.
 	ErrInternalPanic = errors.New("html: internal panic recovered")
+
+	// ErrMultipleConfigs is returned when more than one Config is provided to a function.
+	// Package-level functions like Extract accept at most one optional Config.
+	ErrMultipleConfigs = errors.New("html: at most one Config may be provided")
 )
 
 // InputError provides context for input-related errors.
@@ -62,8 +66,8 @@ func (e *InputError) Unwrap() error {
 	return ErrInputTooLarge
 }
 
-// NewInputError creates a new InputError with the provided details.
-func NewInputError(op string, size, maxSize int, err error) *InputError {
+// newInputError creates a new InputError with the provided details.
+func newInputError(op string, size, maxSize int, err error) *InputError {
 	return &InputError{
 		Op:       op,
 		Size:     size,
@@ -90,8 +94,8 @@ func (e *ConfigError) Unwrap() error {
 	return ErrInvalidConfig
 }
 
-// NewConfigError creates a new ConfigError with the provided details.
-func NewConfigError(field string, value any, message string) *ConfigError {
+// newConfigError creates a new ConfigError with the provided details.
+func newConfigError(field string, value any, message string) *ConfigError {
 	return &ConfigError{
 		Field:   field,
 		Value:   value,
@@ -108,8 +112,91 @@ type FileError struct {
 }
 
 // Error returns a formatted error message.
+// SECURITY: Path information is truncated to prevent information disclosure
+// in production environments. Use SafePath() for the full path when needed
+// for internal logging or audit purposes.
 func (e *FileError) Error() string {
-	return fmt.Sprintf("html: %s %q: %v", e.Op, e.Path, e.FileErr)
+	// SECURITY: Truncate path in error message to prevent information disclosure
+	// Only show the base filename, not the full path
+	safePath := e.SafePath()
+	if safePath == "" {
+		safePath = "[file]"
+	}
+	// Sanitize underlying error message to remove any path information
+	safeErr := e.sanitizeErrorMessage()
+	return fmt.Sprintf("html: %s %q: %v", e.Op, safePath, safeErr)
+}
+
+// SafePath returns the path with potentially sensitive information removed.
+// For production use, this truncates the path to just the filename.
+// The full path is still available via the Path field for internal use.
+func (e *FileError) SafePath() string {
+	if e.Path == "" {
+		return ""
+	}
+	// Find the last path separator
+	for i := len(e.Path) - 1; i >= 0; i-- {
+		c := e.Path[i]
+		if c == '/' || c == '\\' {
+			return e.Path[i+1:]
+		}
+	}
+	// No separator found, return as-is (may be just a filename)
+	return e.Path
+}
+
+// sanitizeErrorMessage removes potentially sensitive path information from
+// the underlying error message while preserving error type information.
+func (e *FileError) sanitizeErrorMessage() error {
+	if e.FileErr == nil {
+		return nil
+	}
+	errStr := e.FileErr.Error()
+
+	// SECURITY: Preserve error type information while removing path details.
+	// This ensures that error messages still indicate the nature of the error
+	// (e.g., "path traversal detected", "not found") without exposing
+	// sensitive filesystem paths.
+
+	// Check for known error patterns and return sanitized versions
+	lowerErr := stringsToLower(errStr)
+	if stringsContains(lowerErr, "path traversal") {
+		return fmt.Errorf("path traversal detected")
+	}
+	if stringsContains(lowerErr, "not found") {
+		return fmt.Errorf("file not found")
+	}
+	if stringsContains(lowerErr, "permission denied") {
+		return fmt.Errorf("permission denied")
+	}
+	if stringsContains(lowerErr, "access denied") {
+		return fmt.Errorf("access denied")
+	}
+
+	// Check if the error message contains what looks like a file path
+	// and sanitize it to prevent information disclosure
+	if stringsContains(errStr, "/") || stringsContains(errStr, "\\") {
+		// Return a generic message that preserves the error type
+		// but removes the path
+		return fmt.Errorf("file operation failed")
+	}
+
+	return e.FileErr
+}
+
+// stringsToLower is a helper to avoid importing strings package.
+// Uses the existing compat.go implementation if available.
+func stringsToLower(s string) string {
+	// Simple ASCII lowercase conversion
+	b := make([]byte, len(s))
+	for i := range s {
+		c := s[i]
+		if c >= 'A' && c <= 'Z' {
+			c += 32
+		}
+		b[i] = c
+	}
+	return string(b)
 }
 
 // Unwrap returns the appropriate sentinel error for errors.Is() support.
@@ -120,8 +207,8 @@ func (e *FileError) Unwrap() error {
 	return ErrInvalidFilePath
 }
 
-// NewFileError creates a new FileError with the provided details.
-func NewFileError(op, path string, err error) *FileError {
+// newFileError creates a new FileError with the provided details.
+func newFileError(op, path string, err error) *FileError {
 	return &FileError{
 		Op:      op,
 		Path:    path,

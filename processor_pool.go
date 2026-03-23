@@ -66,15 +66,15 @@ func putPooledProcessor(p *Processor) {
 
 // resolveConfig resolves the configuration from optional variadic Config parameter.
 // If no config is provided, returns DefaultConfig(). If one config is provided,
-// returns that config. Panics if more than one config is provided (programming error).
-func resolveConfig(cfg ...Config) Config {
+// returns that config. Returns ErrMultipleConfigs if more than one config is provided.
+func resolveConfig(cfg ...Config) (Config, error) {
 	switch len(cfg) {
 	case 0:
-		return DefaultConfig()
+		return DefaultConfig(), nil
 	case 1:
-		return cfg[0]
+		return cfg[0], nil
 	default:
-		panic("html: at most one Config may be provided")
+		return Config{}, ErrMultipleConfigs
 	}
 }
 
@@ -112,7 +112,14 @@ func putProcessorWithConfig(p *Processor, cfg Config) {
 
 // configEquals checks if two configs are functionally equivalent for pooling purposes.
 // This compares fields that affect processor behavior, not all fields.
+//
+// SECURITY: When adding new fields to Config, you MUST update this function
+// to ensure processors with different security-relevant settings are not pooled together.
+// Failure to do so may cause processors with custom security settings to be
+// incorrectly returned to the pool and reused by other callers.
 func configEquals(a, b Config) bool {
+	// SECURITY-CRITICAL: These fields affect security and behavior.
+	// Do NOT remove any comparison without security review.
 	return a.MaxInputSize == b.MaxInputSize &&
 		a.MaxCacheEntries == b.MaxCacheEntries &&
 		a.CacheTTL == b.CacheTTL &&

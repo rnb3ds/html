@@ -20,7 +20,6 @@ import (
 	"time"
 
 	"github.com/cybergodev/html"
-	stdhtml "golang.org/x/net/html"
 )
 
 // ============================================================================
@@ -2065,22 +2064,6 @@ func TestExtractAllLinks(t *testing.T) {
 			}
 		}
 	})
-
-	t.Run("GroupLinksByType", func(t *testing.T) {
-		links := []html.LinkResource{
-			{URL: "test.css", Type: "css"},
-			{URL: "test.js", Type: "js"},
-			{URL: "test2.css", Type: "css"},
-		}
-
-		grouped := html.GroupLinksByType(links)
-		if len(grouped["css"]) != 2 {
-			t.Errorf("Got %d CSS links, want 2", len(grouped["css"]))
-		}
-		if len(grouped["js"]) != 1 {
-			t.Errorf("Got %d JS links, want 1", len(grouped["js"]))
-		}
-	})
 }
 
 // ============================================================================
@@ -2274,84 +2257,6 @@ func TestConcurrency(t *testing.T) {
 		stats := p.GetStatistics()
 		if stats.TotalProcessed != goroutines {
 			t.Errorf("TotalProcessed = %d, want %d", stats.TotalProcessed, goroutines)
-		}
-	})
-}
-
-// ============================================================================
-// COMPATIBILITY TESTS
-// ============================================================================
-
-func TestCompatibilityWithStdHTML(t *testing.T) {
-	t.Parallel()
-
-	t.Run("Parse compatibility", func(t *testing.T) {
-		htmlContent := `<html><head><title>Test</title></head><body><p>Content</p></body></html>`
-
-		ourDoc, ourErr := html.Parse(strings.NewReader(htmlContent))
-		stdDoc, stdErr := stdhtml.Parse(strings.NewReader(htmlContent))
-
-		if (ourErr == nil) != (stdErr == nil) {
-			t.Errorf("Parse error mismatch: our=%v, std=%v", ourErr, stdErr)
-		}
-
-		if ourDoc.Type != stdDoc.Type {
-			t.Errorf("Parse document type mismatch: got %v, want %v", ourDoc.Type, stdDoc.Type)
-		}
-	})
-
-	t.Run("EscapeString compatibility", func(t *testing.T) {
-		tests := []string{
-			"<html>",
-			"a&b",
-			`"quoted"`,
-			"<script>alert('xss')</script>",
-		}
-
-		for _, input := range tests {
-			our := html.EscapeString(input)
-			std := stdhtml.EscapeString(input)
-			if our != std {
-				t.Errorf("EscapeString(%q) mismatch: our=%q, std=%q", input, our, std)
-			}
-		}
-	})
-
-	t.Run("UnescapeString compatibility", func(t *testing.T) {
-		tests := []string{
-			"&lt;html&gt;",
-			"&amp;",
-			"&nbsp;",
-			"&copy;",
-		}
-
-		for _, input := range tests {
-			our := html.UnescapeString(input)
-			std := stdhtml.UnescapeString(input)
-			if our != std {
-				t.Errorf("UnescapeString(%q) mismatch: our=%q, std=%q", input, our, std)
-			}
-		}
-	})
-
-	t.Run("Tokenizer compatibility", func(t *testing.T) {
-		htmlContent := "<p>Test</p><div>Content</div>"
-
-		ourTokenizer := html.NewTokenizer(strings.NewReader(htmlContent))
-		stdTokenizer := stdhtml.NewTokenizer(strings.NewReader(htmlContent))
-
-		for {
-			ourTT := ourTokenizer.Next()
-			stdTT := stdTokenizer.Next()
-
-			if ourTT != stdTT {
-				t.Errorf("Token type mismatch: got %v, want %v", ourTT, stdTT)
-				break
-			}
-
-			if ourTT == stdhtml.ErrorToken {
-				break
-			}
 		}
 	})
 }
@@ -5712,14 +5617,15 @@ func TestPackageLevelFunctionsWithOptionalConfig(t *testing.T) {
 		}
 	})
 
-	t.Run("Multiple configs should panic", func(t *testing.T) {
-		defer func() {
-			if r := recover(); r == nil {
-				t.Error("Expected panic when passing multiple configs")
-			}
-		}()
+	t.Run("Multiple configs should return error", func(t *testing.T) {
 		cfg := html.DefaultConfig()
-		html.Extract(htmlContent, cfg, cfg) // Should panic
+		_, err := html.Extract(htmlContent, cfg, cfg) // Should return error
+		if err == nil {
+			t.Error("Expected error when passing multiple configs")
+		}
+		if !errors.Is(err, html.ErrMultipleConfigs) {
+			t.Errorf("Expected ErrMultipleConfigs, got: %v", err)
+		}
 	})
 }
 

@@ -141,7 +141,7 @@ type Processor struct {
 	configMu sync.Mutex // Protects config fields during temporary modifications
 	cache    *internal.Cache
 	scorer   internal.Scorer
-	audit    *AuditCollector
+	audit    *auditCollector
 	closed   atomic.Bool
 	stats    struct {
 		totalProcessed   atomic.Int64
@@ -193,7 +193,7 @@ func New(cfg ...Config) (*Processor, error) {
 	p := &Processor{
 		config: &c,
 		cache:  internal.NewCache(c.MaxCacheEntries, c.CacheTTL),
-		audit:  NewAuditCollector(c.Audit),
+		audit:  newAuditCollector(c.Audit),
 	}
 
 	// Set up scorer from config
@@ -301,7 +301,7 @@ func (p *Processor) validateInput(htmlBytes []byte) error {
 			p.audit.RecordInputViolation(len(htmlBytes), p.config.MaxInputSize, "input_too_large")
 		}
 		p.stats.errorCount.Add(1)
-		return NewInputError("Extract", len(htmlBytes), p.config.MaxInputSize, nil)
+		return newInputError("Extract", len(htmlBytes), p.config.MaxInputSize, nil)
 	}
 	return nil
 }
@@ -327,7 +327,7 @@ func (p *Processor) detectEncoding(htmlBytes []byte) (string, error) {
 func (p *Processor) validateAndReadFile(filePath string) ([]byte, error) {
 	// Validate file path
 	if filePath == "" {
-		return nil, NewFileError("ReadFile", filePath, ErrInvalidFilePath)
+		return nil, newFileError("ReadFile", filePath, ErrInvalidFilePath)
 	}
 
 	// Clean the file path to resolve any "." or ".." components
@@ -339,15 +339,15 @@ func (p *Processor) validateAndReadFile(filePath string) ([]byte, error) {
 		if p.audit != nil {
 			p.audit.RecordPathTraversal(filePath)
 		}
-		return nil, NewFileError("ReadFile", filePath, fmt.Errorf("path traversal detected: %s", cleanPath))
+		return nil, newFileError("ReadFile", filePath, fmt.Errorf("path traversal detected: %s", cleanPath))
 	}
 
 	data, err := readFile(cleanPath)
 	if err != nil {
 		if osIsNotExist(err) {
-			return nil, NewFileError("ReadFile", cleanPath, ErrFileNotFound)
+			return nil, newFileError("ReadFile", cleanPath, ErrFileNotFound)
 		}
-		return nil, NewFileError("ReadFile", cleanPath, err)
+		return nil, newFileError("ReadFile", cleanPath, err)
 	}
 
 	return data, nil
@@ -382,6 +382,7 @@ func collectResults(results []*Result, errs []error, names []string) ([]*Result,
 }
 
 // GroupLinksByType groups links by their type.
+// This is a convenience function for organizing extracted links.
 func GroupLinksByType(links []LinkResource) map[string][]LinkResource {
 	if len(links) == 0 {
 		return make(map[string][]LinkResource)

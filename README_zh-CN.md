@@ -3,15 +3,16 @@
 [![Go Version](https://img.shields.io/badge/Go-1.24+-00ADD8?logo=go)](https://golang.org)
 [![GoDoc](https://pkg.go.dev/badge/github.com/cybergodev/html.svg)](https://pkg.go.dev/github.com/cybergodev/html)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Go Report Card](https://goreportcard.com/badge/github.com/cybergodev/html)](https://goreportcard.com/report/github.com/cybergodev/html)
+[![Security](https://img.shields.io/badge/security-policy-blue.svg)](docs/SECURITY.md)
+[![Thread Safe](https://img.shields.io/badge/thread%20safe-yes-brightgreen.svg)](#-线程安全)
 
 **一个高性能的 Go 库，用于智能 HTML 内容提取。** 兼容 `golang.org/x/net/html` —— 可作为直接替代品使用，并获得增强的内容提取功能。
 
-**[📖 English Documentation](README.md)**
+[📖 English Documentation](README.md)
 
 ---
 
-## 🎯 为什么选择这个库？
+## 🎯 特性
 
 | 特性 | 描述 |
 |------|------|
@@ -22,7 +23,18 @@
 | 📦 **多种输出格式** | 文本、Markdown、JSON |
 | 🛡️ **安全优先** | HTML 净化、XSS 防护、审计日志 |
 | 🧵 **线程安全** | 无需外部同步即可并发使用 |
-| 🔗 **golang.org/x/net/html 兼容** | 零代码更改的直接替代品 |
+
+---
+
+## 🌐 应用场景
+
+- **新闻聚合器**：从新闻网站提取文章内容
+- **网页爬虫**：从 HTML 页面获取结构化数据
+- **内容管理**：将 HTML 转换为 Markdown 或其他格式
+- **搜索引擎**：索引主要内容，排除导航和广告
+- **数据分析**：大规模提取和分析网页内容
+- **RSS 订阅生成器**：提取内容用于订阅源创建
+- **归档工具**：保存网页内容
 
 ---
 
@@ -112,7 +124,7 @@ func main() {
 
 ### 2️⃣ Processor 使用（推荐用于多次提取）
 
-对于多次提取，创建 Processor 以利用缓存和连接池：
+对于多次提取，创建 Processor 以利用缓存：
 
 ```go
 package main
@@ -541,6 +553,9 @@ type Config struct {
     IncludeContentLinks  bool   // 包含锚点链接（默认：true）
     IncludeExternalLinks bool   // 包含外部链接（默认：true）
     IncludeIcons         bool   // 包含图标 URL（默认：true）
+
+    // === 扩展 ===
+    Scorer Scorer // 可选的自定义内容评分器
 }
 ```
 
@@ -679,6 +694,8 @@ escaped := html.EscapeString("<script>")
 - **常量**：所有 `NodeType` 和 `TokenType` 常量（`ErrorNode`、`TextNode`、`DocumentNode`、`ElementNode` 等）
 - **函数**：`Parse`、`ParseFragment`、`Render`、`EscapeString`、`UnescapeString`、`NewTokenizer`、`NewTokenizerFragment`
 
+详见 [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md)。
+
 ---
 
 ## 🧵 线程安全
@@ -699,18 +716,6 @@ for i := 0; i < 100; i++ {
 }
 wg.Wait()
 ```
-
----
-
-## 🎯 应用场景
-
-- **新闻聚合器**：从新闻网站提取文章内容
-- **网页爬虫**：从 HTML 页面获取结构化数据
-- **内容管理**：将 HTML 转换为 Markdown 或其他格式
-- **搜索引擎**：索引主要内容，排除导航和广告
-- **数据分析**：大规模提取和分析网页内容
-- **RSS 订阅生成器**：提取内容用于订阅源创建
-- **归档工具**：保存网页内容
 
 ---
 

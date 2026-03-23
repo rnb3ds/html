@@ -4,9 +4,10 @@ import (
 	"strings"
 
 	"github.com/cybergodev/html/internal"
+	stdxhtml "golang.org/x/net/html"
 )
 
-func (p *Processor) extractVideos(node *Node, htmlContent string) []VideoInfo {
+func (p *Processor) extractVideos(node *stdxhtml.Node, htmlContent string) []VideoInfo {
 	videos := make([]VideoInfo, 0, initialSliceCap)
 	seen := make(map[string]bool, initialMapCap)
 
@@ -51,8 +52,8 @@ func (p *Processor) extractVideos(node *Node, htmlContent string) []VideoInfo {
 	}
 
 	// Then extract from the DOM tree (for video tags and any iframe/embed/object that survived sanitization)
-	internal.WalkNodes(node, func(n *Node) bool {
-		if n.Type != ElementNode {
+	internal.WalkNodes(node, func(n *stdxhtml.Node) bool {
+		if n.Type != stdxhtml.ElementNode {
 			return true
 		}
 
@@ -95,7 +96,7 @@ func (p *Processor) extractVideos(node *Node, htmlContent string) []VideoInfo {
 	return videos
 }
 
-func (p *Processor) parseVideoNode(n *Node) VideoInfo {
+func (p *Processor) parseVideoNode(n *stdxhtml.Node) VideoInfo {
 	video := VideoInfo{}
 	for _, attr := range n.Attr {
 		switch attr.Key {
@@ -126,7 +127,7 @@ func (p *Processor) parseVideoNode(n *Node) VideoInfo {
 	return video
 }
 
-func (p *Processor) parseIframeNode(n *Node) VideoInfo {
+func (p *Processor) parseIframeNode(n *stdxhtml.Node) VideoInfo {
 	for _, attr := range n.Attr {
 		if attr.Key == "src" && internal.IsValidURL(attr.Val) && internal.IsVideoURL(attr.Val) {
 			video := VideoInfo{URL: attr.Val, Type: "embed"}
@@ -144,7 +145,7 @@ func (p *Processor) parseIframeNode(n *Node) VideoInfo {
 	return VideoInfo{}
 }
 
-func (p *Processor) parseEmbedNode(n *Node) VideoInfo {
+func (p *Processor) parseEmbedNode(n *stdxhtml.Node) VideoInfo {
 	for _, attr := range n.Attr {
 		if (attr.Key == "src" || attr.Key == "data") && internal.IsValidURL(attr.Val) && internal.IsVideoURL(attr.Val) {
 			video := VideoInfo{URL: attr.Val}
@@ -164,12 +165,12 @@ func (p *Processor) parseEmbedNode(n *Node) VideoInfo {
 	return VideoInfo{}
 }
 
-func (p *Processor) extractAudios(node *Node, htmlContent string) []AudioInfo {
+func (p *Processor) extractAudios(node *stdxhtml.Node, htmlContent string) []AudioInfo {
 	audios := make([]AudioInfo, 0, initialSliceCap)
 	seen := make(map[string]bool, initialMapCap)
 
-	internal.WalkNodes(node, func(n *Node) bool {
-		if n.Type == ElementNode && n.Data == "audio" {
+	internal.WalkNodes(node, func(n *stdxhtml.Node) bool {
+		if n.Type == stdxhtml.ElementNode && n.Data == "audio" {
 			if audio := p.parseAudioNode(n); audio.URL != "" && !seen[audio.URL] {
 				seen[audio.URL] = true
 				audios = append(audios, audio)
@@ -194,7 +195,7 @@ func (p *Processor) extractAudios(node *Node, htmlContent string) []AudioInfo {
 	return audios
 }
 
-func (p *Processor) parseAudioNode(n *Node) AudioInfo {
+func (p *Processor) parseAudioNode(n *stdxhtml.Node) AudioInfo {
 	audio := AudioInfo{}
 	for _, attr := range n.Attr {
 		switch attr.Key {
@@ -219,9 +220,9 @@ func (p *Processor) parseAudioNode(n *Node) AudioInfo {
 	return audio
 }
 
-func (p *Processor) findSourceURL(n *Node) (url, mediaType string) {
+func (p *Processor) findSourceURL(n *stdxhtml.Node) (url, mediaType string) {
 	for c := n.FirstChild; c != nil; c = c.NextSibling {
-		if c.Type == ElementNode && c.Data == "source" {
+		if c.Type == stdxhtml.ElementNode && c.Data == "source" {
 			var srcURL, srcType string
 			for _, attr := range c.Attr {
 				switch attr.Key {

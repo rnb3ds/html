@@ -38,6 +38,7 @@ type contentMetrics struct {
 
 // collectContentMetrics collects all scoring metrics in a single DOM traversal.
 // This is more efficient than calling separate functions for each metric.
+// Optimized with inline NBSP handling to avoid function call overhead.
 func collectContentMetrics(node *html.Node) contentMetrics {
 	var metrics contentMetrics
 
@@ -51,7 +52,28 @@ func collectContentMetrics(node *html.Node) contentMetrics {
 				metrics.headingCount++
 			}
 		} else if n.Type == html.TextNode {
-			textData := normalizeNonBreakingSpaces(n.Data)
+			// Inline NBSP normalization - avoid function call overhead
+			data := n.Data
+			dataLen := len(data)
+
+			// Fast path: check if any NBSP present (UTF-8: 0xC2 0xA0)
+			// SECURITY: Use clear boundary condition i+1 < dataLen instead of i < dataLen-1
+			// to avoid potential underflow issues with empty strings and improve readability.
+			hasNBSP := false
+			for i := 0; i+1 < dataLen; i++ {
+				if data[i] == 0xC2 && data[i+1] == 0xA0 {
+					hasNBSP = true
+					break
+				}
+			}
+
+			var textData string
+			if hasNBSP {
+				textData = strings.ReplaceAll(data, "\u00a0", " ")
+			} else {
+				textData = data
+			}
+
 			text := strings.TrimSpace(textData)
 			if text != "" {
 				metrics.textLength += len(text)

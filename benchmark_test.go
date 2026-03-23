@@ -152,45 +152,6 @@ func BenchmarkNew(b *testing.B) {
 	}
 }
 
-func BenchmarkParse(b *testing.B) {
-	htmlContent := `<html><head><title>Test</title></head><body><p>Content</p></body></html>`
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		_, err := html.Parse(strings.NewReader(htmlContent))
-		if err != nil {
-			b.Fatalf("Parse() failed: %v", err)
-		}
-	}
-}
-
-func BenchmarkEscapeString(b *testing.B) {
-	input := `<script>alert("xss")</script>`
-
-	var lastResult string
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		lastResult = html.EscapeString(input)
-	}
-	// Prevent compiler optimization
-	if lastResult == "" {
-		b.Fatal("Expected non-empty result")
-	}
-}
-
-func BenchmarkUnescapeString(b *testing.B) {
-	input := `&lt;html&gt;&amp;&aacute;&#225;&#xE1;`
-
-	var lastResult string
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		lastResult = html.UnescapeString(input)
-	}
-	// Prevent compiler optimization
-	if lastResult == "" {
-		b.Fatal("Expected non-empty result")
-	}
-}
 
 func BenchmarkConcurrentExtract(b *testing.B) {
 	p, _ := html.New()

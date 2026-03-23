@@ -154,7 +154,7 @@ func TestGoroutineLeakInAuditCollector(t *testing.T) {
 
 	// Create and use multiple collectors
 	for i := 0; i < 10; i++ {
-		collector := NewAuditCollector(config)
+		collector := newAuditCollector(config)
 		for j := 0; j < 100; j++ {
 			collector.RecordBlockedTag("script")
 			collector.RecordBlockedAttr("onclick", "alert(1)")
@@ -458,8 +458,9 @@ func TestConcurrentCloseAndExtract(t *testing.T) {
 	}
 }
 
-// TestMultiSinkClose tests that MultiSink properly closes all underlying sinks.
-func TestMultiSinkClose(t *testing.T) {
+// TestMultiSinkCloseGoroutineLeak tests that MultiSink properly closes all underlying sinks
+// and doesn't leak consumer goroutines.
+func TestMultiSinkCloseGoroutineLeak(t *testing.T) {
 	// Get initial goroutine count
 	runtime.GC()
 	time.Sleep(10 * time.Millisecond)

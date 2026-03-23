@@ -2,8 +2,45 @@
 
 All notable changes to the cybergodev/html library will be documented in this file.
 
-[//]: # (The format is based on [Keep a Changelog]&#40;https://keepachangelog.com&#41;)
-[//]: # (and this project adheres to [Semantic Versioning]&#40;https://semver.org&#41;)
+---
+
+## v1.3.2 — Security Hardening & Performance Enhancement (2026-03-23)
+
+### Breaking Changes
+- Removed 11 deprecated package-level `*With()` functions — use `New(Config)` + processor methods instead
+- Removed `NewWithConfigs()` public function — use `New(Config)` internally
+
+### Added
+- `BytesToStringSafe()` / `StringToBytesSafe()` for safe memory conversions in untrusted contexts
+- `SetPoolSecureClear()` for optional secure buffer clearing (prevents data leakage)
+- `ExtractWith()` family: 10 new package-level functions with optional `Config` parameter
+- `maxWalkDepth` constant (50,000 nodes) to prevent memory exhaustion attacks
+
+### Changed
+- Cache key generation uses 5-point sampling with xxHash-style hashing (~15% faster)
+- `isPureASCII()` has defensive bounds checking for small slices
+- `WalkNodes()` limited to 50,000 nodes maximum depth
+- `replaceNumericEntity()` validates hex/decimal characters and limits to 10 chars
+- `IsValidURL()` trims whitespace before protocol validation
+
+### Fixed
+- Race condition in `ExtractToMarkdown()` — now uses config copy instead of shared state
+- Panic in processor pool replaced with graceful fallback
+- Protocol-relative URL validation bypass via leading whitespace
+- Context cancellation checked at all processing stages
+- Cache cleared when returning processor to pool
+
+### Performance
+- Large document extraction: ~15-19% faster
+- Hash function uses xxHash-inspired algorithm with 4 parallel accumulators
+- Builder pool capacity increased from 256 to 1024 bytes
+- Pattern scoring eliminates heap allocation with fixed-size stack array
+
+### Security
+- Defense-in-depth for fast path vulnerabilities (S-06 to S-16)
+- Enhanced numeric entity validation prevents DoS via long strings
+- Improved cache key collision resistance (5-point sampling)
+- Security documentation added to Cache struct and config comparison
 
 ---
 

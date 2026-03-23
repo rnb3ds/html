@@ -174,25 +174,25 @@ func DefaultConfig() Config {
 func (c Config) Validate() error {
 	switch {
 	case c.MaxInputSize <= 0:
-		return NewConfigError("MaxInputSize", c.MaxInputSize, "must be positive")
+		return newConfigError("MaxInputSize", c.MaxInputSize, "must be positive")
 	case c.MaxInputSize > maxConfigInputSize:
-		return NewConfigError("MaxInputSize", c.MaxInputSize, fmt.Sprintf("exceeds maximum %d", maxConfigInputSize))
+		return newConfigError("MaxInputSize", c.MaxInputSize, fmt.Sprintf("exceeds maximum %d", maxConfigInputSize))
 	case c.MaxCacheEntries < 0:
-		return NewConfigError("MaxCacheEntries", c.MaxCacheEntries, "cannot be negative")
+		return newConfigError("MaxCacheEntries", c.MaxCacheEntries, "cannot be negative")
 	case c.MaxCacheEntries > maxConfigCacheEntries:
-		return NewConfigError("MaxCacheEntries", c.MaxCacheEntries, fmt.Sprintf("exceeds maximum %d", maxConfigCacheEntries))
+		return newConfigError("MaxCacheEntries", c.MaxCacheEntries, fmt.Sprintf("exceeds maximum %d", maxConfigCacheEntries))
 	case c.CacheTTL < 0:
-		return NewConfigError("CacheTTL", c.CacheTTL, "cannot be negative")
+		return newConfigError("CacheTTL", c.CacheTTL, "cannot be negative")
 	case c.WorkerPoolSize <= 0:
-		return NewConfigError("WorkerPoolSize", c.WorkerPoolSize, "must be positive")
+		return newConfigError("WorkerPoolSize", c.WorkerPoolSize, "must be positive")
 	case c.WorkerPoolSize > maxConfigWorkerSize:
-		return NewConfigError("WorkerPoolSize", c.WorkerPoolSize, fmt.Sprintf("exceeds maximum %d", maxConfigWorkerSize))
+		return newConfigError("WorkerPoolSize", c.WorkerPoolSize, fmt.Sprintf("exceeds maximum %d", maxConfigWorkerSize))
 	case c.MaxDepth <= 0:
-		return NewConfigError("MaxDepth", c.MaxDepth, "must be positive")
+		return newConfigError("MaxDepth", c.MaxDepth, "must be positive")
 	case c.MaxDepth > maxConfigDepth:
-		return NewConfigError("MaxDepth", c.MaxDepth, fmt.Sprintf("exceeds maximum %d", maxConfigDepth))
+		return newConfigError("MaxDepth", c.MaxDepth, fmt.Sprintf("exceeds maximum %d", maxConfigDepth))
 	case c.ProcessingTimeout < 0:
-		return NewConfigError("ProcessingTimeout", c.ProcessingTimeout, "cannot be negative")
+		return newConfigError("ProcessingTimeout", c.ProcessingTimeout, "cannot be negative")
 	}
 
 	// Validate format strings
@@ -221,7 +221,7 @@ func validateFormat(field, value string, allowed []string) error {
 			return nil
 		}
 	}
-	return NewConfigError(field, value, fmt.Sprintf("valid values: %s", strings.Join(allowed, ", ")))
+	return newConfigError(field, value, fmt.Sprintf("valid values: %s", strings.Join(allowed, ", ")))
 }
 
 // HighSecurityConfig returns a configuration optimized for high-security environments.

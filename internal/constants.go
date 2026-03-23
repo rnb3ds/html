@@ -3,11 +3,7 @@ package internal
 
 const (
 	// Content analysis thresholds
-	// cleanTextGrowthFactor is the multiplier used to estimate the buffer size needed for
-	// cleaned text output. A value of 2 provides adequate headroom for text expansion during
-	// processing (e.g., entity replacement, newline normalization) while avoiding over-allocation.
-	cleanTextGrowthFactor = 2
-	builderInitialSize    = 256 // Initial capacity for strings.Builder
+	builderInitialSize = 256 // Initial capacity for strings.Builder
 
 	// URL validation limits
 	MaxURLLength     = 2000   // Maximum URL length

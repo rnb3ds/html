@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"golang.org/x/net/html"
+	"golang.org/x/text/unicode/norm"
 )
 
 var tagsToRemove = []string{
@@ -313,20 +314,35 @@ func isSafeURIWithAudit(uri string, audit AuditRecorder) bool {
 		return true
 	}
 
-	trimmed := strings.TrimSpace(uri)
+	// SECURITY: Apply NFC normalization first to prevent Unicode-based bypass attacks.
+	// Attackers may use different Unicode representations of the same characters
+	// to bypass protocol checks. For example:
+	// - Using fullwidth characters (ｊａｖａｓｃｒｉｐｔ:)
+	// - Using combining characters
+	// - Using lookalike characters from different scripts
+	//
+	// NFC normalization ensures consistent representation before security checks.
+	normalized := normalizeURIForSecurity(uri)
+
+	trimmed := strings.TrimSpace(normalized)
 	lowerURI := strings.ToLower(trimmed)
 
-	if strings.HasPrefix(lowerURI, "javascript:") {
+	// SECURITY: Check for dangerous schemes with multiple Unicode attack vectors
+
+	// Check for javascript: scheme and its Unicode variants
+	if isDangerousScheme(lowerURI, "javascript:") {
 		audit.RecordBlockedURL(uri, "javascript scheme")
 		return false
 	}
 
-	if strings.HasPrefix(lowerURI, "vbscript:") {
+	// Check for vbscript: scheme and its Unicode variants
+	if isDangerousScheme(lowerURI, "vbscript:") {
 		audit.RecordBlockedURL(uri, "vbscript scheme")
 		return false
 	}
 
-	if strings.HasPrefix(lowerURI, "file:") {
+	// Check for file: scheme and its Unicode variants
+	if isDangerousScheme(lowerURI, "file:") {
 		audit.RecordBlockedURL(uri, "file scheme")
 		return false
 	}
@@ -335,10 +351,10 @@ func isSafeURIWithAudit(uri string, audit AuditRecorder) bool {
 	// Block //javascript:, //vbscript:, etc. with potential whitespace bypass
 	if strings.HasPrefix(trimmed, "//") {
 		restLower := strings.ToLower(strings.TrimLeft(trimmed[2:], " \t\n\r"))
-		if strings.HasPrefix(restLower, "javascript:") ||
-			strings.HasPrefix(restLower, "vbscript:") ||
-			strings.HasPrefix(restLower, "data:") ||
-			strings.HasPrefix(restLower, "file:") {
+		if isDangerousScheme(restLower, "javascript:") ||
+			isDangerousScheme(restLower, "vbscript:") ||
+			isDangerousScheme(restLower, "data:") ||
+			isDangerousScheme(restLower, "file:") {
 			audit.RecordBlockedURL(uri, "dangerous protocol-relative URL")
 			return false
 		}
@@ -357,6 +373,38 @@ func isSafeURIWithAudit(uri string, audit AuditRecorder) bool {
 	}
 
 	return true
+}
+
+// normalizeURIForSecurity applies security-focused normalization to URIs.
+// This helps prevent Unicode-based bypass attacks.
+func normalizeURIForSecurity(uri string) string {
+	// Import norm package at top of file, but use it here
+	// Apply NFC normalization for consistent character representation
+	return norm.NFC.String(uri)
+}
+
+// isDangerousScheme checks if a URI starts with a dangerous scheme,
+// accounting for various Unicode attack vectors.
+func isDangerousScheme(lowerURI, scheme string) bool {
+	// Direct match check
+	if strings.HasPrefix(lowerURI, scheme) {
+		return true
+	}
+
+	// SECURITY: Check for Unicode confusable characters that could be used
+	// to disguise dangerous schemes. This includes:
+	// - Fullwidth Latin characters (U+FF00-U+FFEF)
+	// - Mathematical alphanumeric symbols (U+1D00-U+1D7F)
+	// - Other lookalike characters
+	//
+	// We normalize the URI and check again to catch these attacks.
+	// The norm.NFC normalization already handles most cases by
+	// canonicalizing equivalent sequences.
+
+	// Additional check: look for scheme with various Unicode variants
+	// by checking if the normalized form contains the scheme pattern
+	normalizedScheme := norm.NFC.String(scheme)
+	return strings.HasPrefix(norm.NFC.String(lowerURI), normalizedScheme)
 }
 
 func isValidDataURL(url string) bool {

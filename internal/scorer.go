@@ -299,8 +299,9 @@ func (s *DefaultScorer) scoreAttributes(n *html.Node) int {
 }
 
 // calculatePatternScore calculates score based on pattern matching.
-// Optimized with a fixed-size array instead of map allocation for valueChars,
+// Optimized with sparse character tracking instead of fixed array iteration,
 // and prefix filtering to only check patterns whose first character appears in value.
+// Uses fixed-size array to avoid heap allocation.
 func (s *DefaultScorer) calculatePatternScore(value string, patterns map[string]int) int {
 	if len(value) == 0 || len(patterns) == 0 {
 		return 0
@@ -308,9 +309,11 @@ func (s *DefaultScorer) calculatePatternScore(value string, patterns map[string]
 
 	score := 0
 
-	// Use a fixed-size array instead of map allocation
-	// This avoids heap allocation and is cache-friendly
-	var valueChars [128]bool // Covers ASCII alphanumeric range
+	// Use fixed-size arrays on stack to avoid heap allocation
+	// Most values have fewer than 32 unique alphanumeric characters
+	var valueChars [128]bool
+	var presentChars [32]byte
+	charCount := 0
 
 	for i := 0; i < len(value); i++ {
 		c := value[i]
@@ -320,15 +323,20 @@ func (s *DefaultScorer) calculatePatternScore(value string, patterns map[string]
 		}
 		// Only consider alphanumeric characters as potential pattern starts
 		if (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') {
-			valueChars[c] = true
+			if !valueChars[c] {
+				valueChars[c] = true
+				if charCount < 32 {
+					presentChars[charCount] = c
+					charCount++
+				}
+			}
 		}
 	}
 
 	// Only check patterns whose first character appears in value
-	for char := byte(0); char < 128; char++ {
-		if !valueChars[char] {
-			continue
-		}
+	// Iterate only through present characters, not all 128
+	for i := 0; i < charCount; i++ {
+		char := presentChars[i]
 		if candidates, ok := s.patternPrefixes[char]; ok {
 			for _, ps := range candidates {
 				// Only check patterns that belong to the input patterns map

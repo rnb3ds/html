@@ -184,7 +184,7 @@ func TestConcurrentAuditCollector(t *testing.T) {
 		IncludeRawValues:  true,
 		MaxRawValueLength: 100,
 	}
-	collector := NewAuditCollector(config)
+	collector := newAuditCollector(config)
 	defer collector.Close()
 
 	numGoroutines := 50
@@ -227,7 +227,7 @@ func TestConcurrentAuditCollector(t *testing.T) {
 // TestConcurrentAuditCollectorClear tests concurrent Clear with Record.
 func TestConcurrentAuditCollectorClear(t *testing.T) {
 	config := AuditConfig{Enabled: true}
-	collector := NewAuditCollector(config)
+	collector := newAuditCollector(config)
 	defer collector.Close()
 
 	numGoroutines := 20
@@ -590,7 +590,7 @@ func BenchmarkConcurrentCache(b *testing.B) {
 // BenchmarkConcurrentAuditCollector benchmarks concurrent audit recording.
 func BenchmarkConcurrentAuditCollector(b *testing.B) {
 	config := AuditConfig{Enabled: true}
-	collector := NewAuditCollector(config)
+	collector := newAuditCollector(config)
 	defer collector.Close()
 
 	b.ResetTimer()

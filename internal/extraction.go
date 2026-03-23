@@ -33,14 +33,8 @@ func extractTextWithStructure(node *html.Node, tb *table.TrackedBuilder, imageCo
 		return
 	}
 	if node.Type == html.TextNode {
-		textData := node.Data
-		// Replace non-breaking spaces (U+00A0) with regular spaces
-		// The HTML parser converts &nbsp;, &#160;, &#xa0; to U+00A0 automatically
-		textData = normalizeNonBreakingSpaces(textData)
-		textData = ReplaceHTMLEntities(textData)
-		// Replace internal newlines with spaces for multi-line text in HTML
-		// Combined into a single pass for better performance
-		textData = normalizeLineBreaks(textData)
+		// Single-pass text normalization: handles NBSP, entities, and line breaks
+		textData := normalizeText(node.Data)
 
 		// Check if we're inside an inline/namespace element
 		isInsideInline := false
@@ -180,26 +174,37 @@ func extractTextWithStructure(node *html.Node, tb *table.TrackedBuilder, imageCo
 }
 
 // CleanContentNode removes non-content elements from the node tree.
+// Uses iterative traversal with explicit stack to avoid potential stack overflow
+// on deeply nested documents and improve cache locality.
 func CleanContentNode(node *html.Node) *html.Node {
 	if node == nil {
 		return nil
 	}
+
 	toRemove := make([]*html.Node, 0, 8)
-	var traverse func(*html.Node)
-	traverse = func(n *html.Node) {
+	stack := make([]*html.Node, 0, 64)
+	stack = append(stack, node)
+
+	// Iterative traversal using explicit stack
+	for len(stack) > 0 {
+		n := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+
 		for child := n.FirstChild; child != nil; child = child.NextSibling {
 			if child.Type == html.ElementNode && ShouldRemoveElement(child) {
 				toRemove = append(toRemove, child)
 			} else {
-				traverse(child)
+				stack = append(stack, child)
 			}
 		}
 	}
-	traverse(node)
+
+	// Remove marked nodes
 	for _, n := range toRemove {
 		if n.Parent != nil {
 			n.Parent.RemoveChild(n)
 		}
 	}
+
 	return node
 }

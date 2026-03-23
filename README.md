@@ -3,15 +3,16 @@
 [![Go Version](https://img.shields.io/badge/Go-1.24+-00ADD8?logo=go)](https://golang.org)
 [![GoDoc](https://pkg.go.dev/badge/github.com/cybergodev/html.svg)](https://pkg.go.dev/github.com/cybergodev/html)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Go Report Card](https://goreportcard.com/badge/github.com/cybergodev/html)](https://goreportcard.com/report/github.com/cybergodev/html)
+[![Security](https://img.shields.io/badge/security-policy-blue.svg)](docs/SECURITY.md)
+[![Thread Safe](https://img.shields.io/badge/thread%20safe-yes-brightgreen.svg)](#-thread-safety)
 
 **A high-performance Go library for intelligent HTML content extraction.** Drop-in replacement for `golang.org/x/net/html` with enhanced content extraction capabilities.
 
-**[📖 中文文档](README_zh-CN.md)**
+[📖 中文文档](README_zh-CN.md)
 
 ---
 
-## 🎯 Why This Library?
+## 🎯 Features
 
 | Feature | Description |
 |---------|-------------|
@@ -23,6 +24,18 @@
 | 🛡️ **Security First** | HTML sanitization, XSS protection, audit logging |
 | 🧵 **Thread-Safe** | Concurrent use without external synchronization |
 | 🔗 **golang.org/x/net/html Compatible** | Drop-in replacement with zero code changes |
+
+---
+
+## 🌐 Use Cases
+
+- **News Aggregators**: Extract article content from news websites
+- **Web Crawlers**: Fetch structured data from HTML pages
+- **Content Management**: Convert HTML to Markdown or other formats
+- **Search Engines**: Index main content, excluding navigation and ads
+- **Data Analysis**: Extract and analyze web content at scale
+- **RSS Feed Generators**: Extract content for feed creation
+- **Archive Tools**: Preserve web page content
 
 ---
 
@@ -112,7 +125,7 @@ func main() {
 
 ### 2️⃣ Processor Usage (Recommended for Multiple Extractions)
 
-For multiple extractions, create a Processor to leverage caching and connection pooling:
+For multiple extractions, create a Processor to leverage caching:
 
 ```go
 package main
@@ -541,6 +554,9 @@ type Config struct {
     IncludeContentLinks  bool   // Include anchor links (default: true)
     IncludeExternalLinks bool   // Include external links (default: true)
     IncludeIcons         bool   // Include favicon URLs (default: true)
+
+    // === Extension ===
+    Scorer Scorer // Optional custom scorer for content extraction
 }
 ```
 
@@ -679,6 +695,8 @@ Re-exported types, constants, and functions:
 - **Constants**: All `NodeType` and `TokenType` constants (`ErrorNode`, `TextNode`, `DocumentNode`, `ElementNode`, etc.)
 - **Functions**: `Parse`, `ParseFragment`, `Render`, `EscapeString`, `UnescapeString`, `NewTokenizer`, `NewTokenizerFragment`
 
+See [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md) for full details.
+
 ---
 
 ## 🧵 Thread Safety
@@ -699,18 +717,6 @@ for i := 0; i < 100; i++ {
 }
 wg.Wait()
 ```
-
----
-
-## 🎯 Use Cases
-
-- **News Aggregators**: Extract article content from news websites
-- **Web Crawlers**: Fetch structured data from HTML pages
-- **Content Management**: Convert HTML to Markdown or other formats
-- **Search Engines**: Index main content, excluding navigation and ads
-- **Data Analysis**: Extract and analyze web content at scale
-- **RSS Feed Generators**: Extract content for feed creation
-- **Archive Tools**: Preserve web page content
 
 ---
 
