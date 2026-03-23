@@ -14,10 +14,10 @@ import (
 
 // TestConcurrentProcessorExtraction tests concurrent HTML extraction.
 func TestConcurrentProcessorExtraction(t *testing.T) {
-	config := DefaultConfig()
-	config.MaxCacheEntries = 100
-	config.CacheTTL = time.Minute
-	processor, err := New(config)
+	cfg := DefaultConfig()
+	cfg.MaxCacheEntries = 100
+	cfg.CacheTTL = time.Minute
+	processor, err := New(cfg)
 	if err != nil {
 		t.Fatalf("Failed to create processor: %v", err)
 	}
@@ -184,7 +184,7 @@ func TestConcurrentAuditCollector(t *testing.T) {
 		IncludeRawValues:  true,
 		MaxRawValueLength: 100,
 	}
-	collector := NewAuditCollector(config)
+	collector := newAuditCollector(config)
 	defer collector.Close()
 
 	numGoroutines := 50
@@ -227,7 +227,7 @@ func TestConcurrentAuditCollector(t *testing.T) {
 // TestConcurrentAuditCollectorClear tests concurrent Clear with Record.
 func TestConcurrentAuditCollectorClear(t *testing.T) {
 	config := AuditConfig{Enabled: true}
-	collector := NewAuditCollector(config)
+	collector := newAuditCollector(config)
 	defer collector.Close()
 
 	numGoroutines := 20
@@ -262,10 +262,10 @@ func TestConcurrentAuditCollectorClear(t *testing.T) {
 
 // TestConcurrentProcessorStatistics tests concurrent statistics access.
 func TestConcurrentProcessorStatistics(t *testing.T) {
-	config := DefaultConfig()
-	config.MaxCacheEntries = 100
-	config.CacheTTL = time.Minute
-	processor, err := New(config)
+	cfg := DefaultConfig()
+	cfg.MaxCacheEntries = 100
+	cfg.CacheTTL = time.Minute
+	processor, err := New(cfg)
 	if err != nil {
 		t.Fatalf("Failed to create processor: %v", err)
 	}
@@ -383,7 +383,7 @@ func (discardWriter) Write(p []byte) (int, error) { return len(p), nil }
 
 // TestConcurrentProcessorClose tests concurrent Close calls.
 func TestConcurrentProcessorClose(t *testing.T) {
-	processor, err := New(DefaultConfig())
+	processor, err := New()
 	if err != nil {
 		t.Fatalf("Failed to create processor: %v", err)
 	}
@@ -457,7 +457,7 @@ func TestConcurrentPoolAccess(t *testing.T) {
 
 // TestConcurrentLinkExtraction tests concurrent link extraction.
 func TestConcurrentLinkExtraction(t *testing.T) {
-	processor, err := New(DefaultConfig())
+	processor, err := New()
 	if err != nil {
 		t.Fatalf("Failed to create processor: %v", err)
 	}
@@ -590,7 +590,7 @@ func BenchmarkConcurrentCache(b *testing.B) {
 // BenchmarkConcurrentAuditCollector benchmarks concurrent audit recording.
 func BenchmarkConcurrentAuditCollector(b *testing.B) {
 	config := AuditConfig{Enabled: true}
-	collector := NewAuditCollector(config)
+	collector := newAuditCollector(config)
 	defer collector.Close()
 
 	b.ResetTimer()
@@ -605,7 +605,7 @@ func BenchmarkConcurrentAuditCollector(b *testing.B) {
 
 // BenchmarkConcurrentProcessorExtraction benchmarks concurrent extraction.
 func BenchmarkConcurrentProcessorExtraction(b *testing.B) {
-	processor, _ := New(DefaultConfig())
+	processor, _ := New()
 	defer processor.Close()
 
 	html := []byte(`<html><body><p>Test content for benchmarking</p></body></html>`)
@@ -632,7 +632,7 @@ func TestConcurrentProcessorCreation(t *testing.T) {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
-			p, err := New(DefaultConfig())
+			p, err := New()
 			if err != nil {
 				errorCount.Add(1)
 				return
@@ -662,10 +662,10 @@ func TestConcurrentProcessorCreation(t *testing.T) {
 func TestConcurrentBatchProcessing(t *testing.T) {
 	t.Parallel()
 
-	config := DefaultConfig()
-	config.WorkerPoolSize = 8
+	cfg := DefaultConfig()
+	cfg.WorkerPoolSize = 8
 
-	p, err := New(config)
+	p, err := New(cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -713,10 +713,10 @@ func TestMemoryPressure(t *testing.T) {
 		t.Skip("Skipping memory pressure test in short mode")
 	}
 
-	config := DefaultConfig()
-	config.MaxInputSize = 10 * 1024 * 1024 // 10MB
+	cfg := DefaultConfig()
+	cfg.MaxInputSize = 10 * 1024 * 1024 // 10MB
 
-	p, err := New(config)
+	p, err := New(cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -761,10 +761,10 @@ func TestMemoryPressure(t *testing.T) {
 func TestCacheEvictionUnderLoad(t *testing.T) {
 	t.Parallel()
 
-	config := DefaultConfig()
-	config.MaxCacheEntries = 10 // Small cache to trigger evictions
+	cfg := DefaultConfig()
+	cfg.MaxCacheEntries = 10 // Small cache to trigger evictions
 
-	p, err := New(config)
+	p, err := New(cfg)
 	if err != nil {
 		t.Fatal(err)
 	}

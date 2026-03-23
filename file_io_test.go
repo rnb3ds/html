@@ -29,7 +29,7 @@ func TestExtractFromFile(t *testing.T) {
 	})
 
 	t.Run("processor method with valid file", func(t *testing.T) {
-		p, err := html.New(html.DefaultConfig())
+		p, err := html.New()
 		testutil.AssertNoError(t, err, "New() failed")
 		defer p.Close()
 
@@ -48,7 +48,7 @@ func TestExtractFromFile(t *testing.T) {
 	})
 
 	t.Run("empty path returns error", func(t *testing.T) {
-		p, _ := html.New(html.DefaultConfig())
+		p, _ := html.New()
 		defer p.Close()
 
 		result, err := p.ExtractFromFile("")
@@ -57,7 +57,7 @@ func TestExtractFromFile(t *testing.T) {
 	})
 
 	t.Run("path traversal blocked", func(t *testing.T) {
-		p, _ := html.New(html.DefaultConfig())
+		p, _ := html.New()
 		defer p.Close()
 
 		result, err := p.ExtractFromFile("../../../etc/passwd")
@@ -68,9 +68,9 @@ func TestExtractFromFile(t *testing.T) {
 	})
 
 	t.Run("with custom config", func(t *testing.T) {
-		c := html.DefaultConfig()
-		c.PreserveImages = true
-		p, _ := html.New(c)
+		cfg := html.DefaultConfig()
+		cfg.PreserveImages = true
+		p, _ := html.New(cfg)
 		defer p.Close()
 
 		htmlContent := testutil.CommonHTMLSnippets.ArticleWithImages
@@ -82,7 +82,7 @@ func TestExtractFromFile(t *testing.T) {
 	})
 
 	t.Run("processor closed returns error", func(t *testing.T) {
-		p, _ := html.New(html.DefaultConfig())
+		p, _ := html.New()
 		p.Close()
 
 		tmpFile := testutil.CreateTempHTML(t, "<html><body>Test</body></html>")
@@ -92,7 +92,7 @@ func TestExtractFromFile(t *testing.T) {
 	})
 
 	t.Run("relative path works", func(t *testing.T) {
-		p, _ := html.New(html.DefaultConfig())
+		p, _ := html.New()
 		defer p.Close()
 
 		// Create a temp file in current working directory to ensure relative path works
@@ -148,7 +148,7 @@ func TestExtractTextFromFile(t *testing.T) {
 	})
 
 	t.Run("processor method returns plain text", func(t *testing.T) {
-		p, _ := html.New(html.DefaultConfig())
+		p, _ := html.New()
 		defer p.Close()
 
 		htmlContent := testutil.CommonHTMLSnippets.SimpleArticle
@@ -166,7 +166,7 @@ func TestExtractTextFromFile(t *testing.T) {
 	})
 
 	t.Run("empty file returns empty result", func(t *testing.T) {
-		p, _ := html.New(html.DefaultConfig())
+		p, _ := html.New()
 		defer p.Close()
 
 		tmpFile := testutil.CreateTempHTML(t, "")
@@ -196,7 +196,7 @@ func TestExtractAllLinksFromFile(t *testing.T) {
 	t.Parallel()
 
 	t.Run("processor method extracts all links", func(t *testing.T) {
-		p, _ := html.New(html.DefaultConfig())
+		p, _ := html.New()
 		defer p.Close()
 
 		htmlContent := testutil.CommonHTMLSnippets.ArticleWithLinks
@@ -218,7 +218,7 @@ func TestExtractAllLinksFromFile(t *testing.T) {
 	})
 
 	t.Run("processor method extracts links with default config", func(t *testing.T) {
-		p, _ := html.New(html.DefaultConfig())
+		p, _ := html.New()
 		defer p.Close()
 
 		htmlContent := `<html><body>
@@ -234,7 +234,7 @@ func TestExtractAllLinksFromFile(t *testing.T) {
 	})
 
 	t.Run("non-existent file returns error", func(t *testing.T) {
-		p, _ := html.New(html.DefaultConfig())
+		p, _ := html.New()
 		defer p.Close()
 
 		links, err := p.ExtractAllLinksFromFile("/non/existent/file.html")
@@ -243,7 +243,7 @@ func TestExtractAllLinksFromFile(t *testing.T) {
 	})
 
 	t.Run("empty file returns empty slice", func(t *testing.T) {
-		p, _ := html.New(html.DefaultConfig())
+		p, _ := html.New()
 		defer p.Close()
 
 		tmpFile := testutil.CreateTempHTML(t, "")
@@ -255,11 +255,9 @@ func TestExtractAllLinksFromFile(t *testing.T) {
 	t.Run("filters by config", func(t *testing.T) {
 		// Create processor with custom link extraction config
 		cfg := html.DefaultConfig()
-		cfg.LinkExtraction = html.LinkExtractionOptions{
-			IncludeContentLinks:  true,
-			IncludeExternalLinks: false,
-			IncludeImages:        false,
-		}
+		cfg.IncludeContentLinks = true
+		cfg.IncludeExternalLinks = false
+		cfg.IncludeImages = false
 		p, _ := html.New(cfg)
 		defer p.Close()
 
@@ -281,7 +279,7 @@ func TestExtractAllLinksFromFile(t *testing.T) {
 	})
 
 	t.Run("path traversal blocked", func(t *testing.T) {
-		p, _ := html.New(html.DefaultConfig())
+		p, _ := html.New()
 		defer p.Close()
 
 		links, err := p.ExtractAllLinksFromFile("../../../etc/passwd")
@@ -298,7 +296,8 @@ func TestExtractToMarkdownFromFile(t *testing.T) {
 	t.Parallel()
 
 	t.Run("processor method returns markdown", func(t *testing.T) {
-		p, _ := html.New(html.MarkdownConfig())
+		cfg := html.MarkdownConfig()
+		p, _ := html.New(cfg)
 		defer p.Close()
 
 		htmlContent := `<html><body>
@@ -315,7 +314,8 @@ func TestExtractToMarkdownFromFile(t *testing.T) {
 	})
 
 	t.Run("processor method extracts markdown from article", func(t *testing.T) {
-		p, _ := html.New(html.MarkdownConfig())
+		cfg := html.MarkdownConfig()
+		p, _ := html.New(cfg)
 		defer p.Close()
 
 		htmlContent := `<html><body>
@@ -332,7 +332,8 @@ func TestExtractToMarkdownFromFile(t *testing.T) {
 	})
 
 	t.Run("non-existent file returns error", func(t *testing.T) {
-		p, _ := html.New(html.MarkdownConfig())
+		cfg := html.MarkdownConfig()
+		p, _ := html.New(cfg)
 		defer p.Close()
 
 		markdown, err := p.ExtractToMarkdownFromFile("/non/existent/file.html")
@@ -364,7 +365,7 @@ func TestExtractToJSONFromFile(t *testing.T) {
 	t.Parallel()
 
 	t.Run("processor method returns valid JSON", func(t *testing.T) {
-		p, _ := html.New(html.DefaultConfig())
+		p, _ := html.New()
 		defer p.Close()
 
 		htmlContent := testutil.CommonHTMLSnippets.SimpleArticle
@@ -382,7 +383,7 @@ func TestExtractToJSONFromFile(t *testing.T) {
 	})
 
 	t.Run("processor method with links", func(t *testing.T) {
-		p, _ := html.New(html.DefaultConfig())
+		p, _ := html.New()
 		defer p.Close()
 
 		htmlContent := testutil.CommonHTMLSnippets.ArticleWithLinks
@@ -399,7 +400,7 @@ func TestExtractToJSONFromFile(t *testing.T) {
 	})
 
 	t.Run("non-existent file returns error", func(t *testing.T) {
-		p, _ := html.New(html.DefaultConfig())
+		p, _ := html.New()
 		defer p.Close()
 
 		jsonData, err := p.ExtractToJSONFromFile("/non/existent/file.html")
@@ -408,7 +409,7 @@ func TestExtractToJSONFromFile(t *testing.T) {
 	})
 
 	t.Run("JSON contains all fields", func(t *testing.T) {
-		p, _ := html.New(html.DefaultConfig())
+		p, _ := html.New()
 		defer p.Close()
 
 		htmlContent := `<html><head><title>Full Test</title></head><body>
@@ -499,7 +500,7 @@ func TestFileIOEdgeCases(t *testing.T) {
 	t.Parallel()
 
 	t.Run("large file handled", func(t *testing.T) {
-		p, _ := html.New(html.DefaultConfig())
+		p, _ := html.New()
 		defer p.Close()
 
 		// Create a moderately large HTML file (1MB)
@@ -519,7 +520,7 @@ func TestFileIOEdgeCases(t *testing.T) {
 	})
 
 	t.Run("malformed HTML handled", func(t *testing.T) {
-		p, _ := html.New(html.DefaultConfig())
+		p, _ := html.New()
 		defer p.Close()
 
 		// Malformed but parseable HTML
@@ -532,7 +533,7 @@ func TestFileIOEdgeCases(t *testing.T) {
 	})
 
 	t.Run("empty HTML handled", func(t *testing.T) {
-		p, _ := html.New(html.DefaultConfig())
+		p, _ := html.New()
 		defer p.Close()
 
 		tmpFile := testutil.CreateTempHTML(t, "")
@@ -541,7 +542,7 @@ func TestFileIOEdgeCases(t *testing.T) {
 	})
 
 	t.Run("whitespace only HTML", func(t *testing.T) {
-		p, _ := html.New(html.DefaultConfig())
+		p, _ := html.New()
 		defer p.Close()
 
 		tmpFile := testutil.CreateTempHTML(t, "   \n\t  ")
@@ -551,7 +552,7 @@ func TestFileIOEdgeCases(t *testing.T) {
 	})
 
 	t.Run("special characters in path", func(t *testing.T) {
-		p, _ := html.New(html.DefaultConfig())
+		p, _ := html.New()
 		defer p.Close()
 
 		// Create file with space in name
@@ -601,7 +602,7 @@ func TestConcurrentFileOperations(t *testing.T) {
 	})
 
 	t.Run("concurrent reads with shared processor", func(t *testing.T) {
-		p, _ := html.New(html.DefaultConfig())
+		p, _ := html.New()
 		defer p.Close()
 
 		tmpFile := testutil.CreateTempHTML(t, testutil.CommonHTMLSnippets.ArticleWithLinks)

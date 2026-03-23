@@ -228,6 +228,94 @@ func TestDetectAndConvertToUTF8String(t *testing.T) {
 	}
 }
 
+func TestDetectAndConvertToUTF8StringSafe(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name           string
+		data           []byte
+		forcedEncoding string
+		expectError    bool
+	}{
+		{
+			name:           "Auto-detect UTF-8",
+			data:           []byte("<html><head><meta charset=\"utf-8\"></head><body>Hello</body></html>"),
+			forcedEncoding: "",
+			expectError:    false,
+		},
+		{
+			name:           "Forced UTF-8",
+			data:           []byte("Hello World"),
+			forcedEncoding: "utf-8",
+			expectError:    false,
+		},
+		{
+			name:           "ASCII data",
+			data:           []byte("Pure ASCII content"),
+			forcedEncoding: "",
+			expectError:    false,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			result, charset, err := DetectAndConvertToUTF8StringSafe(tc.data, tc.forcedEncoding)
+
+			if tc.expectError && err == nil {
+				t.Error("DetectAndConvertToUTF8StringSafe() expected error but got none")
+			}
+			if !tc.expectError && err != nil {
+				t.Errorf("DetectAndConvertToUTF8StringSafe() unexpected error: %v", err)
+			}
+			if result == "" && len(tc.data) > 0 {
+				t.Error("DetectAndConvertToUTF8StringSafe() returned empty string")
+			}
+			if charset == "" {
+				t.Error("DetectAndConvertToUTF8StringSafe() returned empty charset")
+			}
+		})
+	}
+}
+
+// TestDetectAndConvertToUTF8StringMemoryIsolation verifies that the Safe version
+// provides memory isolation while the regular version shares memory for ASCII input.
+func TestDetectAndConvertToUTF8StringMemoryIsolation(t *testing.T) {
+	t.Parallel()
+
+	original := []byte("Hello World")
+
+	// Test the regular function - note that modifying input after the call
+	// is UNSAFE and only done here for testing purposes
+	result, charset, err := DetectAndConvertToUTF8String(original, "")
+	if err != nil {
+		t.Fatalf("Unexpected error: %v", err)
+	}
+	if charset != "utf-8" {
+		t.Errorf("Expected utf-8 charset, got %s", charset)
+	}
+	if result != "Hello World" {
+		t.Errorf("Expected 'Hello World', got '%s'", result)
+	}
+
+	// Test the safe version - it should always return a copy
+	safeResult, safeCharset, safeErr := DetectAndConvertToUTF8StringSafe(original, "")
+	if safeErr != nil {
+		t.Fatalf("Unexpected error in safe version: %v", safeErr)
+	}
+	if safeCharset != "utf-8" {
+		t.Errorf("Expected utf-8 charset in safe version, got %s", safeCharset)
+	}
+	if safeResult != "Hello World" {
+		t.Errorf("Expected 'Hello World' in safe version, got '%s'", safeResult)
+	}
+
+	// Modify original - safeResult should be unaffected
+	original[0] = 'X'
+	if safeResult != "Hello World" {
+		t.Errorf("Safe version should be isolated from input modifications, got '%s'", safeResult)
+	}
+}
+
 // Helper function to check if bytes are valid UTF-8
 func isValidUTF8(data []byte) bool {
 	for i := 0; i < len(data); {

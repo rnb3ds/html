@@ -38,6 +38,10 @@ func (e *cacheEntry) isExpired(now int64) bool {
 //
 // Thread Safety: All public methods are safe for concurrent use.
 // Get() uses a write lock to prevent TOCTOU race conditions.
+//
+// SECURITY: Cache entries may contain sensitive data. Use Clear() to remove
+// all entries when processing sensitive content. Consider setting an appropriate
+// TTL to limit data retention.
 type Cache struct {
 	mu         sync.RWMutex
 	entries    map[string]*cacheEntry

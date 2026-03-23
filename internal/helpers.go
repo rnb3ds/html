@@ -81,27 +81,54 @@ func normalizeNonBreakingSpaces(s string) string {
 	return strings.ReplaceAll(s, "\u00a0", " ")
 }
 
-// normalizeLineBreaks replaces newlines with spaces and removes carriage returns
-// in a single pass. This is more efficient than two separate ReplaceAll calls.
-// Optimized with combined detection and processing in a single allocation.
-func normalizeLineBreaks(s string) string {
-	// Fast path: single scan to detect if any processing is needed
-	// and find the first position that needs modification
+// normalizeText performs text normalization in a single pass.
+// It handles NBSP replacement, line break normalization, and HTML entity replacement.
+// This is more efficient than calling the individual functions sequentially.
+func normalizeText(s string) string {
+	if len(s) == 0 {
+		return s
+	}
+
+	// Single scan to detect what processing is needed
 	n := len(s)
+	hasNBSP := false
+	hasNewline := false
+	hasAmpersand := false
 	firstMod := -1
+
 	for i := 0; i < n; i++ {
-		if s[i] == '\n' || s[i] == '\r' {
-			firstMod = i
-			break
+		c := s[i]
+		switch {
+		case c == '\n' || c == '\r':
+			if firstMod == -1 {
+				firstMod = i
+			}
+			hasNewline = true
+		case c == '&':
+			if firstMod == -1 {
+				firstMod = i
+			}
+			hasAmpersand = true
+		case c == 0xC2 && i+1 < n && s[i+1] == 0xA0:
+			// UTF-8 encoding of NBSP (U+00A0)
+			if firstMod == -1 {
+				firstMod = i
+			}
+			hasNBSP = true
 		}
 	}
 
-	// No line breaks or carriage returns found
+	// Fast path: no processing needed
 	if firstMod == -1 {
 		return s
 	}
 
-	// Single pass replacement starting from first modification point
+	// If only ampersands present (no NBSP or newlines), delegate to entity replacement
+	if hasAmpersand && !hasNBSP && !hasNewline {
+		return ReplaceHTMLEntities(s)
+	}
+
+	// Single-pass processing for NBSP and newlines
 	sb := GetBuilder()
 	defer PutBuilder(sb)
 	sb.Grow(n)
@@ -112,18 +139,96 @@ func normalizeLineBreaks(s string) string {
 	}
 
 	// Process from first modification point
-	for i := firstMod; i < n; i++ {
+	i := firstMod
+	for i < n {
 		c := s[i]
-		if c == '\n' {
+		switch {
+		case c == '\n':
 			sb.WriteByte(' ')
-		} else if c == '\r' {
+			i++
+		case c == '\r':
 			// Skip carriage returns
-		} else {
+			i++
+		case c == 0xC2 && i+1 < n && s[i+1] == 0xA0:
+			// UTF-8 encoding of NBSP (U+00A0) - replace with space
+			sb.WriteByte(' ')
+			i += 2
+		case c == '&':
+			// Handle entity at this position
+			replaced, consumed := replaceEntityAt(s, i)
+			sb.WriteString(replaced)
+			i += consumed
+		default:
 			sb.WriteByte(c)
+			i++
 		}
 	}
+
 	return sb.String()
 }
+
+// replaceEntityAt handles an HTML entity starting at position pos.
+// Returns the replacement string and the number of bytes consumed.
+func replaceEntityAt(text string, pos int) (string, int) {
+	textLen := len(text)
+	if pos >= textLen || text[pos] != '&' {
+		return "&", 1
+	}
+
+	// Find the end of the entity (semicolon or end of string)
+	end := pos + 1
+	if end >= textLen {
+		return "&", 1
+	}
+
+	// Check for common entities first (most frequent case)
+	remainingLen := textLen - pos
+	switch {
+	case remainingLen >= 5 && text[pos:pos+5] == "&amp;":
+		return "&", 5
+	case remainingLen >= 6 && text[pos:pos+6] == "&nbsp;":
+		return " ", 6
+	case remainingLen >= 4 && text[pos:pos+4] == "&lt;":
+		return "<", 4
+	case remainingLen >= 4 && text[pos:pos+4] == "&gt;":
+		return ">", 4
+	case remainingLen >= 6 && text[pos:pos+6] == "&quot;":
+		return "\"", 6
+	case remainingLen >= 6 && text[pos:pos+6] == "&apos;":
+		return "'", 6
+	case remainingLen >= 6 && text[pos:pos+6] == "&copy;":
+		return "©", 6
+	case remainingLen >= 5 && text[pos:pos+5] == "&reg;":
+		return "®", 5
+	case remainingLen >= 7 && text[pos:pos+7] == "&mdash;":
+		return "—", 7
+	case remainingLen >= 7 && text[pos:pos+7] == "&ndash;":
+		return "–", 7
+	}
+
+	// Check for numeric entity
+	if text[end] == '#' {
+		return replaceNumericEntity(text, pos)
+	}
+
+	// Find semicolon for named entity
+	semi := strings.IndexByte(text[pos:], ';')
+	if semi == -1 {
+		return "&", 1
+	}
+	semi += pos
+
+	// Extract entity name
+	entityName := text[pos+1 : semi]
+	if !isValidEntityName(entityName) {
+		return "&", 1
+	}
+
+	// Use standard library for other entities
+	decoded := htmlstd.UnescapeString(text[pos : semi+1])
+	return decoded, semi - pos + 1
+}
+
 
 var unwantedCharReplacer = strings.NewReplacer(
 	"☒", "[X]",
@@ -141,20 +246,17 @@ func compressWhitespace(s string) string {
 	}
 
 	// Single scan to find first position needing compression or tab conversion
+	// Use local variables for faster access
 	firstMod := -1
-	needsSpace := false // Track if previous char was space/tab
+	prevWasSpace := false
 	for i := 0; i < n; i++ {
 		c := s[i]
-		if c == ' ' || c == '\t' {
-			if needsSpace {
-				// Found consecutive whitespace - needs compression
-				firstMod = i - 1
-				break
-			}
-			needsSpace = true
-		} else {
-			needsSpace = false
+		isSpace := c == ' ' || c == '\t'
+		if isSpace && prevWasSpace {
+			firstMod = i - 1
+			break
 		}
+		prevWasSpace = isSpace
 		// Also check for tabs that need conversion
 		if c == '\t' && firstMod == -1 {
 			firstMod = i
@@ -200,66 +302,89 @@ func CleanText(text string, whitespaceRegex *regexp.Regexp) string {
 	}
 
 	// Fast path: check if processing is needed
-	// For clean text without special characters, skip expensive processing
-	hasNewlines := strings.Contains(text, "\n")
-	hasMultipleSpaces := strings.Contains(text, "  ") || strings.Contains(text, "\t")
-	hasNBSP := strings.Contains(text, "\u00a0")
+	// Use single scan for all checks to reduce string traversals
+	n := len(text)
+	hasNewlines := false
+	hasMultipleSpaces := false
+	hasNBSP := false
+	prevSpace := false
+
+	for i := 0; i < n; i++ {
+		c := text[i]
+		switch {
+		case c == '\n':
+			hasNewlines = true
+		case c == '\t':
+			hasMultipleSpaces = true
+		case c == ' ':
+			if prevSpace {
+				hasMultipleSpaces = true
+			}
+			prevSpace = true
+			continue
+		case c == 0xC2 && i+1 < n && text[i+1] == 0xA0:
+			// UTF-8 encoding of NBSP (U+00A0)
+			hasNBSP = true
+		}
+		prevSpace = false
+	}
 
 	if !hasNewlines && !hasMultipleSpaces && !hasNBSP {
 		// Clean text - just normalize entities
 		return ReplaceHTMLEntities(text)
 	}
 
-	textLen := len(text)
-
 	// Use pooled builder for better memory efficiency
 	sb := GetBuilder()
 	defer PutBuilder(sb)
 
-	sb.Grow(textLen / cleanTextGrowthFactor)
+	// Pre-allocate buffer: text may expand slightly during processing
+	// Use n directly as upper bound since we're only compressing whitespace
+	if n > builderPoolInitialCapacity {
+		sb.Grow(n)
+	}
 	start := 0
 	previousWasEmpty := false
 
-	for i := 0; i <= textLen; i++ {
-		if i == textLen || text[i] == '\n' {
+	for i := 0; i <= n; i++ {
+		if i == n || text[i] == '\n' {
 			rawLine := text[start:i]
 			isEmpty := true
 
 			// Process the line while preserving leading indentation
 			if rawLine != "" {
-				// Compress whitespace AFTER leading indentation
 				// Find the first non-space character
 				firstNonSpace := 0
-				for firstNonSpace < len(rawLine) && rawLine[firstNonSpace] == ' ' {
+				lineLen := len(rawLine)
+				for firstNonSpace < lineLen && rawLine[firstNonSpace] == ' ' {
 					firstNonSpace++
 				}
 
-				if firstNonSpace < len(rawLine) {
+				if firstNonSpace < lineLen {
 					// Has leading indentation
 					indent := rawLine[:firstNonSpace]
 					content := rawLine[firstNonSpace:]
 
-					// Use optimized whitespace compression instead of regex
+					// Use optimized whitespace compression
 					content = compressWhitespace(content)
 					content = strings.TrimRight(content, " ")
 
 					if content != "" {
-						line := indent + content
-						isEmpty = false
 						if sb.Len() > 0 {
 							if previousWasEmpty {
 								sb.WriteByte('\n')
 							}
 							sb.WriteByte('\n')
 						}
-						sb.WriteString(line)
+						sb.WriteString(indent)
+						sb.WriteString(content)
+						isEmpty = false
 					}
 				} else {
 					// No leading indentation, compress all whitespace
 					line := compressWhitespace(rawLine)
 					line = strings.TrimRight(line, " ")
 					if line != "" {
-						isEmpty = false
 						if sb.Len() > 0 {
 							if previousWasEmpty {
 								sb.WriteByte('\n')
@@ -267,6 +392,7 @@ func CleanText(text string, whitespaceRegex *regexp.Regexp) string {
 							sb.WriteByte('\n')
 						}
 						sb.WriteString(line)
+						isEmpty = false
 					}
 				}
 			}
@@ -278,24 +404,67 @@ func CleanText(text string, whitespaceRegex *regexp.Regexp) string {
 	return ReplaceHTMLEntities(unwantedCharReplacer.Replace(sb.String()))
 }
 
+// maxWalkDepth limits the maximum traversal depth to prevent memory exhaustion
+// from deeply nested or malformed HTML documents.
+// SECURITY: This limit prevents potential DoS attacks through deeply nested structures.
+const maxWalkDepth = 50000
+
 // WalkNodes traverses the HTML node tree iteratively using an explicit stack
 // to avoid potential stack overflow on deeply nested documents.
 // The fn callback is called for each node. If fn returns false, traversal
 // stops for that branch (node's children are not visited).
+// Optimized with pooled stack slice to reduce allocations.
+//
+// SECURITY: Traversal is limited to maxWalkDepth (50,000) nodes to prevent
+// memory exhaustion attacks through deeply nested or recursive structures.
+// If the limit is exceeded, traversal stops early without notification.
+// For applications that need to know if traversal was truncated, use WalkNodesWithTruncation.
 func WalkNodes(node *html.Node, fn func(*html.Node) bool) {
+	_, _ = WalkNodesWithTruncation(node, fn)
+}
+
+// WalkNodesWithTruncation traverses the HTML node tree iteratively using an explicit stack
+// to avoid potential stack overflow on deeply nested documents.
+// The fn callback is called for each node. If fn returns false, traversal
+// stops for that branch (node's children are not visited).
+//
+// Returns:
+//   - truncated: true if traversal was stopped due to exceeding maxWalkDepth limit
+//   - visited: the number of nodes visited before completion or truncation
+//
+// SECURITY: Traversal is limited to maxWalkDepth (50,000) nodes to prevent
+// memory exhaustion attacks through deeply nested or recursive structures.
+//
+// Optimized with pooled stack slice to reduce allocations.
+func WalkNodesWithTruncation(node *html.Node, fn func(*html.Node) bool) (truncated bool, visited int) {
 	if node == nil || fn == nil {
-		return
+		return false, 0
 	}
 
-	// Use explicit stack to avoid recursion on deep DOM trees
-	stack := make([]*html.Node, 0, 64)
+	// Use pooled stack to avoid allocation
+	stackPtr := GetNodeSlice()
+	defer PutNodeSlice(stackPtr)
+	stack := *stackPtr
+
 	stack = append(stack, node)
 
 	// Pre-allocate children buffer for reuse across iterations.
-	// This avoids allocating a new slice on every loop iteration.
 	childrenBuf := make([]*html.Node, 0, 16)
 
+	// SECURITY: Track visited count to detect potential infinite loops
+	// or extremely deep structures
+	visitedCount := 0
+
 	for len(stack) > 0 {
+		// SECURITY: Check depth limit to prevent memory exhaustion
+		visitedCount++
+		if visitedCount > maxWalkDepth {
+			// Stop traversal to prevent memory exhaustion
+			// Update the pointer for pool return before returning
+			*stackPtr = stack
+			return true, visitedCount - 1 // Return truncation status
+		}
+
 		n := stack[len(stack)-1]
 		stack = stack[:len(stack)-1]
 
@@ -317,6 +486,10 @@ func WalkNodes(node *html.Node, fn func(*html.Node) bool) {
 			stack = append(stack, childrenBuf[i])
 		}
 	}
+
+	// Update the pointer for pool return
+	*stackPtr = stack
+	return false, visitedCount
 }
 
 func FindElementByTag(doc *html.Node, tagName string) *html.Node {
@@ -476,16 +649,46 @@ func ReplaceHTMLEntities(text string) string {
 // fastReplaceCommonEntities handles the 10 most common HTML entities with direct scanning.
 // This is significantly faster than strings.NewReplacer for these common cases.
 // Returns the input string unchanged if no common entities were found.
-// Optimized with single-pass detection to avoid multiple strings.Contains() calls.
+// Optimized with single-pass detection to avoid multiple scans.
 func fastReplaceCommonEntities(text string) string {
 	textLen := len(text)
 
-	// Single scan to find first ampersand - avoids multiple Contains() calls
+	// Single scan to find first ampersand AND check for common entities
+	// This merges two separate loops into one for better cache locality
 	firstAmpersand := -1
+	hasCommonEntity := false
+
 	for i := 0; i < textLen; i++ {
 		if text[i] == '&' {
-			firstAmpersand = i
-			break
+			if firstAmpersand == -1 {
+				firstAmpersand = i
+			}
+			// Immediately check for common entity at this position
+			if !hasCommonEntity {
+				remLen := textLen - i
+				switch {
+				case remLen >= 5 && text[i:i+5] == "&amp;":
+					hasCommonEntity = true
+				case remLen >= 6 && text[i:i+6] == "&nbsp;":
+					hasCommonEntity = true
+				case remLen >= 4 && text[i:i+4] == "&lt;":
+					hasCommonEntity = true
+				case remLen >= 4 && text[i:i+4] == "&gt;":
+					hasCommonEntity = true
+				case remLen >= 6 && text[i:i+6] == "&quot;":
+					hasCommonEntity = true
+				case remLen >= 6 && text[i:i+6] == "&apos;":
+					hasCommonEntity = true
+				case remLen >= 6 && text[i:i+6] == "&copy;":
+					hasCommonEntity = true
+				case remLen >= 5 && text[i:i+5] == "&reg;":
+					hasCommonEntity = true
+				case remLen >= 7 && text[i:i+7] == "&mdash;":
+					hasCommonEntity = true
+				case remLen >= 7 && text[i:i+7] == "&ndash;":
+					hasCommonEntity = true
+				}
+			}
 		}
 	}
 
@@ -494,43 +697,7 @@ func fastReplaceCommonEntities(text string) string {
 		return text
 	}
 
-	// Quick check if any common entity patterns exist starting from first ampersand
-	// This avoids scanning the entire string for each pattern
-	remaining := text[firstAmpersand:]
-	hasCommonEntity := false
-	for i := 0; i < len(remaining); i++ {
-		if remaining[i] == '&' {
-			// Check for common entity patterns at this position
-			remLen := len(remaining) - i
-			switch {
-			case remLen >= 5 && remaining[i:i+5] == "&amp;":
-				hasCommonEntity = true
-			case remLen >= 6 && remaining[i:i+6] == "&nbsp;":
-				hasCommonEntity = true
-			case remLen >= 4 && remaining[i:i+4] == "&lt;":
-				hasCommonEntity = true
-			case remLen >= 4 && remaining[i:i+4] == "&gt;":
-				hasCommonEntity = true
-			case remLen >= 6 && remaining[i:i+6] == "&quot;":
-				hasCommonEntity = true
-			case remLen >= 6 && remaining[i:i+6] == "&apos;":
-				hasCommonEntity = true
-			case remLen >= 6 && remaining[i:i+6] == "&copy;":
-				hasCommonEntity = true
-			case remLen >= 5 && remaining[i:i+5] == "&reg;":
-				hasCommonEntity = true
-			case remLen >= 7 && remaining[i:i+7] == "&mdash;":
-				hasCommonEntity = true
-			case remLen >= 7 && remaining[i:i+7] == "&ndash;":
-				hasCommonEntity = true
-			}
-			if hasCommonEntity {
-				break
-			}
-		}
-	}
-
-	// Fast path: no common entities found
+	// Fast path: ampersands present but no common entities
 	if !hasCommonEntity {
 		return text
 	}
@@ -667,6 +834,8 @@ func replaceHTMLEntitiesFull(text string) string {
 }
 
 // replaceNumericEntity handles numeric character references like &#65; or &#x41;
+// SECURITY: Includes validation to prevent DoS and injection attacks through
+// malformed or malicious numeric entities.
 func replaceNumericEntity(text string, start int) (string, int) {
 	if start+2 >= len(text) || text[start+1] != '#' {
 		return string(text[start]), 1
@@ -684,12 +853,35 @@ func replaceNumericEntity(text string, start int) (string, int) {
 		return text[start : semi+1], semi - start + 1
 	}
 
+	// Security: limit entity length to prevent DoS through extremely long numeric strings.
+	// Maximum valid Unicode code point is 0x10FFFF which requires at most 8 decimal digits
+	// or 6 hexadecimal digits. We allow up to 10 characters to handle hex prefix + digits.
+	const maxEntityLength = 10
+	if len(entity) > maxEntityLength {
+		return text[start : semi+1], semi - start + 1
+	}
+
 	var base int
 	if entity[0] == 'x' || entity[0] == 'X' {
 		base = 16
 		entity = entity[1:]
+		// SECURITY: Validate that remaining characters are valid hex digits
+		if len(entity) == 0 {
+			return text[start : semi+1], semi - start + 1
+		}
+		for _, c := range entity {
+			if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')) {
+				return text[start : semi+1], semi - start + 1
+			}
+		}
 	} else {
 		base = 10
+		// SECURITY: Validate that all characters are valid decimal digits
+		for _, c := range entity {
+			if c < '0' || c > '9' {
+				return text[start : semi+1], semi - start + 1
+			}
+		}
 	}
 
 	// Parse the number with 64-bit to prevent overflow
@@ -778,8 +970,10 @@ func IsValidURL(url string) bool {
 
 	// Check for dangerous protocol-relative URL patterns
 	// Block //javascript:, //vbscript:, etc.
+	// Also handle whitespace before dangerous schemes (e.g., // javascript:)
 	if strings.HasPrefix(url, "//") {
-		lowerRest := strings.ToLower(url[2:])
+		// Trim leading whitespace to prevent bypass attempts
+		lowerRest := strings.ToLower(strings.TrimLeft(url[2:], " \t\n\r"))
 		if strings.HasPrefix(lowerRest, "javascript:") ||
 			strings.HasPrefix(lowerRest, "vbscript:") ||
 			strings.HasPrefix(lowerRest, "data:") ||

@@ -73,8 +73,8 @@ func TestExtractWithEncodingDetection(t *testing.T) {
 	})
 }
 
-// TestExtractToMarkdown tests automatic encoding detection in ExtractToMarkdown
-func TestExtractToMarkdown(t *testing.T) {
+// TestExtractToMarkdownEncoding tests automatic encoding detection in ExtractToMarkdown
+func TestExtractToMarkdownEncoding(t *testing.T) {
 	t.Run("Windows-1252 to Markdown", func(t *testing.T) {
 		testFile := "dev_test/Source Files/a2025q310-qexx311.html"
 		if _, err := os.Stat(testFile); os.IsNotExist(err) {
@@ -177,7 +177,7 @@ func TestExtractAllLinksWithEncoding(t *testing.T) {
 		</body></html>`
 		htmlBytes := []byte(htmlContent)
 
-		p, err := html.New(html.DefaultConfig())
+		p, err := html.New()
 		if err != nil {
 			t.Fatalf("New() failed: %v", err)
 		}
@@ -198,7 +198,7 @@ func TestExtractAllLinksWithEncoding(t *testing.T) {
 		htmlBytes := []byte(`<html><head><meta charset="windows-1252"></head>
 		<body><a href="/test">Company's Website</a></body></html>`)
 
-		p, err := html.New(html.DefaultConfig())
+		p, err := html.New()
 		if err != nil {
 			t.Fatalf("New() failed: %v", err)
 		}
@@ -302,11 +302,10 @@ func TestExtractWithForcedEncoding(t *testing.T) {
 	htmlContent := "<html><body><p>Test</p></body></html>"
 	htmlBytes := []byte(htmlContent)
 
-	// Test with forced encoding in processor config
-	c := html.DefaultConfig()
-	c.Encoding = "utf-8"
-
-	p, err := html.New(c)
+	// Test with forced encoding in config
+	cfg := html.DefaultConfig()
+	cfg.Encoding = "utf-8"
+	p, err := html.New(cfg)
 	if err != nil {
 		t.Fatalf("New() failed: %v", err)
 	}

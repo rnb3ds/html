@@ -190,9 +190,9 @@ func (s *DefaultScorer) Score(node *html.Node) int {
 
 	// Apply content density multiplier
 	contentDensity := calculateDensityFromMetrics(metrics)
-	if contentDensity > 0.7 {
+	if contentDensity > highContentDensityThreshold {
 		score = int(float64(score) * highDensityMultiplier)
-	} else if contentDensity < 0.3 {
+	} else if contentDensity < lowContentDensityThreshold {
 		score = int(float64(score) * lowDensityMultiplier)
 	}
 
@@ -299,8 +299,9 @@ func (s *DefaultScorer) scoreAttributes(n *html.Node) int {
 }
 
 // calculatePatternScore calculates score based on pattern matching.
-// Optimized with prefix filtering to only check patterns whose first character
-// appears in the value string, reducing unnecessary pattern matching.
+// Optimized with sparse character tracking instead of fixed array iteration,
+// and prefix filtering to only check patterns whose first character appears in value.
+// Uses fixed-size array to avoid heap allocation.
 func (s *DefaultScorer) calculatePatternScore(value string, patterns map[string]int) int {
 	if len(value) == 0 || len(patterns) == 0 {
 		return 0
@@ -308,8 +309,12 @@ func (s *DefaultScorer) calculatePatternScore(value string, patterns map[string]
 
 	score := 0
 
-	// Build a set of unique first characters in the value (lowercase)
-	valueChars := make(map[byte]bool)
+	// Use fixed-size arrays on stack to avoid heap allocation
+	// Most values have fewer than 32 unique alphanumeric characters
+	var valueChars [128]bool
+	var presentChars [32]byte
+	charCount := 0
+
 	for i := 0; i < len(value); i++ {
 		c := value[i]
 		// Convert to lowercase for case-insensitive matching
@@ -318,12 +323,20 @@ func (s *DefaultScorer) calculatePatternScore(value string, patterns map[string]
 		}
 		// Only consider alphanumeric characters as potential pattern starts
 		if (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') {
-			valueChars[c] = true
+			if !valueChars[c] {
+				valueChars[c] = true
+				if charCount < 32 {
+					presentChars[charCount] = c
+					charCount++
+				}
+			}
 		}
 	}
 
 	// Only check patterns whose first character appears in value
-	for char := range valueChars {
+	// Iterate only through present characters, not all 128
+	for i := 0; i < charCount; i++ {
+		char := presentChars[i]
 		if candidates, ok := s.patternPrefixes[char]; ok {
 			for _, ps := range candidates {
 				// Only check patterns that belong to the input patterns map
@@ -345,7 +358,12 @@ var (
 	defaultScorer     *DefaultScorer
 )
 
-// getDefaultScorer returns the global default scorer instance, initializing it lazily.
+// getDefaultScorer returns a shared DefaultScorer instance.
+// This is an optimization for cases where multiple processors use the default
+// scorer, reducing memory allocation by sharing a single instance.
+//
+// Note: This function is currently unused but reserved for future optimization.
+// It may be used when implementing processor pooling or shared scorer instances.
 func getDefaultScorer() *DefaultScorer {
 	defaultScorerOnce.Do(func() {
 		defaultScorer = NewDefaultScorer()

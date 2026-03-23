@@ -35,7 +35,7 @@ func main() {
 	`
 
 	// ============================================================
-	// 1. Preset Configurations
+	// 1. Preset Configurations (Recommended)
 	// ============================================================
 	fmt.Println("1. Preset Configurations")
 	fmt.Println("-----------------------")
@@ -43,7 +43,7 @@ func main() {
 	// Default: all media preserved
 	fmt.Println("DefaultConfig():  All media preserved")
 
-	// Text-only: no media
+	// Text-only: simple preset
 	textOnlyProcessor, _ := html.New(html.TextOnlyConfig())
 	defer textOnlyProcessor.Close()
 	result, _ := textOnlyProcessor.Extract([]byte(sampleHTML))
@@ -61,15 +61,15 @@ func main() {
 	fmt.Println("2. Custom Configuration")
 	fmt.Println("-----------------------")
 
-	customConfig := html.DefaultConfig()
-	customConfig.PreserveImages = true
-	customConfig.PreserveLinks = true
-	customConfig.PreserveVideos = false
-	customConfig.PreserveAudios = false
-	customConfig.ImageFormat = "markdown"
-	customConfig.LinkFormat = "markdown"
+	// Start from preset, modify as needed
+	cfg := html.DefaultConfig()
+	cfg.PreserveImages = true
+	cfg.PreserveLinks = true
+	cfg.PreserveVideos = false
+	cfg.PreserveAudios = false
+	cfg.InlineImageFormat = "markdown"
 
-	customProcessor, _ := html.New(customConfig)
+	customProcessor, _ := html.New(cfg)
 	defer customProcessor.Close()
 	result, _ = customProcessor.Extract([]byte(sampleHTML))
 	fmt.Printf("Images: %d, Links: %d\n\n", len(result.Images), len(result.Links))
@@ -85,7 +85,7 @@ func main() {
 
 	for _, format := range formats {
 		cfg := html.DefaultConfig()
-		cfg.ImageFormat = format
+		cfg.InlineImageFormat = format
 		p, _ := html.New(cfg)
 		r, _ := p.Extract([]byte(imageHTML))
 		fmt.Printf("  %-12s: %s\n", format, r.Text)
@@ -168,9 +168,18 @@ func main() {
 	// Summary
 	// ============================================================
 	fmt.Println("\n=== Quick Reference ===")
-	fmt.Println("Preset configs: DefaultConfig(), TextOnlyConfig(), MarkdownConfig(), HighSecurityConfig()")
+	fmt.Println()
+	fmt.Println("Preset configs (recommended):")
+	fmt.Println("  html.DefaultConfig()      - Full features, all media")
+	fmt.Println("  html.TextOnlyConfig()     - Plain text only")
+	fmt.Println("  html.MarkdownConfig()     - Markdown output")
+	fmt.Println("  html.HighSecurityConfig() - Strict limits, audit enabled")
+	fmt.Println()
+	fmt.Println("Customization pattern:")
+	fmt.Println("  cfg := html.DefaultConfig()       // Start from preset")
+	fmt.Println("  cfg.PreserveImages = false  // Modify as needed")
+	fmt.Println("  processor, _ := html.New(cfg)")
+	fmt.Println()
 	fmt.Println("Image formats:  none | markdown | html | placeholder")
-	fmt.Println("Link formats:   none | markdown | html")
-	fmt.Println("Table formats:  markdown | html")
 	fmt.Println("Output methods: Extract(), ExtractToJSON(), ExtractToMarkdown()")
 }

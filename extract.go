@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"time"
+	"unsafe"
 
 	"github.com/cybergodev/html/internal"
 	stdxhtml "golang.org/x/net/html"
@@ -34,116 +35,106 @@ const (
 var activeTimeoutGoroutines atomic.Int64
 
 // Extract extracts content from HTML bytes with automatic encoding detection.
-// This is a convenience function that creates a temporary Processor with the given configuration.
-// If no configuration is provided, DefaultConfig() is used.
+// This is a convenience function that uses a pooled Processor for efficiency.
+//
+// For better performance with multiple extractions, create a Processor directly:
+//
+//	processor, _ := html.New()
+//	defer processor.Close()
+//	for _, html := range htmlDocs {
+//	    result, _ := processor.Extract(html)  // Uses cache
+//	}
 //
 // The method automatically detects the character encoding (Windows-1252, UTF-8, GBK, Shift_JIS, etc.)
 // from the HTML bytes and converts it to UTF-8 before processing.
 //
-// Example usage:
+// An optional Config can be provided to customize extraction behavior.
+// If no config is provided, DefaultConfig() is used.
 //
-//	// Simple usage with default configuration
+// Examples:
+//
+//	// With default config
 //	result, err := html.Extract(htmlBytes)
 //
-//	// With custom configuration
+//	// With custom config
 //	cfg := html.DefaultConfig()
-//	cfg.MaxInputSize = 10 * 1024 * 1024
+//	cfg.PreserveImages = false
 //	result, err := html.Extract(htmlBytes, cfg)
-//
-//	// Using preset configurations
-//	result, err := html.Extract(htmlBytes, html.TextOnlyConfig())
-//	result, err := html.Extract(htmlBytes, html.MarkdownConfig())
 func Extract(htmlBytes []byte, cfg ...Config) (*Result, error) {
-	processor, err := New(resolveConfig(cfg...))
+	c, err := resolveConfig(cfg...)
 	if err != nil {
-		return nil, fmt.Errorf("create processor: %w", err)
+		return nil, err
 	}
-	defer processor.Close()
+	processor, err := getProcessorWithConfig(c)
+	if err != nil {
+		return nil, err
+	}
+	defer putProcessorWithConfig(processor, c)
 	return processor.Extract(htmlBytes)
 }
 
 // ExtractFromFile extracts content from an HTML file with automatic encoding detection.
-// This is a convenience function that creates a temporary Processor with the given configuration.
-// If no configuration is provided, DefaultConfig() is used.
+// This is a convenience function that uses a pooled Processor for efficiency.
 //
 // The method automatically detects the character encoding (Windows-1252, UTF-8, GBK, Shift_JIS, etc.)
 // from the HTML file and converts it to UTF-8 before processing.
 //
-// Example usage:
-//
-//	// Simple usage with default configuration
-//	result, err := html.ExtractFromFile("page.html")
-//
-//	// With custom configuration
-//	cfg := html.DefaultConfig()
-//	cfg.MaxInputSize = 10 * 1024 * 1024
-//	result, err := html.ExtractFromFile("page.html", cfg)
-//
-//	// Using preset configurations
-//	result, err := html.ExtractFromFile("page.html", html.TextOnlyConfig())
-//	result, err := html.ExtractFromFile("page.html", html.MarkdownConfig())
+// An optional Config can be provided to customize extraction behavior.
+// If no config is provided, DefaultConfig() is used.
 func ExtractFromFile(filePath string, cfg ...Config) (*Result, error) {
-	processor, err := New(resolveConfig(cfg...))
+	c, err := resolveConfig(cfg...)
 	if err != nil {
-		return nil, fmt.Errorf("create processor: %w", err)
+		return nil, err
 	}
-	defer processor.Close()
+	processor, err := getProcessorWithConfig(c)
+	if err != nil {
+		return nil, err
+	}
+	defer putProcessorWithConfig(processor, c)
 	return processor.ExtractFromFile(filePath)
 }
 
 // ExtractText extracts plain text from HTML bytes with automatic encoding detection.
-// This is a convenience function that creates a temporary Processor with the given configuration.
-// If no configuration is provided, DefaultConfig() is used.
+// This is a convenience function that uses a pooled Processor for efficiency.
+//
+// For better performance with multiple extractions, create a Processor directly.
 //
 // The method automatically detects the character encoding (Windows-1252, UTF-8, GBK, Shift_JIS, etc.)
 // from the HTML bytes and converts it to UTF-8 before processing.
 //
-// Example usage:
-//
-//	// Simple usage with default configuration
-//	text, err := html.ExtractText(htmlBytes)
-//
-//	// With custom configuration
-//	cfg := html.DefaultConfig()
-//	cfg.MaxInputSize = 10 * 1024 * 1024
-//	text, err := html.ExtractText(htmlBytes, cfg)
-//
-//	// Using preset configuration for text-only extraction
-//	text, err := html.ExtractText(htmlBytes, html.TextOnlyConfig())
+// An optional Config can be provided to customize extraction behavior.
+// If no config is provided, DefaultConfig() is used.
 func ExtractText(htmlBytes []byte, cfg ...Config) (string, error) {
-	processor, err := New(resolveConfig(cfg...))
+	c, err := resolveConfig(cfg...)
 	if err != nil {
-		return "", fmt.Errorf("create processor: %w", err)
+		return "", err
 	}
-	defer processor.Close()
+	processor, err := getProcessorWithConfig(c)
+	if err != nil {
+		return "", err
+	}
+	defer putProcessorWithConfig(processor, c)
 	return processor.ExtractText(htmlBytes)
 }
 
 // ExtractTextFromFile extracts plain text from an HTML file with automatic encoding detection.
-// This is a convenience function that creates a temporary Processor with the given configuration.
-// If no configuration is provided, DefaultConfig() is used.
+// This is a convenience function that uses a pooled Processor for efficiency.
 //
 // The method automatically detects the character encoding (Windows-1252, UTF-8, GBK, Shift_JIS, etc.)
 // from the HTML file and converts it to UTF-8 before processing.
 //
-// Example usage:
-//
-//	// Simple usage with default configuration
-//	text, err := html.ExtractTextFromFile("page.html")
-//
-//	// With custom configuration
-//	cfg := html.DefaultConfig()
-//	cfg.MaxInputSize = 10 * 1024 * 1024
-//	text, err := html.ExtractTextFromFile("page.html", cfg)
-//
-//	// Using preset configuration for text-only extraction
-//	text, err := html.ExtractTextFromFile("page.html", html.TextOnlyConfig())
+// An optional Config can be provided to customize extraction behavior.
+// If no config is provided, DefaultConfig() is used.
 func ExtractTextFromFile(filePath string, cfg ...Config) (string, error) {
-	processor, err := New(resolveConfig(cfg...))
+	c, err := resolveConfig(cfg...)
 	if err != nil {
-		return "", fmt.Errorf("create processor: %w", err)
+		return "", err
 	}
-	defer processor.Close()
+	processor, err := getProcessorWithConfig(c)
+	if err != nil {
+		return "", err
+	}
+	defer putProcessorWithConfig(processor, c)
 	return processor.ExtractTextFromFile(filePath)
 }
 
@@ -161,35 +152,23 @@ func (p *Processor) Extract(htmlBytes []byte) (result *Result, err error) {
 		}
 	}()
 
-	if p == nil {
-		return nil, ErrProcessorClosed
-	}
-	if p.closed.Load() {
-		return nil, ErrProcessorClosed
-	}
-
-	config := p.getExtractConfig()
-
-	if len(htmlBytes) > p.config.MaxInputSize {
-		p.audit.RecordInputViolation(len(htmlBytes), p.config.MaxInputSize, "input_too_large")
-		p.stats.errorCount.Add(1)
-		return nil, fmt.Errorf("%w: size=%d, max=%d", ErrInputTooLarge, len(htmlBytes), p.config.MaxInputSize)
+	// Validate processor state and input size
+	if err := p.validateInput(htmlBytes); err != nil {
+		return nil, err
 	}
 
 	startTime := time.Now()
 
 	// Detect encoding and convert to UTF-8
-	utf8String, _, convErr := internal.DetectAndConvertToUTF8String(htmlBytes, config.Encoding)
-	if convErr != nil {
-		p.audit.RecordEncodingIssue(config.Encoding, convErr.Error())
-		p.stats.errorCount.Add(1)
-		return nil, fmt.Errorf("encoding detection failed: %w", convErr)
+	utf8String, err := p.detectEncoding(htmlBytes)
+	if err != nil {
+		return nil, err
 	}
 
 	// Check cache only if caching is enabled
 	var cacheKey string
 	if p.config.MaxCacheEntries > 0 {
-		cacheKey = p.generateCacheKey(utf8String, config)
+		cacheKey = p.generateCacheKey(utf8String)
 		if cached := p.cache.Get(cacheKey); cached != nil {
 			p.stats.cacheHits.Add(1)
 			p.stats.totalProcessed.Add(1)
@@ -203,10 +182,10 @@ func (p *Processor) Extract(htmlBytes []byte) (result *Result, err error) {
 	// Process the content
 	if p.config.ProcessingTimeout > 0 {
 		result, err = withTimeout(p.config.ProcessingTimeout, func() (*Result, error) {
-			return p.processContent(utf8String, config)
+			return p.processContent(utf8String)
 		})
 	} else {
-		result, err = p.processContent(utf8String, config)
+		result, err = p.processContent(utf8String)
 	}
 
 	if err != nil {
@@ -233,6 +212,192 @@ func (p *Processor) Extract(htmlBytes []byte) (result *Result, err error) {
 	return result, nil
 }
 
+// ExtractWithContext extracts content from HTML bytes with context support for cancellation.
+// This method provides cooperative cancellation, allowing long-running extractions to be
+// interrupted when the context is cancelled.
+//
+// The method automatically detects the character encoding (Windows-1252, UTF-8, GBK, Shift_JIS, etc.)
+// from the HTML bytes and converts it to UTF-8 before processing.
+//
+// Example usage:
+//
+//	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+//	defer cancel()
+//
+//	result, err := processor.ExtractWithContext(ctx, htmlBytes)
+//	if errors.Is(err, context.Canceled) {
+//	    // Extraction was cancelled
+//	}
+func (p *Processor) ExtractWithContext(ctx context.Context, htmlBytes []byte) (result *Result, err error) {
+	// Defense-in-depth: recover from unexpected panics
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("%w: %v", ErrInternalPanic, r)
+		}
+	}()
+
+	// Early cancellation check
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	default:
+	}
+
+	// Validate processor state and input size
+	if err := p.validateInput(htmlBytes); err != nil {
+		return nil, err
+	}
+
+	startTime := time.Now()
+
+	// Check cancellation before encoding detection
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	default:
+	}
+
+	// Detect encoding and convert to UTF-8
+	utf8String, err := p.detectEncoding(htmlBytes)
+	if err != nil {
+		return nil, err
+	}
+
+	// Check cache only if caching is enabled
+	var cacheKey string
+	if p.config.MaxCacheEntries > 0 {
+		cacheKey = p.generateCacheKey(utf8String)
+		if cached := p.cache.Get(cacheKey); cached != nil {
+			p.stats.cacheHits.Add(1)
+			p.stats.totalProcessed.Add(1)
+			if cachedResult, ok := cached.(*Result); ok {
+				return cachedResult, nil
+			}
+		}
+		p.stats.cacheMisses.Add(1)
+	}
+
+	// Check cancellation before content processing
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	default:
+	}
+
+	// Process the content with context-aware timeout handling
+	if p.config.ProcessingTimeout > 0 {
+		// Use context-aware timeout
+		ctxWithTimeout, cancel := context.WithTimeout(ctx, p.config.ProcessingTimeout)
+		defer cancel()
+
+		done := make(chan struct{})
+		var procErr error
+		go func() {
+			defer close(done)
+			result, procErr = p.processContent(utf8String)
+		}()
+
+		select {
+		case <-ctxWithTimeout.Done():
+			if errors.Is(ctxWithTimeout.Err(), context.DeadlineExceeded) {
+				p.audit.RecordTimeout(p.config.ProcessingTimeout)
+				return nil, ErrProcessingTimeout
+			}
+			return nil, ctxWithTimeout.Err()
+		case <-done:
+			err = procErr
+		}
+	} else {
+		// No timeout, but still respect context cancellation
+		result, err = p.processContentWithContext(ctx, utf8String)
+	}
+
+	if err != nil {
+		p.stats.errorCount.Add(1)
+		if errors.Is(err, ErrMaxDepthExceeded) {
+			p.audit.RecordDepthViolation(p.config.MaxDepth+1, p.config.MaxDepth)
+		}
+		return nil, err
+	}
+
+	processingTime := time.Since(startTime)
+	result.ProcessingTime = processingTime
+	p.stats.totalProcessTime.Add(int64(processingTime))
+	p.stats.totalProcessed.Add(1)
+
+	// Only cache if caching is enabled and we have a cache key
+	if p.config.MaxCacheEntries > 0 && cacheKey != "" {
+		p.cache.Set(cacheKey, result)
+	}
+
+	return result, nil
+}
+
+// processContentWithContext processes HTML content with context cancellation support.
+// This method implements cooperative cancellation at key processing stages.
+func (p *Processor) processContentWithContext(ctx context.Context, htmlContent string) (*Result, error) {
+	// Check for cancellation at start
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	default:
+	}
+
+	if strings.TrimSpace(htmlContent) == "" {
+		return &Result{}, nil
+	}
+
+	originalHTML := htmlContent
+
+	// Check context before sanitization
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	default:
+	}
+
+	if p.config.EnableSanitization {
+		if p.audit != nil && p.config.Audit.Enabled {
+			adapter := &auditRecorderAdapter{collector: p.audit}
+			htmlContent = internal.SanitizeHTMLWithAudit(htmlContent, adapter)
+		} else {
+			htmlContent = internal.SanitizeHTML(htmlContent)
+		}
+	}
+
+	// Check context before HTML parsing
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	default:
+	}
+
+	doc, err := stdxhtml.Parse(strings.NewReader(htmlContent))
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrInvalidHTML, err)
+	}
+
+	// Check context before depth validation
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	default:
+	}
+
+	if err := p.validateDepthTraversal(doc, 0); err != nil {
+		return nil, err
+	}
+
+	// Check context before document extraction
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	default:
+	}
+
+	return p.extractFromDocument(doc, originalHTML)
+}
+
 // ExtractFromFile extracts content from an HTML file with automatic encoding detection.
 // The method automatically detects the character encoding (Windows-1252, UTF-8, GBK, Shift_JIS, etc.)
 // from the HTML file and converts it to UTF-8 before processing.
@@ -245,10 +410,8 @@ func (p *Processor) ExtractFromFile(filePath string) (result *Result, err error)
 		}
 	}()
 
-	if p == nil {
-		return nil, ErrProcessorClosed
-	}
-	if p.closed.Load() {
+	// Validate processor state (no input size check for file paths)
+	if p == nil || p.closed.Load() {
 		return nil, ErrProcessorClosed
 	}
 
@@ -258,6 +421,44 @@ func (p *Processor) ExtractFromFile(filePath string) (result *Result, err error)
 	}
 
 	return p.Extract(data)
+}
+
+// ExtractFromFileWithContext extracts content from an HTML file with context support.
+// This method provides cooperative cancellation, allowing long-running extractions to be
+// interrupted when the context is cancelled.
+//
+// Example usage:
+//
+//	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+//	defer cancel()
+//
+//	result, err := processor.ExtractFromFileWithContext(ctx, "page.html")
+func (p *Processor) ExtractFromFileWithContext(ctx context.Context, filePath string) (result *Result, err error) {
+	// Defense-in-depth: recover from unexpected panics
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("%w: %v", ErrInternalPanic, r)
+		}
+	}()
+
+	// Early cancellation check
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	default:
+	}
+
+	// Validate processor state (no input size check for file paths)
+	if p == nil || p.closed.Load() {
+		return nil, ErrProcessorClosed
+	}
+
+	data, err := p.validateAndReadFile(filePath)
+	if err != nil {
+		return nil, err
+	}
+
+	return p.ExtractWithContext(ctx, data)
 }
 
 // ExtractText extracts plain text from HTML bytes with automatic encoding detection.
@@ -346,7 +547,7 @@ func withTimeout[T any](timeout time.Duration, fn func() (T, error)) (T, error) 
 	}
 }
 
-func (p *Processor) processContent(htmlContent string, opts ExtractConfig) (*Result, error) {
+func (p *Processor) processContent(htmlContent string) (*Result, error) {
 	if strings.TrimSpace(htmlContent) == "" {
 		return &Result{}, nil
 	}
@@ -373,17 +574,17 @@ func (p *Processor) processContent(htmlContent string, opts ExtractConfig) (*Res
 		return nil, err
 	}
 
-	return p.extractFromDocument(doc, originalHTML, opts)
+	return p.extractFromDocument(doc, originalHTML)
 }
 
 // validateDepthTraversal validates DOM tree depth using an iterative approach
 // to avoid potential stack overflow on deeply nested documents.
 // This is more efficient than separately calling validateDepth and extractFromDocument.
-func (p *Processor) validateDepthTraversal(root *Node, initialDepth int) error {
+func (p *Processor) validateDepthTraversal(root *stdxhtml.Node, initialDepth int) error {
 	// Use iterative approach with explicit stack to avoid stack overflow
 	// on deeply nested documents (MaxDepth can be up to 500)
 	type stackEntry struct {
-		node  *Node
+		node  *stdxhtml.Node
 		depth int
 	}
 
@@ -407,23 +608,23 @@ func (p *Processor) validateDepthTraversal(root *Node, initialDepth int) error {
 	return nil
 }
 
-func (p *Processor) extractFromDocument(doc *Node, htmlContent string, opts ExtractConfig) (*Result, error) {
+func (p *Processor) extractFromDocument(doc *stdxhtml.Node, htmlContent string) (*Result, error) {
 	result := &Result{}
 	result.Title = p.extractTitle(doc)
 
 	contentNode := doc
-	if opts.ExtractArticle {
+	if p.config.ExtractArticle {
 		if article := p.extractArticleNode(doc); article != nil {
 			contentNode = article
 		}
 	}
 	contentNode = internal.CleanContentNode(contentNode)
 
-	imageFormat := strings.ToLower(strings.TrimSpace(opts.InlineImageFormat))
+	imageFormat := strings.ToLower(strings.TrimSpace(p.config.InlineImageFormat))
 	if imageFormat == "" {
 		imageFormat = "none"
 	}
-	linkFormat := strings.ToLower(strings.TrimSpace(opts.InlineLinkFormat))
+	linkFormat := strings.ToLower(strings.TrimSpace(p.config.InlineLinkFormat))
 	if linkFormat == "" {
 		linkFormat = "none"
 	}
@@ -433,10 +634,10 @@ func (p *Processor) extractFromDocument(doc *Node, htmlContent string, opts Extr
 		images := p.extractImagesWithPosition(contentNode)
 		links := p.extractLinksWithPosition(contentNode)
 
-		if opts.PreserveImages {
+		if p.config.PreserveImages {
 			result.Images = images
 		}
-		if opts.PreserveLinks {
+		if p.config.PreserveLinks {
 			result.Links = links
 		}
 
@@ -444,7 +645,7 @@ func (p *Processor) extractFromDocument(doc *Node, htmlContent string, opts Extr
 		sb.Grow(initialTextSize)
 		imageCounter := 0
 		linkCounter := 0
-		internal.ExtractTextWithStructureAndImages(contentNode, sb, &imageCounter, &linkCounter, opts.TableFormat)
+		internal.ExtractTextWithStructureAndImages(contentNode, sb, &imageCounter, &linkCounter, p.config.TableFormat)
 		textWithPlaceholders := internal.CleanText(sb.String(), nil)
 		internal.PutBuilder(sb)
 
@@ -452,12 +653,12 @@ func (p *Processor) extractFromDocument(doc *Node, htmlContent string, opts Extr
 		result.Text = p.formatInlineImages(textWithPlaceholders, images, imageFormat)
 		result.Text = p.formatInlineLinks(result.Text, links, linkFormat)
 	} else {
-		result.Text = p.extractTextContent(contentNode, opts.TableFormat)
+		result.Text = p.extractTextContent(contentNode, p.config.TableFormat)
 
-		if opts.PreserveImages {
+		if p.config.PreserveImages {
 			result.Images = p.extractImages(contentNode)
 		}
-		if opts.PreserveLinks {
+		if p.config.PreserveLinks {
 			result.Links = p.extractLinks(contentNode)
 		}
 	}
@@ -465,16 +666,16 @@ func (p *Processor) extractFromDocument(doc *Node, htmlContent string, opts Extr
 	result.WordCount = p.countWords(result.Text)
 	result.ReadingTime = p.calculateReadingTime(result.WordCount)
 
-	if opts.PreserveVideos {
+	if p.config.PreserveVideos {
 		result.Videos = p.extractVideos(doc, htmlContent)
 	}
-	if opts.PreserveAudios {
+	if p.config.PreserveAudios {
 		result.Audios = p.extractAudios(doc, htmlContent)
 	}
 	return result, nil
 }
 
-func (p *Processor) extractTitle(doc *Node) string {
+func (p *Processor) extractTitle(doc *stdxhtml.Node) string {
 	if doc == nil {
 		return ""
 	}
@@ -494,19 +695,19 @@ func (p *Processor) extractTitle(doc *Node) string {
 	return ""
 }
 
-func (p *Processor) extractArticleNode(doc *Node) *Node {
+func (p *Processor) extractArticleNode(doc *stdxhtml.Node) *stdxhtml.Node {
 	if doc == nil {
 		return nil
 	}
 	// Pre-allocate map with initial capacity to reduce resizing
-	candidates := make(map[*Node]int, initialMapCap)
+	candidates := make(map[*stdxhtml.Node]int, initialMapCap)
 
 	// Determine scorer once outside the loop to avoid repeated nil checks
 	scorer := p.scorer
 	useDefaultScorer := scorer == nil
 
-	internal.WalkNodes(doc, func(n *Node) bool {
-		if n.Type == ElementNode {
+	internal.WalkNodes(doc, func(n *stdxhtml.Node) bool {
+		if n.Type == stdxhtml.ElementNode {
 			var score int
 			if useDefaultScorer {
 				score = internal.ScoreContentNode(n)
@@ -525,7 +726,7 @@ func (p *Processor) extractArticleNode(doc *Node) *Node {
 	return internal.FindElementByTag(doc, "body")
 }
 
-func (p *Processor) extractTextContent(node *Node, tableFormat string) string {
+func (p *Processor) extractTextContent(node *stdxhtml.Node, tableFormat string) string {
 	sb := internal.GetBuilder()
 	sb.Grow(initialTextSize)
 	internal.ExtractTextWithStructureAndImages(node, sb, nil, nil, tableFormat)
@@ -649,11 +850,11 @@ func (p *Processor) formatInlineLinks(textWithPlaceholders string, links []LinkI
 	return result
 }
 
-func (p *Processor) extractImages(node *Node) []ImageInfo {
+func (p *Processor) extractImages(node *stdxhtml.Node) []ImageInfo {
 	images := make([]ImageInfo, 0, initialSliceCap)
 
-	internal.WalkNodes(node, func(n *Node) bool {
-		if n.Type == ElementNode && n.Data == "img" {
+	internal.WalkNodes(node, func(n *stdxhtml.Node) bool {
+		if n.Type == stdxhtml.ElementNode && n.Data == "img" {
 			img := p.parseImageNode(n, 0)
 			if img.URL != "" {
 				images = append(images, img)
@@ -665,12 +866,12 @@ func (p *Processor) extractImages(node *Node) []ImageInfo {
 	return images
 }
 
-func (p *Processor) extractImagesWithPosition(node *Node) []ImageInfo {
+func (p *Processor) extractImagesWithPosition(node *stdxhtml.Node) []ImageInfo {
 	images := make([]ImageInfo, 0, initialSliceCap)
 	position := 0
 
-	internal.WalkNodes(node, func(n *Node) bool {
-		if n.Type == ElementNode && n.Data == "img" {
+	internal.WalkNodes(node, func(n *stdxhtml.Node) bool {
+		if n.Type == stdxhtml.ElementNode && n.Data == "img" {
 			position++
 			img := p.parseImageNode(n, position)
 			if img.URL != "" {
@@ -683,7 +884,7 @@ func (p *Processor) extractImagesWithPosition(node *Node) []ImageInfo {
 	return images
 }
 
-func (p *Processor) parseImageNode(n *Node, position int) ImageInfo {
+func (p *Processor) parseImageNode(n *stdxhtml.Node, position int) ImageInfo {
 	img := ImageInfo{Position: position}
 
 	for _, attr := range n.Attr {
@@ -712,11 +913,11 @@ func (p *Processor) parseImageNode(n *Node, position int) ImageInfo {
 	return img
 }
 
-func (p *Processor) extractLinks(node *Node) []LinkInfo {
+func (p *Processor) extractLinks(node *stdxhtml.Node) []LinkInfo {
 	links := make([]LinkInfo, 0, initialSliceCap)
 
-	internal.WalkNodes(node, func(n *Node) bool {
-		if n.Type == ElementNode && n.Data == "a" {
+	internal.WalkNodes(node, func(n *stdxhtml.Node) bool {
+		if n.Type == stdxhtml.ElementNode && n.Data == "a" {
 			link := p.parseLinkNode(n)
 			if link.URL != "" {
 				links = append(links, link)
@@ -728,12 +929,12 @@ func (p *Processor) extractLinks(node *Node) []LinkInfo {
 	return links
 }
 
-func (p *Processor) extractLinksWithPosition(node *Node) []LinkInfo {
+func (p *Processor) extractLinksWithPosition(node *stdxhtml.Node) []LinkInfo {
 	links := make([]LinkInfo, 0, initialSliceCap)
 	position := 0
 
-	internal.WalkNodes(node, func(n *Node) bool {
-		if n.Type == ElementNode && n.Data == "a" {
+	internal.WalkNodes(node, func(n *stdxhtml.Node) bool {
+		if n.Type == stdxhtml.ElementNode && n.Data == "a" {
 			position++
 			link := p.parseLinkNode(n)
 			link.Position = position
@@ -747,7 +948,7 @@ func (p *Processor) extractLinksWithPosition(node *Node) []LinkInfo {
 	return links
 }
 
-func (p *Processor) parseLinkNode(n *Node) LinkInfo {
+func (p *Processor) parseLinkNode(n *stdxhtml.Node) LinkInfo {
 	link := LinkInfo{}
 
 	for _, attr := range n.Attr {
@@ -793,207 +994,284 @@ func (p *Processor) calculateReadingTime(wordCount int) time.Duration {
 }
 
 // generateCacheKey creates a hash for cache key generation.
-// Uses a simplified xxHash-inspired algorithm optimized for speed.
-// Uses multi-point sampling for large documents to better distinguish similar content.
-// Optimized to minimize CPU overhead while maintaining good distribution.
-func (p *Processor) generateCacheKey(content string, opts ExtractConfig) string {
-	// Pack boolean flags into a single uint8 for faster hashing
-	// Bits: 0=ExtractArticle, 1=PreserveImages, 2=PreserveLinks, 3=PreserveVideos, 4=PreserveAudios
+// Uses xxHash-style algorithm optimized for maximum throughput.
+// Uses multi-point sampling for large documents to reduce collision risk.
+//
+// SECURITY: This function uses 5-point sampling for better collision resistance
+// against hash-flooding attacks. The sampling strategy ensures that
+// modifications anywhere in the document are likely to change the hash.
+//
+// Performance optimization: Uses inline hashing to reduce function call overhead
+// and processes data in larger chunks for better CPU cache utilization.
+func (p *Processor) generateCacheKey(content string) string {
+	// Initialize hash with seed
+	h := prime64_5
+
+	// Pack boolean flags into a single uint8
 	flags := uint8(0)
-	if opts.ExtractArticle {
+	if p.config.ExtractArticle {
 		flags |= 1 << 0
 	}
-	if opts.PreserveImages {
+	if p.config.PreserveImages {
 		flags |= 1 << 1
 	}
-	if opts.PreserveLinks {
+	if p.config.PreserveLinks {
 		flags |= 1 << 2
 	}
-	if opts.PreserveVideos {
+	if p.config.PreserveVideos {
 		flags |= 1 << 3
 	}
-	if opts.PreserveAudios {
+	if p.config.PreserveAudios {
 		flags |= 1 << 4
 	}
 
-	// Initialize hash with prime constants (xxHash-inspired)
-	var h uint64 = 0x9E3779B185EBCA87 // Golden ratio fractional bits
-
-	// Mix flags
+	// Mix flags and string options - optimized inline
 	h ^= uint64(flags)
-	h = hashMix(h)
+	h = hashMixInline(h)
 
-	// Mix string options with reduced operations
-	h = hashMixString(h, opts.InlineImageFormat)
-	h = hashMixString(h, opts.InlineLinkFormat)
-	h = hashMixString(h, opts.TableFormat)
+	// Inline short string hashing to reduce function call overhead
+	h = hashMixStringInline(h, p.config.InlineImageFormat)
+	h = hashMixStringInline(h, p.config.InlineLinkFormat)
+	h = hashMixStringInline(h, p.config.TableFormat)
 
 	contentLen := len(content)
 	if contentLen <= maxCacheKeySize {
-		// Hash the entire content using simplified algorithm
-		h = hashMixBytes(h, internal.StringToBytes(content))
+		// Hash the entire content - use zero-copy conversion
+		h = hashMixBytesInline(h, internal.StringToBytes(content))
 	} else {
-		// Optimized multi-point sampling for large documents
-		// Sample from 3 positions instead of 5 to reduce overhead
-		const sampleCount = 3
+		// SECURITY: Multi-point sampling for large documents
+		// Using 5 sampling points for better collision resistance
+		const sampleCount = 5
 		sampleSize := cacheKeySample / sampleCount
-		if sampleSize < 512 {
-			sampleSize = 512
+		if sampleSize < 256 {
+			sampleSize = 256
 		}
 
+		// Pre-compute step size for even distribution
 		for i := 0; i < sampleCount; i++ {
 			var start, end int
 			if i == sampleCount-1 {
-				// Last sample: end of content
 				end = contentLen
 				start = contentLen - sampleSize
 				if start < 0 {
 					start = 0
 				}
+			} else if i == 0 {
+				start = 0
+				end = sampleSize
+				if end > contentLen {
+					end = contentLen
+				}
 			} else {
-				// First two samples: beginning and middle
-				offset := (contentLen * i) / sampleCount
-				start = offset
+				offset := (contentLen * i) / (sampleCount - 1)
+				start = offset - sampleSize/2
+				if start < 0 {
+					start = 0
+				}
 				end = start + sampleSize
 				if end > contentLen {
 					end = contentLen
+					start = end - sampleSize
+					if start < 0 {
+						start = 0
+					}
 				}
 			}
 
 			if start < end {
-				h = hashMixBytes(h, internal.StringToBytes(content[start:end]))
+				h = hashMixBytesInline(h, internal.StringToBytes(content[start:end]))
 			}
 		}
 
-		// Mix content length
-		h ^= uint64(contentLen)
-		h = hashMix(h)
+		// Mix content length for additional uniqueness
+		h ^= uint64(contentLen) * prime64_4
+		h = hashMixInline(h)
 	}
 
-	// Final avalanche
+	// Final avalanche for better distribution
 	h ^= h >> 33
-	h *= 0xFF51AFD7ED558CCD
-	h ^= h >> 33
+	h *= prime64_2
+	h ^= h >> 29
 
-	// Generate 16-byte hash for better collision resistance
-	// First 8 bytes: primary hash
-	// Second 8 bytes: secondary hash using different mixing constant
+	// Generate 16-byte hash for collision resistance
 	var buf [16]byte
 	binary.LittleEndian.PutUint64(buf[:8], h)
-
-	// Secondary hash with different seed for additional entropy
-	h2 := h ^ 0x9E3779B185EBCA87 // XOR with golden ratio
-	h2 = hashMix(h2)
+	h2 := h ^ prime64_1
+	h2 = hashMixInline(h2)
 	binary.LittleEndian.PutUint64(buf[8:], h2)
 
 	return string(buf[:])
 }
 
-// hashMix performs a single mixing step (inlined for performance)
-func hashMix(h uint64) uint64 {
-	h ^= h >> 23
-	h *= 0x2127599BF4325C37
-	h ^= h >> 47
+// xxHash-inspired constants for fast hashing
+const (
+	prime64_1 uint64 = 0x9E3779B185EBCA87
+	prime64_2 uint64 = 0xC2B2AE3D27D4EB4F
+	prime64_3 uint64 = 0x165667B19E3779F9
+	prime64_4 uint64 = 0x85EBCA6798F3B1AD
+	prime64_5 uint64 = 0x27D4EB2F165667C5
+)
+
+
+// hashMixInline is an inline version of hashMixFast for critical paths.
+// This reduces function call overhead in hot code paths.
+//
+//nolint:deadcode // Performance: inlined version for cache key generation hot path
+func hashMixInline(h uint64) uint64 {
+	h ^= h >> 31
+	h *= prime64_3
 	return h
 }
 
-// hashMixString hashes a string into the hash state
-// Optimized with batch processing to reduce hashMix calls
-func hashMixString(h uint64, s string) uint64 {
+// hashMixStringInline hashes a string using optimized inline operations.
+// This is an inline-optimized version for the cache key generation hot path.
+//
+//nolint:deadcode // Performance: inlined version for cache key generation hot path
+func hashMixStringInline(h uint64, s string) uint64 {
 	n := len(s)
 	if n == 0 {
 		return h
 	}
 
-	// Hash length
-	h ^= uint64(n)
-	h = hashMix(h)
+	// Mix length first
+	h ^= uint64(n) * prime64_5
 
-	// Process 32 bytes at a time with batch accumulation
+	// For very short strings, use safe byte-by-byte processing
+	if n < 8 {
+		var v uint64
+		for j := 0; j < n; j++ {
+			v = (v << 8) | uint64(s[j])
+		}
+		h ^= v * prime64_4
+		h = hashMixInline(h)
+		return h
+	}
+
+	ptr := unsafe.Pointer(unsafe.StringData(s))
 	i := 0
-	for i+32 <= n {
-		// Load 4 chunks of 8 bytes using direct string indexing (avoids slice allocation)
-		v0 := binary.LittleEndian.Uint64(internal.StringToBytes(s[i : i+8]))
-		v1 := binary.LittleEndian.Uint64(internal.StringToBytes(s[i+8 : i+16]))
-		v2 := binary.LittleEndian.Uint64(internal.StringToBytes(s[i+16 : i+24]))
-		v3 := binary.LittleEndian.Uint64(internal.StringToBytes(s[i+24 : i+32]))
 
-		// XOR combine before mixing
-		h ^= v0 ^ v2
-		h = hashMix(h)
-		h ^= v1 ^ v3
-		h = hashMix(h)
+	// Process 32 bytes at a time using 4 accumulators
+	var acc1, acc2, acc3, acc4 uint64 = prime64_1, prime64_2, prime64_3, prime64_4
+
+	for i+32 <= n {
+		acc1 += *(*uint64)(unsafe.Add(ptr, i)) * prime64_2
+		acc1 = (acc1 << 31) | (acc1 >> 33)
+		acc1 *= prime64_1
+
+		acc2 += *(*uint64)(unsafe.Add(ptr, i+8)) * prime64_2
+		acc2 = (acc2 << 31) | (acc2 >> 33)
+		acc2 *= prime64_1
+
+		acc3 += *(*uint64)(unsafe.Add(ptr, i+16)) * prime64_2
+		acc3 = (acc3 << 31) | (acc3 >> 33)
+		acc3 *= prime64_1
+
+		acc4 += *(*uint64)(unsafe.Add(ptr, i+24)) * prime64_2
+		acc4 = (acc4 << 31) | (acc4 >> 33)
+		acc4 *= prime64_1
+
 		i += 32
+	}
+
+	// Merge accumulators if we processed any full blocks
+	if i > 0 {
+		h ^= acc1 + acc2 + acc3 + acc4
+		h = hashMixInline(h)
 	}
 
 	// Process remaining 8-byte chunks
 	for i+8 <= n {
-		v := binary.LittleEndian.Uint64(internal.StringToBytes(s[i : i+8]))
-		h ^= v
-		h = hashMix(h)
+		h ^= *(*uint64)(unsafe.Add(ptr, i)) * prime64_3
+		h = hashMixInline(h)
 		i += 8
 	}
 
-	// Handle remaining bytes
+	// Handle remaining bytes using safe indexing
 	if i < n {
 		var v uint64
-		shift := uint(0)
 		for j := i; j < n; j++ {
-			v |= uint64(s[j]) << shift
-			shift += 8
+			v = (v << 8) | uint64(s[j])
 		}
-		h ^= v
-		h = hashMix(h)
+		h ^= v * prime64_4
+		h = hashMixInline(h)
 	}
 
 	return h
 }
 
-// hashMixBytes hashes a byte slice into the hash state
-// Optimized with batch processing to reduce hashMix calls
-func hashMixBytes(h uint64, data []byte) uint64 {
+// hashMixBytesInline hashes a byte slice using optimized inline operations.
+// This is an inline-optimized version for the cache key generation hot path.
+//
+//nolint:deadcode // Performance: inlined version for cache key generation hot path
+func hashMixBytesInline(h uint64, data []byte) uint64 {
 	n := len(data)
 	if n == 0 {
 		return h
 	}
 
-	// Process 32 bytes at a time with batch accumulation
-	// This reduces hashMix calls by 4x while maintaining good distribution
-	i := 0
-	for i+32 <= n {
-		// Load 4 chunks of 8 bytes
-		v0 := binary.LittleEndian.Uint64(data[i : i+8])
-		v1 := binary.LittleEndian.Uint64(data[i+8 : i+16])
-		v2 := binary.LittleEndian.Uint64(data[i+16 : i+24])
-		v3 := binary.LittleEndian.Uint64(data[i+24 : i+32])
+	// Mix length first
+	h ^= uint64(n) * prime64_5
 
-		// XOR combine before mixing (reduces mixing operations)
-		h ^= v0 ^ v2
-		h = hashMix(h)
-		h ^= v1 ^ v3
-		h = hashMix(h)
+	// For very small slices, use safe byte-by-byte processing
+	if n < 8 {
+		var v uint64
+		for j := 0; j < n; j++ {
+			v = (v << 8) | uint64(data[j])
+		}
+		h ^= v * prime64_4
+		h = hashMixInline(h)
+		return h
+	}
+
+	ptr := unsafe.Pointer(unsafe.SliceData(data))
+	i := 0
+
+	// Process 32 bytes at a time using 4 accumulators
+	var acc1, acc2, acc3, acc4 uint64 = prime64_1, prime64_2, prime64_3, prime64_4
+
+	for i+32 <= n {
+		acc1 += *(*uint64)(unsafe.Add(ptr, i)) * prime64_2
+		acc1 = (acc1 << 31) | (acc1 >> 33)
+		acc1 *= prime64_1
+
+		acc2 += *(*uint64)(unsafe.Add(ptr, i+8)) * prime64_2
+		acc2 = (acc2 << 31) | (acc2 >> 33)
+		acc2 *= prime64_1
+
+		acc3 += *(*uint64)(unsafe.Add(ptr, i+16)) * prime64_2
+		acc3 = (acc3 << 31) | (acc3 >> 33)
+		acc3 *= prime64_1
+
+		acc4 += *(*uint64)(unsafe.Add(ptr, i+24)) * prime64_2
+		acc4 = (acc4 << 31) | (acc4 >> 33)
+		acc4 *= prime64_1
+
 		i += 32
+	}
+
+	// Merge accumulators if we processed any full blocks
+	if i > 0 {
+		h ^= acc1 + acc2 + acc3 + acc4
+		h = hashMixInline(h)
 	}
 
 	// Process remaining 8-byte chunks
 	for i+8 <= n {
-		v := binary.LittleEndian.Uint64(data[i : i+8])
-		h ^= v
-		h = hashMix(h)
+		h ^= *(*uint64)(unsafe.Add(ptr, i)) * prime64_3
+		h = hashMixInline(h)
 		i += 8
 	}
 
-	// Handle remaining bytes
+	// Handle remaining bytes using safe indexing
 	if i < n {
 		var v uint64
-		shift := uint(0)
 		for j := i; j < n; j++ {
-			v |= uint64(data[j]) << shift
-			shift += 8
+			v = (v << 8) | uint64(data[j])
 		}
-		h ^= v
-		h = hashMix(h)
+		h ^= v * prime64_4
+		h = hashMixInline(h)
 	}
 
 	return h
 }
+

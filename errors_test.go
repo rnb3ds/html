@@ -1,4 +1,4 @@
-package html_test
+package html
 
 // errors_test.go - Tests for error types and constructors
 // This file tests all error types, their constructors, and errors.Is() support.
@@ -7,15 +7,13 @@ import (
 	"errors"
 	"strings"
 	"testing"
-
-	"github.com/cybergodev/html"
 )
 
 func TestInputError(t *testing.T) {
 	t.Parallel()
 
 	t.Run("error message format", func(t *testing.T) {
-		err := html.NewInputError("Extract", 10000, 5000, nil)
+		err := newInputError("Extract", 10000, 5000, nil)
 		msg := err.Error()
 
 		if msg == "" {
@@ -34,7 +32,7 @@ func TestInputError(t *testing.T) {
 
 	t.Run("error message with underlying error", func(t *testing.T) {
 		underlying := errors.New("underlying error")
-		err := html.NewInputError("Extract", 10000, 5000, underlying)
+		err := newInputError("Extract", 10000, 5000, underlying)
 		msg := err.Error()
 
 		if !strings.Contains(msg, "underlying error") {
@@ -43,7 +41,7 @@ func TestInputError(t *testing.T) {
 	})
 
 	t.Run("field values", func(t *testing.T) {
-		err := html.NewInputError("Op", 100, 50, nil)
+		err := newInputError("Op", 100, 50, nil)
 
 		if err.Op != "Op" {
 			t.Errorf("Op = %q, want 'Op'", err.Op)
@@ -61,15 +59,15 @@ func TestInputErrorUnwrap(t *testing.T) {
 	t.Parallel()
 
 	t.Run("unwrap to ErrInputTooLarge", func(t *testing.T) {
-		err := html.NewInputError("Extract", 10000, 5000, nil)
-		if !errors.Is(err, html.ErrInputTooLarge) {
+		err := newInputError("Extract", 10000, 5000, nil)
+		if !errors.Is(err, ErrInputTooLarge) {
 			t.Error("InputError should unwrap to ErrInputTooLarge")
 		}
 	})
 
 	t.Run("unwrap with underlying error", func(t *testing.T) {
 		underlying := errors.New("underlying")
-		err := html.NewInputError("Extract", 10000, 5000, underlying)
+		err := newInputError("Extract", 10000, 5000, underlying)
 		if !errors.Is(err, underlying) {
 			t.Error("InputError should unwrap to underlying error")
 		}
@@ -80,7 +78,7 @@ func TestConfigError(t *testing.T) {
 	t.Parallel()
 
 	t.Run("error message format", func(t *testing.T) {
-		err := html.NewConfigError("MaxDepth", 0, "must be positive")
+		err := newConfigError("MaxDepth", 0, "must be positive")
 		msg := err.Error()
 
 		if msg == "" {
@@ -95,7 +93,7 @@ func TestConfigError(t *testing.T) {
 	})
 
 	t.Run("field values", func(t *testing.T) {
-		err := html.NewConfigError("Field", "value", "test message")
+		err := newConfigError("Field", "value", "test message")
 
 		if err.Field != "Field" {
 			t.Errorf("Field = %q, want 'Field'", err.Field)
@@ -122,7 +120,7 @@ func TestConfigError(t *testing.T) {
 
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
-				err := html.NewConfigError(tt.field, tt.value, "test")
+				err := newConfigError(tt.field, tt.value, "test")
 				if err.Field != tt.field {
 					t.Errorf("Field = %q, want %q", err.Field, tt.field)
 				}
@@ -138,8 +136,8 @@ func TestConfigErrorUnwrap(t *testing.T) {
 	t.Parallel()
 
 	t.Run("unwrap to ErrInvalidConfig", func(t *testing.T) {
-		err := html.NewConfigError("MaxDepth", 0, "must be positive")
-		if !errors.Is(err, html.ErrInvalidConfig) {
+		err := newConfigError("MaxDepth", 0, "must be positive")
+		if !errors.Is(err, ErrInvalidConfig) {
 			t.Error("ConfigError should unwrap to ErrInvalidConfig")
 		}
 	})
@@ -149,7 +147,7 @@ func TestFileError(t *testing.T) {
 	t.Parallel()
 
 	t.Run("error message format", func(t *testing.T) {
-		err := html.NewFileError("ExtractFromFile", "/path/to/file.html", errors.New("not found"))
+		err := newFileError("ExtractFromFile", "/path/to/file.html", errors.New("not found"))
 		msg := err.Error()
 
 		if msg == "" {
@@ -158,23 +156,51 @@ func TestFileError(t *testing.T) {
 		if !strings.Contains(msg, "ExtractFromFile") {
 			t.Errorf("Error message should contain operation: %s", msg)
 		}
-		if !strings.Contains(msg, "/path/to/file.html") {
-			t.Errorf("Error message should contain path: %s", msg)
+		// SECURITY: Error message should NOT contain full path (information disclosure)
+		// It should only contain the filename (base component)
+		if strings.Contains(msg, "/path/to/") {
+			t.Errorf("Error message should not contain directory path: %s", msg)
+		}
+		// Should contain just the filename
+		if !strings.Contains(msg, "file.html") {
+			t.Errorf("Error message should contain filename: %s", msg)
+		}
+	})
+
+	t.Run("error message sanitizes underlying error with path", func(t *testing.T) {
+		err := newFileError("Read", "/secret/path/config.yaml", errors.New("permission denied for /secret/path"))
+		msg := err.Error()
+
+		// Should not contain the path from underlying error
+		if strings.Contains(msg, "/secret/path") {
+			t.Errorf("Error message should not contain path from underlying error: %s", msg)
+		}
+		// Should still indicate the error type
+		if !strings.Contains(msg, "permission denied") {
+			t.Errorf("Error message should contain error type: %s", msg)
 		}
 	})
 
 	t.Run("field values", func(t *testing.T) {
 		underlying := errors.New("test error")
-		err := html.NewFileError("Read", "/test/path", underlying)
+		err := newFileError("Read", "/test/path", underlying)
 
 		if err.Op != "Read" {
 			t.Errorf("Op = %q, want 'Read'", err.Op)
 		}
+		// Full path should still be available via the Path field for internal use
 		if err.Path != "/test/path" {
 			t.Errorf("Path = %q, want '/test/path'", err.Path)
 		}
 		if err.FileErr != underlying {
 			t.Error("FileErr should be the underlying error")
+		}
+	})
+
+	t.Run("SafePath returns filename only", func(t *testing.T) {
+		err := newFileError("Read", "/path/to/file.html", nil)
+		if err.SafePath() != "file.html" {
+			t.Errorf("SafePath() = %q, want 'file.html'", err.SafePath())
 		}
 	})
 }
@@ -183,15 +209,15 @@ func TestFileErrorUnwrap(t *testing.T) {
 	t.Parallel()
 
 	t.Run("unwrap to ErrInvalidFilePath", func(t *testing.T) {
-		err := html.NewFileError("ExtractFromFile", "../traversal", errors.New("path error"))
-		if !errors.Is(err, html.ErrInvalidFilePath) {
+		err := newFileError("ExtractFromFile", "../traversal", errors.New("path error"))
+		if !errors.Is(err, ErrInvalidFilePath) {
 			t.Error("FileError should unwrap to ErrInvalidFilePath")
 		}
 	})
 
 	t.Run("unwrap to ErrFileNotFound", func(t *testing.T) {
-		err := html.NewFileError("ExtractFromFile", "missing.html", html.ErrFileNotFound)
-		if !errors.Is(err, html.ErrFileNotFound) {
+		err := newFileError("ExtractFromFile", "missing.html", ErrFileNotFound)
+		if !errors.Is(err, ErrFileNotFound) {
 			t.Error("FileError should unwrap to ErrFileNotFound")
 		}
 	})
@@ -214,7 +240,7 @@ func TestNewFileErrorPathVariants(t *testing.T) {
 
 	for _, tt := range paths {
 		t.Run(tt.name, func(t *testing.T) {
-			err := html.NewFileError("Test", tt.path, errors.New("test"))
+			err := newFileError("Test", tt.path, errors.New("test"))
 			if err.Path != tt.path {
 				t.Errorf("Path = %q, want %q", err.Path, tt.path)
 			}
@@ -222,109 +248,67 @@ func TestNewFileErrorPathVariants(t *testing.T) {
 	}
 }
 
+// TestSentinelErrors verifies all sentinel errors exist and have meaningful messages
 func TestSentinelErrors(t *testing.T) {
 	t.Parallel()
 
-	t.Run("ErrInputTooLarge", func(t *testing.T) {
-		if html.ErrInputTooLarge == nil {
-			t.Error("ErrInputTooLarge should not be nil")
-		}
-		if html.ErrInputTooLarge.Error() == "" {
-			t.Error("ErrInputTooLarge should have a message")
-		}
-	})
+	sentinelErrors := []struct {
+		name string
+		err  error
+		msg  string // Expected substring in error message
+	}{
+		{"ErrInputTooLarge", ErrInputTooLarge, "input"},
+		{"ErrInvalidHTML", ErrInvalidHTML, "invalid"},
+		{"ErrProcessorClosed", ErrProcessorClosed, "closed"},
+		{"ErrMaxDepthExceeded", ErrMaxDepthExceeded, "depth"},
+		{"ErrInvalidConfig", ErrInvalidConfig, "config"},
+		{"ErrProcessingTimeout", ErrProcessingTimeout, "timeout"},
+		{"ErrFileNotFound", ErrFileNotFound, "not found"},
+		{"ErrInvalidFilePath", ErrInvalidFilePath, "path"},
+	}
 
-	t.Run("ErrInvalidHTML", func(t *testing.T) {
-		if html.ErrInvalidHTML == nil {
-			t.Error("ErrInvalidHTML should not be nil")
-		}
-		if html.ErrInvalidHTML.Error() == "" {
-			t.Error("ErrInvalidHTML should have a message")
-		}
-	})
-
-	t.Run("ErrProcessorClosed", func(t *testing.T) {
-		if html.ErrProcessorClosed == nil {
-			t.Error("ErrProcessorClosed should not be nil")
-		}
-		if html.ErrProcessorClosed.Error() == "" {
-			t.Error("ErrProcessorClosed should have a message")
-		}
-	})
-
-	t.Run("ErrMaxDepthExceeded", func(t *testing.T) {
-		if html.ErrMaxDepthExceeded == nil {
-			t.Error("ErrMaxDepthExceeded should not be nil")
-		}
-		if html.ErrMaxDepthExceeded.Error() == "" {
-			t.Error("ErrMaxDepthExceeded should have a message")
-		}
-	})
-
-	t.Run("ErrInvalidConfig", func(t *testing.T) {
-		if html.ErrInvalidConfig == nil {
-			t.Error("ErrInvalidConfig should not be nil")
-		}
-		if html.ErrInvalidConfig.Error() == "" {
-			t.Error("ErrInvalidConfig should have a message")
-		}
-	})
-
-	t.Run("ErrProcessingTimeout", func(t *testing.T) {
-		if html.ErrProcessingTimeout == nil {
-			t.Error("ErrProcessingTimeout should not be nil")
-		}
-		if html.ErrProcessingTimeout.Error() == "" {
-			t.Error("ErrProcessingTimeout should have a message")
-		}
-	})
-
-	t.Run("ErrFileNotFound", func(t *testing.T) {
-		if html.ErrFileNotFound == nil {
-			t.Error("ErrFileNotFound should not be nil")
-		}
-		if html.ErrFileNotFound.Error() == "" {
-			t.Error("ErrFileNotFound should have a message")
-		}
-	})
-
-	t.Run("ErrInvalidFilePath", func(t *testing.T) {
-		if html.ErrInvalidFilePath == nil {
-			t.Error("ErrInvalidFilePath should not be nil")
-		}
-		if html.ErrInvalidFilePath.Error() == "" {
-			t.Error("ErrInvalidFilePath should have a message")
-		}
-	})
+	for _, tt := range sentinelErrors {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.err == nil {
+				t.Errorf("%s should not be nil", tt.name)
+			}
+			if tt.err.Error() == "" {
+				t.Errorf("%s should have a message", tt.name)
+			}
+			if !strings.Contains(tt.err.Error(), tt.msg) {
+				t.Errorf("%s message should contain %q, got %q", tt.name, tt.msg, tt.err.Error())
+			}
+		})
+	}
 }
 
 func TestErrorIsUsage(t *testing.T) {
 	t.Parallel()
 
 	t.Run("errors.Is with InputError", func(t *testing.T) {
-		err := html.NewInputError("Extract", 10000, 5000, nil)
-		if !errors.Is(err, html.ErrInputTooLarge) {
+		err := newInputError("Extract", 10000, 5000, nil)
+		if !errors.Is(err, ErrInputTooLarge) {
 			t.Error("errors.Is should match ErrInputTooLarge")
 		}
 	})
 
 	t.Run("errors.Is with ConfigError", func(t *testing.T) {
-		err := html.NewConfigError("Field", "value", "message")
-		if !errors.Is(err, html.ErrInvalidConfig) {
+		err := newConfigError("Field", "value", "message")
+		if !errors.Is(err, ErrInvalidConfig) {
 			t.Error("errors.Is should match ErrInvalidConfig")
 		}
 	})
 
 	t.Run("errors.Is with FileError", func(t *testing.T) {
-		err := html.NewFileError("Op", "path", errors.New("test"))
-		if !errors.Is(err, html.ErrInvalidFilePath) {
+		err := newFileError("Op", "path", errors.New("test"))
+		if !errors.Is(err, ErrInvalidFilePath) {
 			t.Error("errors.Is should match ErrInvalidFilePath")
 		}
 	})
 
 	t.Run("errors.Is negative case", func(t *testing.T) {
-		err := html.NewConfigError("Field", "value", "message")
-		if errors.Is(err, html.ErrInputTooLarge) {
+		err := newConfigError("Field", "value", "message")
+		if errors.Is(err, ErrInputTooLarge) {
 			t.Error("ConfigError should not match ErrInputTooLarge")
 		}
 	})
@@ -334,16 +318,16 @@ func TestErrInternalPanic(t *testing.T) {
 	t.Parallel()
 
 	t.Run("sentinel error exists", func(t *testing.T) {
-		if html.ErrInternalPanic == nil {
+		if ErrInternalPanic == nil {
 			t.Error("ErrInternalPanic should not be nil")
 		}
-		if html.ErrInternalPanic.Error() == "" {
+		if ErrInternalPanic.Error() == "" {
 			t.Error("ErrInternalPanic should have a message")
 		}
 	})
 
 	t.Run("error message contains expected text", func(t *testing.T) {
-		msg := html.ErrInternalPanic.Error()
+		msg := ErrInternalPanic.Error()
 		if !strings.Contains(msg, "panic") {
 			t.Errorf("ErrInternalPanic message should contain 'panic': %s", msg)
 		}

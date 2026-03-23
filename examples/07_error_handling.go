@@ -97,13 +97,11 @@ func main() {
 		log.Fatalf("Failed to create processor: %v", err)
 	}
 
-	// Always use defer for cleanup
-	defer p.Close()
-
+	// Normal pattern: defer Close() for cleanup
 	fmt.Println("✓ Always use defer p.Close() for cleanup")
 
-	// Using after close returns error
-	p.Close()
+	// Demonstrate: using after close returns error
+	p.Close() // Close is idempotent - safe to call multiple times
 	_, err = p.Extract([]byte("<html></html>"))
 	if errors.Is(err, html.ErrProcessorClosed) {
 		fmt.Println("✓ ErrProcessorClosed returned after Close()")

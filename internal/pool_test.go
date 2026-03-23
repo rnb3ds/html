@@ -555,3 +555,98 @@ func TestGetTransformBufferPoolCorruption(t *testing.T) {
 
 	PutTransformBuffer(bufPtr)
 }
+
+// TestPutBuilderSecureClear tests that poolSecureClear properly zeros builder buffer.
+func TestPutBuilderSecureClear(t *testing.T) {
+	t.Parallel()
+
+	// Enable secure clear
+	SetPoolSecureClear(true)
+	defer SetPoolSecureClear(false)
+
+	// Create a builder with sensitive content
+	sb := GetBuilder()
+	sensitiveData := "SENSITIVE_PASSWORD_12345"
+	sb.WriteString(sensitiveData)
+
+	// Verify data was written
+	if sb.String() != sensitiveData {
+		t.Fatalf("Expected '%s', got '%s'", sensitiveData, sb.String())
+	}
+
+	// Return to pool - should zero the buffer
+	PutBuilder(sb)
+
+	// Note: We can't directly verify the buffer was zeroed since
+	// the builder has been reset and returned to pool.
+	// The security guarantee is that the memory is zeroed before reuse.
+	// This test primarily verifies the code path executes without panic.
+}
+
+// TestPutBufferSecureClear tests that poolSecureClear properly zeros buffer.
+func TestPutBufferSecureClear(t *testing.T) {
+	t.Parallel()
+
+	// Enable secure clear
+	SetPoolSecureClear(true)
+	defer SetPoolSecureClear(false)
+
+	// Create a buffer with sensitive content
+	buf := GetBuffer()
+	sensitiveData := []byte("SENSITIVE_API_KEY_12345")
+	buf.Write(sensitiveData)
+
+	// Verify data was written
+	if !bytes.Equal(buf.Bytes(), sensitiveData) {
+		t.Fatalf("Expected '%s', got '%s'", sensitiveData, buf.Bytes())
+	}
+
+	// Return to pool - should zero the buffer
+	PutBuffer(buf)
+
+	// Note: We can't directly verify the buffer was zeroed since
+	// the buffer has been reset and returned to pool.
+	// This test primarily verifies the code path executes without panic.
+}
+
+// TestPutTransformBufferSecureClear tests that poolSecureClear properly zeros transform buffer.
+func TestPutTransformBufferSecureClear(t *testing.T) {
+	t.Parallel()
+
+	// Enable secure clear
+	SetPoolSecureClear(true)
+	defer SetPoolSecureClear(false)
+
+	// Create a buffer with sensitive content
+	bufPtr := GetTransformBuffer()
+	sensitiveData := []byte("SENSITIVE_TOKEN_12345")
+	*bufPtr = append(*bufPtr, sensitiveData...)
+
+	// Verify data was written
+	if !bytes.Equal(*bufPtr, sensitiveData) {
+		t.Fatalf("Expected '%s', got '%s'", *bufPtr, sensitiveData)
+	}
+
+	// Return to pool - should zero the buffer
+	PutTransformBuffer(bufPtr)
+
+	// This test primarily verifies the code path executes without panic
+}
+
+// TestPutNodeSliceSecureClear tests that poolSecureClear properly zeros node slice.
+func TestPutNodeSliceSecureClear(t *testing.T) {
+	t.Parallel()
+
+	// Enable secure clear
+	SetPoolSecureClear(true)
+	defer SetPoolSecureClear(false)
+
+	// Create a slice with some node pointers (nil is valid for *html.Node)
+	slicePtr := GetNodeSlice()
+	*slicePtr = append(*slicePtr, nil, nil)
+
+	// Return to pool - should zero the slice
+	PutNodeSlice(slicePtr)
+
+	// This test primarily verifies the code path executes without panic
+}

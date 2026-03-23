@@ -22,9 +22,9 @@ func main() {
 	fmt.Println("-----------------")
 
 	scorer := &ArticleScorer{minParagraphLength: 50}
-	scorerConfig := html.DefaultConfig()
-	scorerConfig.Scorer = scorer
-	scorerProcessor, err := html.New(scorerConfig)
+	scorerCfg := html.DefaultConfig()
+	scorerCfg.Scorer = scorer
+	scorerProcessor, err := html.New(scorerCfg)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -50,12 +50,11 @@ func main() {
 	channelSink := html.NewChannelAuditSink(100)
 
 	// Configure processor with audit
-	auditConfig := html.DefaultConfig()
-	auditConfig.Audit = html.HighSecurityAuditConfig()
-	auditConfig.Audit.Sink = channelSink
-	auditConfig.Audit.Enabled = true
-
-	auditProcessor, _ := html.New(auditConfig)
+	auditCfg := html.DefaultConfig()
+	auditCfg.Audit = html.HighSecurityAuditConfig()
+	auditCfg.Audit.Sink = channelSink
+	auditCfg.Audit.Enabled = true
+	auditProcessor, _ := html.New(auditCfg)
 	defer auditProcessor.Close()
 
 	// Process potentially dangerous HTML
@@ -164,14 +163,14 @@ type ArticleScorer struct {
 }
 
 // Score calculates a relevance score for a content node.
-func (s *ArticleScorer) Score(node *html.Node) int {
-	if node.Type != html.ElementNode {
+func (s *ArticleScorer) Score(node html.ContentNode) int {
+	if node.Type() != "element" {
 		return 0
 	}
 
 	score := 0
 
-	switch node.Data {
+	switch node.Data() {
 	case "article":
 		score += 100
 	case "main":
@@ -188,20 +187,18 @@ func (s *ArticleScorer) Score(node *html.Node) int {
 	}
 
 	// Check class attributes
-	for _, attr := range node.Attr {
-		if attr.Key == "class" {
-			classVal := strings.ToLower(attr.Val)
-			if strings.Contains(classVal, "content") ||
-				strings.Contains(classVal, "article") ||
-				strings.Contains(classVal, "post") {
-				score += 20
-			}
-			if strings.Contains(classVal, "sidebar") ||
-				strings.Contains(classVal, "nav") ||
-				strings.Contains(classVal, "footer") ||
-				strings.Contains(classVal, "ad") {
-				score -= 50
-			}
+	classVal := strings.ToLower(node.AttrValue("class"))
+	if classVal != "" {
+		if strings.Contains(classVal, "content") ||
+			strings.Contains(classVal, "article") ||
+			strings.Contains(classVal, "post") {
+			score += 20
+		}
+		if strings.Contains(classVal, "sidebar") ||
+			strings.Contains(classVal, "nav") ||
+			strings.Contains(classVal, "footer") ||
+			strings.Contains(classVal, "ad") {
+			score -= 50
 		}
 	}
 
@@ -209,25 +206,23 @@ func (s *ArticleScorer) Score(node *html.Node) int {
 }
 
 // ShouldRemove determines if a node should be removed.
-func (s *ArticleScorer) ShouldRemove(node *html.Node) bool {
-	if node.Type != html.ElementNode {
+func (s *ArticleScorer) ShouldRemove(node html.ContentNode) bool {
+	if node.Type() != "element" {
 		return false
 	}
 
-	switch node.Data {
+	switch node.Data() {
 	case "nav", "aside", "footer", "header":
 		return true
 	}
 
-	for _, attr := range node.Attr {
-		if attr.Key == "class" {
-			classVal := strings.ToLower(attr.Val)
-			if strings.Contains(classVal, "ad-") ||
-				strings.Contains(classVal, "sponsor") ||
-				strings.Contains(classVal, "promo") ||
-				strings.Contains(classVal, "sidebar") {
-				return true
-			}
+	classVal := strings.ToLower(node.AttrValue("class"))
+	if classVal != "" {
+		if strings.Contains(classVal, "ad-") ||
+			strings.Contains(classVal, "sponsor") ||
+			strings.Contains(classVal, "promo") ||
+			strings.Contains(classVal, "sidebar") {
+			return true
 		}
 	}
 
@@ -235,12 +230,12 @@ func (s *ArticleScorer) ShouldRemove(node *html.Node) bool {
 }
 
 // getTextContent extracts text content from a node.
-func getTextContent(n *html.Node) string {
-	if n.Type == html.TextNode {
-		return n.Data
+func getTextContent(n html.ContentNode) string {
+	if n.Type() == "text" {
+		return n.Data()
 	}
 	var result string
-	for c := n.FirstChild; c != nil; c = c.NextSibling {
+	for c := n.FirstChild(); c != nil; c = c.NextSibling() {
 		result += getTextContent(c)
 	}
 	return result

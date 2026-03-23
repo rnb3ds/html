@@ -553,11 +553,11 @@ config := html.Config{
 
 ## Support
 
-- **Documentation**: See `docs/` directory and [README.md](README.md)
+- **Documentation**: See `docs/` directory and [README.md](../README.md)
 - **Examples**: See `examples/` directory
 - **Tests**: Run `go test -v ./...`
 - **Issues**: Report on GitHub
 
 ## License
 
-MIT License - See [LICENSE](LICENSE) file for details.
+MIT License - See [LICENSE](../LICENSE) file for details.

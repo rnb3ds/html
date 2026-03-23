@@ -9,7 +9,7 @@ import (
 )
 
 func BenchmarkExtract(b *testing.B) {
-	p, _ := html.New(html.DefaultConfig())
+	p, _ := html.New()
 	defer p.Close()
 
 	htmlContent := `
@@ -37,7 +37,7 @@ func BenchmarkExtract(b *testing.B) {
 }
 
 func BenchmarkExtractWithCache(b *testing.B) {
-	p, _ := html.New(html.DefaultConfig())
+	p, _ := html.New()
 	defer p.Close()
 
 	htmlContent := `<html><body><p>Cached content</p></body></html>`
@@ -55,7 +55,7 @@ func BenchmarkExtractWithCache(b *testing.B) {
 }
 
 func BenchmarkExtractLargeDocument(b *testing.B) {
-	p, _ := html.New(html.DefaultConfig())
+	p, _ := html.New()
 	defer p.Close()
 
 	// Create a large HTML document
@@ -80,7 +80,7 @@ func BenchmarkExtractLargeDocument(b *testing.B) {
 }
 
 func BenchmarkExtractWithImages(b *testing.B) {
-	p, _ := html.New(html.DefaultConfig())
+	p, _ := html.New()
 	defer p.Close()
 
 	var sb strings.Builder
@@ -101,7 +101,7 @@ func BenchmarkExtractWithImages(b *testing.B) {
 }
 
 func BenchmarkExtractWithLinks(b *testing.B) {
-	p, _ := html.New(html.DefaultConfig())
+	p, _ := html.New()
 	defer p.Close()
 
 	var sb strings.Builder
@@ -122,7 +122,7 @@ func BenchmarkExtractWithLinks(b *testing.B) {
 }
 
 func BenchmarkExtractBatch(b *testing.B) {
-	p, _ := html.New(html.DefaultConfig())
+	p, _ := html.New()
 	defer p.Close()
 
 	htmlContents := make([][]byte, 10)
@@ -140,11 +140,11 @@ func BenchmarkExtractBatch(b *testing.B) {
 }
 
 func BenchmarkNew(b *testing.B) {
-	config := html.DefaultConfig()
+	cfg := html.DefaultConfig()
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		p, err := html.New(config)
+		p, err := html.New(cfg)
 		if err != nil {
 			b.Fatalf("New() failed: %v", err)
 		}
@@ -152,38 +152,9 @@ func BenchmarkNew(b *testing.B) {
 	}
 }
 
-func BenchmarkParse(b *testing.B) {
-	htmlContent := `<html><head><title>Test</title></head><body><p>Content</p></body></html>`
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		_, err := html.Parse(strings.NewReader(htmlContent))
-		if err != nil {
-			b.Fatalf("Parse() failed: %v", err)
-		}
-	}
-}
-
-func BenchmarkEscapeString(b *testing.B) {
-	input := `<script>alert("xss")</script>`
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		_ = html.EscapeString(input)
-	}
-}
-
-func BenchmarkUnescapeString(b *testing.B) {
-	input := `&lt;html&gt;&amp;&aacute;&#225;&#xE1;`
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		_ = html.UnescapeString(input)
-	}
-}
 
 func BenchmarkConcurrentExtract(b *testing.B) {
-	p, _ := html.New(html.DefaultConfig())
+	p, _ := html.New()
 	defer p.Close()
 
 	htmlContent := `<html><body><p>Concurrent test</p></body></html>`
@@ -199,7 +170,7 @@ func BenchmarkConcurrentExtract(b *testing.B) {
 }
 
 func BenchmarkArticleExtraction(b *testing.B) {
-	p, _ := html.New(html.DefaultConfig())
+	p, _ := html.New()
 	defer p.Close()
 
 	htmlContent := `
@@ -228,7 +199,7 @@ func BenchmarkArticleExtraction(b *testing.B) {
 }
 
 func BenchmarkInlineImageFormatting(b *testing.B) {
-	p, _ := html.New(html.DefaultConfig())
+	p, _ := html.New()
 	defer p.Close()
 
 	htmlContent := `
@@ -267,7 +238,7 @@ func BenchmarkInlineImageFormatting(b *testing.B) {
 }
 
 func BenchmarkMediaExtraction(b *testing.B) {
-	p, _ := html.New(html.DefaultConfig())
+	p, _ := html.New()
 	defer p.Close()
 
 	htmlContent := `
