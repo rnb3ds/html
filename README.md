@@ -1,12 +1,12 @@
 # HTML Library
 
-[![Go Version](https://img.shields.io/badge/Go-1.24+-00ADD8?logo=go)](https://golang.org)
+[![Go Version](https://img.shields.io/badge/Go-1.25+-00ADD8?logo=go)](https://golang.org)
 [![GoDoc](https://pkg.go.dev/badge/github.com/cybergodev/html.svg)](https://pkg.go.dev/github.com/cybergodev/html)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Security](https://img.shields.io/badge/security-policy-blue.svg)](docs/SECURITY.md)
 [![Thread Safe](https://img.shields.io/badge/thread%20safe-yes-brightgreen.svg)](#-thread-safety)
 
-**A high-performance Go library for intelligent HTML content extraction.** Drop-in replacement for `golang.org/x/net/html` with enhanced content extraction capabilities.
+**A high-performance Go library for intelligent HTML content extraction**, built on `golang.org/x/net/html`.
 
 [📖 中文文档](README_zh-CN.md)
 
@@ -23,7 +23,7 @@
 | 📦 **Multiple Output Formats** | Text, Markdown, JSON |
 | 🛡️ **Security First** | HTML sanitization, XSS protection, audit logging |
 | 🧵 **Thread-Safe** | Concurrent use without external synchronization |
-| 🔗 **golang.org/x/net/html Compatible** | Drop-in replacement with zero code changes |
+| 🔗 **Built on golang.org/x/net/html** | Uses the standard HTML parser internally |
 
 ---
 
@@ -45,7 +45,7 @@
 go get github.com/cybergodev/html
 ```
 
-**Requirements**: Go 1.24+
+**Requirements**: Go 1.25+
 
 ---
 
@@ -154,9 +154,9 @@ func main() {
 
     // Batch processing
     htmlContents := [][]byte{htmlBytes, htmlBytes, htmlBytes}
-    results, _ := processor.ExtractBatch(htmlContents)
+    batchResult := processor.ExtractBatch(htmlContents)
 
-    fmt.Printf("Processed %d documents\n", len(results))
+    fmt.Printf("Processed %d documents\n", len(batchResult.Results))
 }
 ```
 
@@ -377,7 +377,21 @@ html.ExtractToJSONFromFile(filePath string, cfg ...Config) ([]byte, error)
 // Links
 html.ExtractAllLinks(htmlBytes []byte, cfg ...Config) ([]LinkResource, error)
 html.ExtractAllLinksFromFile(filePath string, cfg ...Config) ([]LinkResource, error)
+html.ExtractAllLinksWithContext(ctx context.Context, htmlBytes []byte, cfg ...Config) ([]LinkResource, error)
+html.ExtractAllLinksFromFileWithContext(ctx context.Context, filePath string, cfg ...Config) ([]LinkResource, error)
 html.GroupLinksByType(links []LinkResource) map[string][]LinkResource
+
+// Batch processing
+html.ExtractBatch(htmlContents [][]byte, cfg ...Config) *BatchResult
+html.ExtractBatchWithContext(ctx context.Context, htmlContents [][]byte, cfg ...Config) *BatchResult
+html.ExtractBatchFiles(filePaths []string, cfg ...Config) *BatchResult
+html.ExtractBatchFilesWithContext(ctx context.Context, filePaths []string, cfg ...Config) *BatchResult
+
+// Context-aware extraction
+html.ExtractWithContext(ctx context.Context, htmlBytes []byte, cfg ...Config) (*Result, error)
+html.ExtractFromFileWithContext(ctx context.Context, filePath string, cfg ...Config) (*Result, error)
+html.ExtractTextWithContext(ctx context.Context, htmlBytes []byte, cfg ...Config) (string, error)
+html.ExtractTextFromFileWithContext(ctx context.Context, filePath string, cfg ...Config) (string, error)
 ```
 
 ### Processor Methods
@@ -413,10 +427,10 @@ processor.ExtractAllLinksFromFile(filePath string) ([]LinkResource, error)
 processor.ExtractAllLinksWithContext(ctx context.Context, htmlBytes []byte) ([]LinkResource, error)
 
 // Batch processing
-processor.ExtractBatch(contents [][]byte) ([]*Result, error)
-processor.ExtractBatchFiles(paths []string) ([]*Result, error)
-processor.ExtractBatchWithContext(ctx context.Context, contents [][]byte) *BatchResult
-processor.ExtractBatchFilesWithContext(ctx context.Context, paths []string) *BatchResult
+processor.ExtractBatch(htmlContents [][]byte) *BatchResult
+processor.ExtractBatchWithContext(ctx context.Context, htmlContents [][]byte) *BatchResult
+processor.ExtractBatchFiles(filePaths []string) *BatchResult
+processor.ExtractBatchFilesWithContext(ctx context.Context, filePaths []string) *BatchResult
 
 // Monitoring
 processor.GetStatistics() Statistics
@@ -429,10 +443,12 @@ processor.ClearAuditLog()
 ### Configuration Presets
 
 ```go
-html.DefaultConfig() Config        // Standard configuration
-html.HighSecurityConfig() Config   // Security-optimized configuration
-html.TextOnlyConfig() Config       // Text-only (no media)
-html.MarkdownConfig() Config       // Markdown image format
+html.DefaultConfig() Config             // Standard configuration
+html.HighSecurityConfig() Config        // Security-optimized configuration
+html.TextOnlyConfig() Config            // Text-only (no media)
+html.MarkdownConfig() Config            // Markdown image format
+html.DefaultAuditConfig() AuditConfig   // Standard audit configuration
+html.HighSecurityAuditConfig() AuditConfig // Security-optimized audit configuration
 ```
 
 ---
@@ -447,9 +463,9 @@ type Result struct {
     Links          []LinkInfo    `json:"links,omitempty"`
     Videos         []VideoInfo   `json:"videos,omitempty"`
     Audios         []AudioInfo   `json:"audios,omitempty"`
+    ProcessingTime time.Duration `json:"-"` // Serialized as "processing_time_ms" via MarshalJSON
     WordCount      int           `json:"word_count"`
-    ReadingTime    time.Duration `json:"reading_time_ms"`
-    ProcessingTime time.Duration `json:"processing_time_ms"`
+    ReadingTime    time.Duration `json:"-"` // Serialized as "reading_time_ms" via MarshalJSON
 }
 
 type ImageInfo struct {
@@ -490,6 +506,11 @@ type LinkResource struct {
     URL   string
     Title string
     Type  string // "css", "js", "image", "video", "audio", "icon", "link"
+}
+
+type NodeAttr struct {
+    Key   string
+    Value string
 }
 
 type BatchResult struct {
@@ -677,25 +698,20 @@ For complete runnable examples, see the [examples/](examples) directory:
 
 ## 🔄 Compatibility
 
-This library is a **drop-in replacement** for `golang.org/x/net/html`:
+This library uses `golang.org/x/net/html` internally but does **not** re-export its types or functions. It is not a drop-in replacement for `golang.org/x/net/html`. Instead, it provides a higher-level API focused on content extraction.
 
 ```go
-// Just change the import
-- import "golang.org/x/net/html"
-+ import "github.com/cybergodev/html"
+import "github.com/cybergodev/html"
 
-// All existing code continues to work
-doc, err := html.Parse(reader)
-html.Render(writer, doc)
-escaped := html.EscapeString("<script>")
+// Content extraction API
+processor, _ := html.New(html.DefaultConfig())
+defer processor.Close()
+
+result, _ := processor.Extract(htmlBytes)
+fmt.Println(result.Text)
 ```
 
-Re-exported types, constants, and functions:
-- **Types**: `Node`, `NodeType`, `Token`, `Attribute`, `Tokenizer`, `ParseOption`
-- **Constants**: All `NodeType` and `TokenType` constants (`ErrorNode`, `TextNode`, `DocumentNode`, `ElementNode`, etc.)
-- **Functions**: `Parse`, `ParseFragment`, `Render`, `EscapeString`, `UnescapeString`, `NewTokenizer`, `NewTokenizerFragment`
-
-See [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md) for full details.
+See [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md) for the full API reference and migration guide.
 
 ---
 
@@ -707,6 +723,8 @@ See [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md) for full details.
 processor, _ := html.New()
 defer processor.Close()
 
+htmlBytes := []byte(`<html><body><p>Content</p></body></html>`)
+
 var wg sync.WaitGroup
 for i := 0; i < 100; i++ {
     wg.Add(1)
@@ -716,6 +734,113 @@ for i := 0; i < 100; i++ {
     }()
 }
 wg.Wait()
+```
+
+---
+
+## 🔌 Interfaces
+
+The library provides interfaces for dependency injection and testing:
+
+```go
+// Extractor combines all extraction functionality
+type Extractor interface {
+    // Content extraction (from bytes and files, with optional Context)
+    Extract(htmlBytes []byte) (*Result, error)
+    ExtractWithContext(ctx context.Context, htmlBytes []byte) (*Result, error)
+    ExtractFromFile(filePath string) (*Result, error)
+    ExtractFromFileWithContext(ctx context.Context, filePath string) (*Result, error)
+
+    // Text extraction
+    ExtractText(htmlBytes []byte) (string, error)
+    ExtractTextFromFile(filePath string) (string, error)
+    ExtractTextWithContext(ctx context.Context, htmlBytes []byte) (string, error)
+    ExtractTextFromFileWithContext(ctx context.Context, filePath string) (string, error)
+
+    // Output formats
+    ExtractToMarkdown(htmlBytes []byte) (string, error)
+    ExtractToMarkdownFromFile(filePath string) (string, error)
+    ExtractToJSON(htmlBytes []byte) ([]byte, error)
+    ExtractToJSONFromFile(filePath string) ([]byte, error)
+    ExtractToMarkdownWithContext(ctx context.Context, htmlBytes []byte) (string, error)
+    ExtractToMarkdownFromFileWithContext(ctx context.Context, filePath string) (string, error)
+    ExtractToJSONWithContext(ctx context.Context, htmlBytes []byte) ([]byte, error)
+    ExtractToJSONFromFileWithContext(ctx context.Context, filePath string) ([]byte, error)
+
+    // Batch processing
+    ExtractBatch(htmlContents [][]byte) *BatchResult
+    ExtractBatchWithContext(ctx context.Context, htmlContents [][]byte) *BatchResult
+    ExtractBatchFiles(filePaths []string) *BatchResult
+    ExtractBatchFilesWithContext(ctx context.Context, filePaths []string) *BatchResult
+
+    // Link extraction
+    ExtractAllLinks(htmlBytes []byte) ([]LinkResource, error)
+    ExtractAllLinksFromFile(filePath string) ([]LinkResource, error)
+    ExtractAllLinksWithContext(ctx context.Context, htmlBytes []byte) ([]LinkResource, error)
+    ExtractAllLinksFromFileWithContext(ctx context.Context, filePath string) ([]LinkResource, error)
+
+    Close() error
+}
+
+// StatsProvider for monitoring and cache management
+type StatsProvider interface {
+    GetStatistics() Statistics
+    ClearCache()
+    ResetStatistics()
+}
+
+// Scorer for custom content scoring algorithms
+type Scorer interface {
+    Score(node ContentNode) int
+    ShouldRemove(node ContentNode) bool
+}
+
+// ContentNode abstracts an HTML node for custom Scorers
+type ContentNode interface {
+    Type() string
+    Data() string
+    AttrValue(key string) string
+    Attrs() []NodeAttr
+    FirstChild() ContentNode
+    NextSibling() ContentNode
+    Parent() ContentNode
+}
+```
+
+`Processor` implements `Extractor` and `StatsProvider` at compile time.
+
+---
+
+## ❌ Error Handling
+
+All errors can be checked with `errors.Is()`:
+
+```go
+result, err := html.Extract(htmlBytes)
+if err != nil {
+    switch {
+    case errors.Is(err, html.ErrInputTooLarge):
+        // Input exceeds MaxInputSize
+    case errors.Is(err, html.ErrInvalidHTML):
+        // Malformed HTML
+    case errors.Is(err, html.ErrProcessingTimeout):
+        // Processing exceeded timeout
+    case errors.Is(err, html.ErrMaxDepthExceeded):
+        // Nesting too deep
+    case errors.Is(err, html.ErrFileNotFound):
+        // File doesn't exist
+    case errors.Is(err, html.ErrInvalidFilePath):
+        // Invalid file path
+    case errors.Is(err, html.ErrProcessorClosed):
+        // Processor was closed
+    case errors.Is(err, html.ErrInvalidConfig):
+        // Invalid configuration
+    case errors.Is(err, html.ErrMultipleConfigs):
+        // More than one Config provided
+    case errors.Is(err, html.ErrInternalPanic):
+        // Internal panic recovered
+    }
+}
 ```
 
 ---

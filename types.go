@@ -1,5 +1,4 @@
-// Package html provides HTML content extraction with automatic encoding detection.
-// This file contains type aliases for commonly used types from golang.org/x/net/html.
+// types.go contains type aliases for commonly used types from golang.org/x/net/html.
 package html
 
 // ============================================================================

@@ -11,7 +11,10 @@
 //	fmt.Println(result.Text)
 //
 //	// With processor for repeated extractions
-//	processor, _ := html.New(html.WithCache(1000, time.Hour))
+//	cfg := html.DefaultConfig()
+//	cfg.MaxCacheEntries = 1000
+//	cfg.CacheTTL = time.Hour
+//	processor, _ := html.New(cfg)
 //	defer processor.Close()
 //	result, _ := processor.Extract(htmlBytes)
 package html

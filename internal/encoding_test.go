@@ -574,12 +574,7 @@ func TestSetMaxSampleSize(t *testing.T) {
 
 	t.Run("valid sample size", func(t *testing.T) {
 		ed := NewEncodingDetector()
-		result := ed.SetMaxSampleSize(2048)
-
-		// Should return the detector for chaining
-		if result != ed {
-			t.Error("SetMaxSampleSize should return the detector")
-		}
+		ed.SetMaxSampleSize(2048)
 
 		if ed.MaxSampleSize != 2048 {
 			t.Errorf("MaxSampleSize = %d, want 2048", ed.MaxSampleSize)

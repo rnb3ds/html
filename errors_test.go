@@ -208,10 +208,18 @@ func TestFileError(t *testing.T) {
 func TestFileErrorUnwrap(t *testing.T) {
 	t.Parallel()
 
-	t.Run("unwrap to ErrInvalidFilePath", func(t *testing.T) {
-		err := newFileError("ExtractFromFile", "../traversal", errors.New("path error"))
+	t.Run("unwrap to underlying error", func(t *testing.T) {
+		innerErr := errors.New("path error")
+		err := newFileError("ExtractFromFile", "../traversal", innerErr)
+		if !errors.Is(err, innerErr) {
+			t.Error("FileError should unwrap to underlying error")
+		}
+	})
+
+	t.Run("unwrap to ErrInvalidFilePath when no underlying error", func(t *testing.T) {
+		err := newFileError("ExtractFromFile", "../traversal", nil)
 		if !errors.Is(err, ErrInvalidFilePath) {
-			t.Error("FileError should unwrap to ErrInvalidFilePath")
+			t.Error("FileError with nil FileErr should unwrap to ErrInvalidFilePath")
 		}
 	})
 
@@ -299,10 +307,18 @@ func TestErrorIsUsage(t *testing.T) {
 		}
 	})
 
-	t.Run("errors.Is with FileError", func(t *testing.T) {
-		err := newFileError("Op", "path", errors.New("test"))
+	t.Run("errors.Is with FileError and nil inner error", func(t *testing.T) {
+		err := newFileError("Op", "path", nil)
 		if !errors.Is(err, ErrInvalidFilePath) {
-			t.Error("errors.Is should match ErrInvalidFilePath")
+			t.Error("errors.Is should match ErrInvalidFilePath for nil inner error")
+		}
+	})
+
+	t.Run("errors.Is with FileError unwraps to inner error", func(t *testing.T) {
+		innerErr := errors.New("test")
+		err := newFileError("Op", "path", innerErr)
+		if !errors.Is(err, innerErr) {
+			t.Error("errors.Is should match inner error")
 		}
 	})
 

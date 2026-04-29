@@ -2,6 +2,9 @@ package html
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -143,13 +146,22 @@ type Processor struct {
 	scorer   internal.Scorer
 	audit    *auditCollector
 	closed   atomic.Bool
-	stats    struct {
-		totalProcessed   atomic.Int64
-		cacheHits        atomic.Int64
-		cacheMisses      atomic.Int64
-		errorCount       atomic.Int64
-		totalProcessTime atomic.Int64
-	}
+	stats    *processorStats
+
+	// Pre-computed format strings to avoid repeated strings.ToLower in hot path
+	imageFormat string
+	linkFormat  string
+	// Cached audit adapter to avoid per-call allocation
+	auditAdapter *auditRecorderAdapter
+}
+
+// processorStats holds thread-safe statistics counters shared between processors.
+type processorStats struct {
+	totalProcessed   atomic.Int64
+	cacheHits        atomic.Int64
+	cacheMisses      atomic.Int64
+	errorCount       atomic.Int64
+	totalProcessTime atomic.Int64
 }
 
 // New creates a new HTML processor with optional configuration.
@@ -179,11 +191,9 @@ type Processor struct {
 //	cfg.Scorer = myScorer
 //	processor, err := html.New(cfg)
 func New(cfg ...Config) (*Processor, error) {
-	var c Config
-	if len(cfg) > 0 {
-		c = cfg[0]
-	} else {
-		c = DefaultConfig()
+	c, _, err := resolveConfig(cfg...)
+	if err != nil {
+		return nil, err
 	}
 
 	if err := c.Validate(); err != nil {
@@ -194,14 +204,28 @@ func New(cfg ...Config) (*Processor, error) {
 		config: &c,
 		cache:  internal.NewCache(c.MaxCacheEntries, c.CacheTTL),
 		audit:  newAuditCollector(c.Audit),
+		stats:  &processorStats{},
 	}
+
+	// Pre-compute normalized format strings to avoid repeated strings.ToLower in hot path
+	p.imageFormat = strings.ToLower(strings.TrimSpace(c.InlineImageFormat))
+	if p.imageFormat == "" {
+		p.imageFormat = "none"
+	}
+	p.linkFormat = strings.ToLower(strings.TrimSpace(c.InlineLinkFormat))
+	if p.linkFormat == "" {
+		p.linkFormat = "none"
+	}
+
+	// Cache audit adapter to avoid per-call allocation
+	p.auditAdapter = &auditRecorderAdapter{collector: p.audit}
 
 	// Set up scorer from config
 	// Note: Scorer interface uses ContentNode abstraction; adapter converts to internal.Scorer
 	if c.Scorer != nil {
 		p.scorer = &scorerAdapter{external: c.Scorer}
 	} else {
-		p.scorer = internal.NewDefaultScorer()
+		p.scorer = internal.SharedDefaultScorer()
 	}
 
 	// Start background cache cleanup if TTL and cleanup interval are configured
@@ -214,7 +238,7 @@ func New(cfg ...Config) (*Processor, error) {
 
 // GetStatistics returns current processing statistics.
 func (p *Processor) GetStatistics() Statistics {
-	if p == nil {
+	if p == nil || p.stats == nil {
 		return Statistics{}
 	}
 	totalProcessed := p.stats.totalProcessed.Load()
@@ -261,7 +285,7 @@ func (p *Processor) ClearCache() {
 // ResetStatistics resets all statistics counters to zero.
 // This preserves cache entries while clearing the accumulated metrics.
 func (p *Processor) ResetStatistics() {
-	if p == nil {
+	if p == nil || p.stats == nil {
 		return
 	}
 	p.stats.cacheHits.Store(0)
@@ -331,70 +355,24 @@ func (p *Processor) validateAndReadFile(filePath string) ([]byte, error) {
 	}
 
 	// Clean the file path to resolve any "." or ".." components
-	cleanPath := filepathClean(filePath)
+	cleanPath := filepath.Clean(filePath)
 
 	// After cleaning, check if the path contains parent directory references
 	// This catches path traversal attempts like "../file", "subdir/../../file", etc.
-	if stringsContains(cleanPath, "..") {
+	if strings.Contains(cleanPath, "..") {
 		if p.audit != nil {
 			p.audit.RecordPathTraversal(filePath)
 		}
 		return nil, newFileError("ReadFile", filePath, fmt.Errorf("path traversal detected: %s", cleanPath))
 	}
 
-	data, err := readFile(cleanPath)
+	data, err := os.ReadFile(cleanPath)
 	if err != nil {
-		if osIsNotExist(err) {
+		if os.IsNotExist(err) {
 			return nil, newFileError("ReadFile", cleanPath, ErrFileNotFound)
 		}
 		return nil, newFileError("ReadFile", cleanPath, err)
 	}
 
 	return data, nil
-}
-
-// collectResults collects batch processing results and returns the first error if any.
-func collectResults(results []*Result, errs []error, names []string) ([]*Result, error) {
-	var firstErr error
-	failCount := 0
-
-	for i, err := range errs {
-		if err != nil {
-			failCount++
-			if firstErr == nil {
-				if names != nil {
-					firstErr = fmt.Errorf("%s: %w", names[i], err)
-				} else {
-					firstErr = fmt.Errorf("item %d: %w", i, err)
-				}
-			}
-		}
-	}
-
-	switch failCount {
-	case 0:
-		return results, nil
-	case len(errs):
-		return results, fmt.Errorf("all %d items failed: %w", len(results), firstErr)
-	default:
-		return results, fmt.Errorf("partial failure (%d/%d failed): %w", failCount, len(results), firstErr)
-	}
-}
-
-// GroupLinksByType groups links by their type.
-// This is a convenience function for organizing extracted links.
-func GroupLinksByType(links []LinkResource) map[string][]LinkResource {
-	if len(links) == 0 {
-		return make(map[string][]LinkResource)
-	}
-
-	grouped := make(map[string][]LinkResource, 8)
-	for _, link := range links {
-		if link.Type != "" {
-			grouped[link.Type] = append(grouped[link.Type], link)
-		} else {
-			grouped["unknown"] = append(grouped["unknown"], link)
-		}
-	}
-	return grouped
 }

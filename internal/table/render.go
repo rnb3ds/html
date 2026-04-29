@@ -308,6 +308,31 @@ func filterIntArray(arr []int, indices []int) []int {
 	return result
 }
 
+// paddingLookup provides pre-computed padding strings for small values
+// to avoid repeated strings.Repeat allocations in table rendering.
+var paddingLookup = [32]string{
+	"", " ", "  ", "   ", "    ", "     ", "      ", "       ",
+	"        ", "         ", "          ", "           ", "            ",
+	"             ", "              ", "               ", "                ",
+	"                 ", "                  ", "                   ",
+	"                    ", "                     ", "                      ",
+	"                       ", "                        ", "                         ",
+	"                          ", "                           ", "                            ",
+	"                             ", "                              ", "                               ",
+}
+
+// writePadding writes n spaces to the builder using a lookup table for small values.
+func writePadding(tb *TrackedBuilder, n int) {
+	if n <= 0 {
+		return
+	}
+	if n < len(paddingLookup) {
+		tb.WriteString(paddingLookup[n])
+		return
+	}
+	tb.WriteString(strings.Repeat(" ", n))
+}
+
 // renderMarkdownRow renders a single table row in Markdown format.
 func renderMarkdownRow(tb *TrackedBuilder, row []CellData, newToOldCol []int,
 	colAligns []string, colMaxWidths []int, numCols int) {
@@ -321,24 +346,25 @@ func renderMarkdownRow(tb *TrackedBuilder, row []CellData, newToOldCol []int,
 
 		maxWidth := colMaxWidths[newJ]
 		textLen := len(cellText)
+		pad := maxWidth - textLen
 
 		// Apply alignment-based padding
 		switch colAligns[newJ] {
 		case ":---": // left
 			tb.WriteString(cellText)
-			tb.WriteString(strings.Repeat(" ", maxWidth-textLen))
+			writePadding(tb, pad)
 		case "---:": // right
-			tb.WriteString(strings.Repeat(" ", maxWidth-textLen))
+			writePadding(tb, pad)
 			tb.WriteString(cellText)
 		case ":--:": // center
-			leftPad := (maxWidth - textLen) / 2
-			rightPad := maxWidth - textLen - leftPad
-			tb.WriteString(strings.Repeat(" ", leftPad))
+			leftPad := pad / 2
+			rightPad := pad - leftPad
+			writePadding(tb, leftPad)
 			tb.WriteString(cellText)
-			tb.WriteString(strings.Repeat(" ", rightPad))
+			writePadding(tb, rightPad)
 		default: // left (default)
 			tb.WriteString(cellText)
-			tb.WriteString(strings.Repeat(" ", maxWidth-textLen))
+			writePadding(tb, pad)
 		}
 
 		if newJ < numCols-1 {

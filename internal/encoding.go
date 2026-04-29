@@ -1,4 +1,4 @@
-// Package internal provides character encoding detection and conversion functionality.
+// encoding.go provides character encoding detection and conversion functionality.
 // It supports 15+ encodings including Unicode variants, Western European,
 // and East Asian character sets, with intelligent auto-detection capabilities.
 package internal
@@ -261,8 +261,8 @@ func NewEncodingDetector() *EncodingDetector {
 
 // SetMaxSampleSize sets the maximum sample size for statistical detection.
 // Values <= 0 use the default (10KB). Values > 1MB are capped at 1MB to prevent
-// memory exhaustion. This method returns the detector for method chaining.
-func (ed *EncodingDetector) SetMaxSampleSize(size int) *EncodingDetector {
+// memory exhaustion.
+func (ed *EncodingDetector) SetMaxSampleSize(size int) {
 	const (
 		defaultSize = 10240
 		maxSize     = 1024 * 1024 // 1MB
@@ -275,7 +275,6 @@ func (ed *EncodingDetector) SetMaxSampleSize(size int) *EncodingDetector {
 	default:
 		ed.MaxSampleSize = size
 	}
-	return ed
 }
 
 // EncodingMatch represents a detected encoding with confidence score
@@ -521,7 +520,9 @@ func (ed *EncodingDetector) DetectAndConvert(data []byte) ([]byte, string, error
 func normalizeCharset(charset string) string {
 	// Check cache first
 	if v, ok := charsetNormCache.Load(charset); ok {
-		return v.(string)
+		if s, ok := v.(string); ok {
+			return s
+		}
 	}
 
 	// Cache miss - compute and store
@@ -611,43 +612,31 @@ func getEncoding(charset string) encoding.Encoding {
 	}
 }
 
-// DetectAndConvertToUTF8String detects encoding and converts to UTF-8 string.
-// If forcedEncoding is not empty, it will use that encoding instead of auto-detection.
-// Returns a UTF-8 string and the detected/used encoding.
-//
-// PERFORMANCE: For pure ASCII input, this function uses a zero-copy fast path
-// that shares memory with the input slice. This provides optimal performance but
-// has an important security implication.
-//
-// SECURITY WARNING: When the input is pure ASCII and forcedEncoding is empty,
-// the returned string shares memory with the input []byte slice. The caller MUST
-// NOT modify the input slice after calling this function if the returned string
-// will be used. Violating this rule causes undefined behavior.
-//
-// For use cases where the input slice may be modified after the call, use
-// DetectAndConvertToUTF8StringSafe instead, which always returns a copy.
-//
-// This function applies NFC (Normalization Form C) normalization to non-ASCII
-// output to prevent Unicode-based bypass attacks. NFC normalization ensures that
-// visually identical strings have the same byte representation, which is critical
-// for security-sensitive string comparisons.
-func DetectAndConvertToUTF8String(data []byte, forcedEncoding string) (string, string, error) {
+// encodingDetectorPool pools EncodingDetector instances to reduce allocation
+// in the encoding detection hot path for non-ASCII content.
+var encodingDetectorPool = sync.Pool{
+	New: func() any {
+		return NewEncodingDetector()
+	},
+}
+
+// detectAndConvertToUTF8StringCore is the shared implementation for UTF-8 string conversion.
+// When safeCopy is true, it always creates a copy of the data for memory isolation.
+// When safeCopy is false, it may use zero-copy for ASCII input for performance.
+func detectAndConvertToUTF8StringCore(data []byte, forcedEncoding string, safeCopy bool) (string, string, error) {
 	var result string
 	var charset string
 
 	// Fast path: if no forced encoding, try quick ASCII/UTF-8 detection
 	if forcedEncoding == "" {
-		// Combined ASCII check - if pure ASCII, it's valid UTF-8
 		if isPureASCII(data) {
-			// For ASCII data, we can use a zero-copy approach
-			// since ASCII bytes are identical to UTF-8 bytes
-			// ASCII data is already in NFC form (no combining characters)
+			if safeCopy {
+				return string(data), "utf-8", nil
+			}
+			// Zero-copy: ASCII bytes are identical to UTF-8 bytes
 			return BytesToString(data), "utf-8", nil
 		}
-		// Non-ASCII data: check if valid UTF-8
 		if utf8.Valid(data) {
-			// For UTF-8 with multi-byte chars, we need to copy
-			// to ensure memory safety (caller may modify original data)
 			result = string(data)
 			charset = "utf-8"
 		}
@@ -655,97 +644,45 @@ func DetectAndConvertToUTF8String(data []byte, forcedEncoding string) (string, s
 
 	// If not already processed as valid UTF-8, try encoding detection
 	if result == "" {
-		ed := NewEncodingDetector()
-		if forcedEncoding != "" {
-			ed.ForcedEncoding = forcedEncoding
-		}
+		ed := encodingDetectorPool.Get().(*EncodingDetector)
+		ed.ForcedEncoding = forcedEncoding
 
 		convertedBytes, detectedCharset, err := ed.DetectAndConvert(data)
+
+		ed.ForcedEncoding = ""
+		encodingDetectorPool.Put(ed)
+
 		if err != nil {
 			return "", "", err
 		}
 
-		// Safe conversion: create a string copy
-		// This is necessary because the caller may modify the original data slice
 		result = string(convertedBytes)
 		charset = detectedCharset
 	}
 
 	// SECURITY: Apply NFC normalization to prevent Unicode-based bypass attacks.
-	// NFC ensures that:
-	// 1. Combining characters are composed into single codepoints where possible
-	// 2. Visually identical strings have the same byte representation
-	// 3. String comparisons work correctly for security-sensitive operations
-	//
-	// This is important for preventing attacks like:
-	// - Using different Unicode representations of the same character
-	// - Using combining characters to hide malicious content
-	// - Bypassing string-based filters with equivalent Unicode sequences
-	//
-	// We use norm.NFC.String() which is optimized and only allocates
-	// a new string if normalization is actually needed.
 	normalized := norm.NFC.String(result)
 
 	return normalized, charset, nil
 }
 
+// DetectAndConvertToUTF8String detects encoding and converts to UTF-8 string.
+// If forcedEncoding is not empty, it will use that encoding instead of auto-detection.
+// Returns a UTF-8 string and the detected/used encoding.
+//
+// SECURITY WARNING: When the input is pure ASCII and forcedEncoding is empty,
+// the returned string shares memory with the input []byte slice. The caller MUST
+// NOT modify the input slice after calling this function if the returned string
+// will be used. For memory-isolated usage, use DetectAndConvertToUTF8StringSafe.
+func DetectAndConvertToUTF8String(data []byte, forcedEncoding string) (string, string, error) {
+	return detectAndConvertToUTF8StringCore(data, forcedEncoding, false)
+}
+
 // DetectAndConvertToUTF8StringSafe is a memory-safe version of DetectAndConvertToUTF8String
 // that always returns a copy of the data, even for pure ASCII input.
-//
-// Use this function when:
-//   - The input []byte slice may be modified after the call
-//   - Processing untrusted input where memory isolation is required
-//   - The caller needs guaranteed ownership of the returned string
-//
-// For performance-critical code where the input slice is guaranteed not to be modified,
-// use DetectAndConvertToUTF8String instead.
-//
-// SECURITY: This function always creates a copy of the input data, ensuring complete
-// memory isolation between the input slice and returned string. It also applies NFC
-// normalization to prevent Unicode-based bypass attacks.
-//
-// Performance: This function has ~5-10% overhead compared to DetectAndConvertToUTF8String
-// for ASCII input due to the mandatory memory copy.
+// Use this when the input []byte slice may be modified after the call.
 func DetectAndConvertToUTF8StringSafe(data []byte, forcedEncoding string) (string, string, error) {
-	var result string
-	var charset string
-
-	// Fast path: if no forced encoding, try quick ASCII/UTF-8 detection
-	if forcedEncoding == "" {
-		// Combined ASCII check - if pure ASCII, it's valid UTF-8
-		if isPureASCII(data) {
-			// SECURITY: Always use string() for safe copy, not BytesToString
-			// This ensures memory isolation even if caller modifies input
-			return string(data), "utf-8", nil
-		}
-		// Non-ASCII data: check if valid UTF-8
-		if utf8.Valid(data) {
-			result = string(data)
-			charset = "utf-8"
-		}
-	}
-
-	// If not already processed as valid UTF-8, try encoding detection
-	if result == "" {
-		ed := NewEncodingDetector()
-		if forcedEncoding != "" {
-			ed.ForcedEncoding = forcedEncoding
-		}
-
-		convertedBytes, detectedCharset, err := ed.DetectAndConvert(data)
-		if err != nil {
-			return "", "", err
-		}
-
-		// Safe conversion: create a string copy
-		result = string(convertedBytes)
-		charset = detectedCharset
-	}
-
-	// SECURITY: Apply NFC normalization to prevent Unicode-based bypass attacks.
-	normalized := norm.NFC.String(result)
-
-	return normalized, charset, nil
+	return detectAndConvertToUTF8StringCore(data, forcedEncoding, true)
 }
 
 // isPureASCII checks if data contains only ASCII bytes (0x00-0x7F)

@@ -7,95 +7,46 @@ import (
 	"golang.org/x/text/unicode/norm"
 )
 
-var tagsToRemove = []string{
+var tagsToRemoveMap = map[string]bool{
 	// Script and style containers
-	"script", "style", "noscript",
+	"script": true, "style": true, "noscript": true,
 	// Embedded content (potential XSS vectors)
-	"iframe", "embed", "object",
+	"iframe": true, "embed": true, "object": true,
 	// Form elements (potential CSRF/UI redress)
-	"form", "input", "button",
+	"form": true, "input": true, "button": true,
 	// SVG can contain JavaScript and event handlers
-	"svg",
+	"svg": true,
 	// MathML can be abused for XSS in some browsers
-	"math",
+	"math": true,
 }
 
+// dangerousAttributes are always removed during sanitization.
+// All on* event handlers are blocked by prefix check in sanitizeNodeWithAudit.
 var dangerousAttributes = map[string]bool{
-	// Mouse events
-	"onclick":      true,
-	"ondblclick":   true,
-	"onmousedown":  true,
-	"onmouseup":    true,
-	"onmouseover":  true,
-	"onmousemove":  true,
-	"onmouseout":   true,
-	"onmouseenter": true,
-	"onmouseleave": true,
-	// Keyboard events
-	"onkeydown":  true,
-	"onkeypress": true,
-	"onkeyup":    true,
-	// Focus events
-	"onfocus": true,
-	"onblur":  true,
-	// Form events
-	"onsubmit": true,
-	"onreset":  true,
-	"onchange": true,
-	"onselect": true,
-	// UI events
-	"onload":        true,
-	"onunload":      true,
-	"onabort":       true,
-	"onerror":       true,
-	"onresize":      true,
-	"onscroll":      true,
-	"oncontextmenu": true,
-	// Drag and drop events
-	"ondrag":      true,
-	"ondragstart": true,
-	"ondragend":   true,
-	"ondragenter": true,
-	"ondragleave": true,
-	"ondragover":  true,
-	"ondrop":      true,
-	// Clipboard events
-	"oncopy":  true,
-	"oncut":   true,
-	"onpaste": true,
-	// Media events
-	"onplay":         true,
-	"onpause":        true,
-	"onended":        true,
-	"onvolumechange": true,
-	// Mutation events (deprecated but still dangerous)
-	"onDOMAttrModified":          true,
-	"onDOMCharacterDataModified": true,
-	"onDOMNodeInserted":          true,
-	"onDOMNodeRemoved":           true,
-	// Animation events
-	"onanimationstart":     true,
-	"onanimationend":       true,
-	"onanimationiteration": true,
-	// Transition events
-	"ontransitionend": true,
-	// Touch events
-	"ontouchstart":  true,
-	"ontouchend":    true,
-	"ontouchmove":   true,
-	"ontouchcancel": true,
-	// Pointer events
-	"onpointerdown":   true,
-	"onpointerup":     true,
-	"onpointermove":   true,
-	"onpointercancel": true,
-	"onpointerenter":  true,
-	"onpointerleave":  true,
-	"onpointerover":   true,
-	"onpointerout":    true,
 	// Other dangerous attributes
 	"formaction": true, // Can override form action
 	"autofocus":  true, // Can be used for phishing
+}
+
+// dangerousCSSPatterns are stripped from style attribute values during sanitization.
+var dangerousCSSPatterns = []string{
+	"expression(",
+	"behavior:",
+	"-moz-binding:",
+	"javascript:",
+	"vbscript:",
+}
+
+// sanitizeStyleValue removes dangerous CSS constructs from a style attribute value.
+// Safe properties (text-align, width, etc.) are preserved for metadata extraction.
+func sanitizeStyleValue(style string) string {
+	lower := strings.ToLower(style)
+	for _, pattern := range dangerousCSSPatterns {
+		if strings.Contains(lower, pattern) {
+			return ""
+		}
+	}
+	return style
 }
 
 var uriAttributes = map[string]bool{
@@ -177,12 +128,11 @@ func findBodyElement(doc *html.Node) *html.Node {
 
 func sanitizeNodeWithAudit(n *html.Node, audit AuditRecorder) {
 	if n.Type == html.ElementNode {
-		for _, tag := range tagsToRemove {
-			if strings.EqualFold(n.Data, tag) {
-				audit.RecordBlockedTag(n.Data)
-				removeNode(n)
-				return
-			}
+		tagName := strings.ToLower(n.Data)
+		if tagsToRemoveMap[tagName] {
+			audit.RecordBlockedTag(n.Data)
+			removeNode(n)
+			return
 		}
 
 		// Pre-allocate filtered attributes slice with capacity
@@ -192,9 +142,23 @@ func sanitizeNodeWithAudit(n *html.Node, audit AuditRecorder) {
 			filteredAttrs := make([]html.Attribute, 0, attrLen)
 			for _, attr := range n.Attr {
 				attrKey := strings.ToLower(attr.Key)
+				// Block all on* event handlers by prefix — covers current and future handlers
+				if strings.HasPrefix(attrKey, "on") {
+					audit.RecordBlockedAttr(attr.Key, attr.Val)
+					continue
+				}
 				if dangerousAttributes[attrKey] {
 					audit.RecordBlockedAttr(attr.Key, attr.Val)
 					continue
+				}
+				// Sanitize style values: strip dangerous CSS, preserve safe properties
+				if attrKey == "style" {
+					sanitized := sanitizeStyleValue(attr.Val)
+					if sanitized == "" {
+						audit.RecordBlockedAttr(attr.Key, attr.Val)
+						continue
+					}
+					attr.Val = sanitized
 				}
 				if uriAttributes[attrKey] {
 					if !isSafeURIWithAudit(attr.Val, audit) {
@@ -305,10 +269,6 @@ func removeTagContentStringBased(content, tag string) string {
 	return sb.String()
 }
 
-func isSafeURI(uri string) bool {
-	return isSafeURIWithAudit(uri, NoOpAuditRecorder{})
-}
-
 func isSafeURIWithAudit(uri string, audit AuditRecorder) bool {
 	if uri == "" {
 		return true
@@ -384,31 +344,46 @@ func normalizeURIForSecurity(uri string) string {
 }
 
 // isDangerousScheme checks if a URI starts with a dangerous scheme,
-// accounting for various Unicode attack vectors.
+// accounting for various Unicode attack vectors including fullwidth characters.
 func isDangerousScheme(lowerURI, scheme string) bool {
 	// Direct match check
 	if strings.HasPrefix(lowerURI, scheme) {
 		return true
 	}
 
-	// SECURITY: Check for Unicode confusable characters that could be used
-	// to disguise dangerous schemes. This includes:
-	// - Fullwidth Latin characters (U+FF00-U+FFEF)
-	// - Mathematical alphanumeric symbols (U+1D00-U+1D7F)
-	// - Other lookalike characters
-	//
-	// We normalize the URI and check again to catch these attacks.
-	// The norm.NFC normalization already handles most cases by
-	// canonicalizing equivalent sequences.
-
-	// Additional check: look for scheme with various Unicode variants
-	// by checking if the normalized form contains the scheme pattern
-	normalizedScheme := norm.NFC.String(scheme)
-	return strings.HasPrefix(norm.NFC.String(lowerURI), normalizedScheme)
+	// SECURITY: Check for fullwidth Unicode characters (U+FF00-U+FFEF) that could
+	// disguise dangerous schemes. Fullwidth Latin characters map to ASCII equivalents:
+	//   U+FF01(!) through U+FF5E(~) offset by 0xFEE0 from ASCII
+	// Some browsers/HTML parsers normalize these, so we must detect them.
+	normalized := normalizeFullwidthToASCII(lowerURI)
+	return strings.HasPrefix(normalized, scheme)
 }
 
-func isValidDataURL(url string) bool {
-	return isValidDataURLWithAudit(url, NoOpAuditRecorder{})
+// normalizeFullwidthToASCII converts fullwidth Latin characters and digits to their
+// ASCII equivalents. Fullwidth characters (U+FF01-U+FF5E) map to ASCII (0x21-0x7E)
+// by subtracting 0xFEE0. This prevents scheme bypass using fullwidth characters.
+func normalizeFullwidthToASCII(s string) string {
+	hasFullwidth := false
+	for _, r := range s {
+		if r >= 0xFF01 && r <= 0xFF5E {
+			hasFullwidth = true
+			break
+		}
+	}
+	if !hasFullwidth {
+		return s
+	}
+
+	var b strings.Builder
+	b.Grow(len(s))
+	for _, r := range s {
+		if r >= 0xFF01 && r <= 0xFF5E {
+			b.WriteRune(r - 0xFEE0)
+		} else {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
 }
 
 func isValidDataURLWithAudit(url string, audit AuditRecorder) bool {

@@ -552,9 +552,9 @@ func TestIsSafeURI(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := isSafeURI(tt.uri)
+			result := isSafeURIWithAudit(tt.uri, NoOpAuditRecorder{})
 			if result != tt.safe {
-				t.Errorf("isSafeURI(%q) = %v, want %v", tt.uri, result, tt.safe)
+				t.Errorf("isSafeURIWithAudit(%q) = %v, want %v", tt.uri, result, tt.safe)
 			}
 		})
 	}
@@ -583,9 +583,9 @@ func TestIsValidDataURL(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := isValidDataURL(tt.url)
+			result := isValidDataURLWithAudit(tt.url, NoOpAuditRecorder{})
 			if result != tt.valid {
-				t.Errorf("isValidDataURL(%q) = %v, want %v", tt.url, result, tt.valid)
+				t.Errorf("isValidDataURLWithAudit(%q) = %v, want %v", tt.url, result, tt.valid)
 			}
 		})
 	}

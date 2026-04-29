@@ -1,4 +1,4 @@
-//go:build examples
+//go:build example_01
 
 package main
 
@@ -12,7 +12,8 @@ import (
 // This example demonstrates the fastest way to get started with the library.
 // Perfect for first-time users who want to see immediate results.
 func main() {
-	fmt.Println("=== Quick Start ===\n")
+	fmt.Println("=== Quick Start ===")
+	fmt.Println()
 
 	// ============================================================
 	// 1. Extract plain text (simplest approach)

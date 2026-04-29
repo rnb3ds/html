@@ -13,7 +13,7 @@ func (p *Processor) extractVideos(node *stdxhtml.Node, htmlContent string) []Vid
 
 	// First, extract from the HTML content directly for iframe/embed/object tags
 	// These may be removed by sanitization, so we parse them from raw HTML first
-	if len(htmlContent) > 0 && len(htmlContent) <= maxHTMLForRegex*10 {
+	if len(htmlContent) > 0 && len(htmlContent) <= maxHTMLForRegex {
 		// Parse iframe tags
 		iframeMatches := p.extractTagAttributes(htmlContent, "iframe", "src")
 		for _, url := range iframeMatches {

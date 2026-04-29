@@ -50,6 +50,7 @@ type Cache struct {
 	head, tail *cacheEntry // Sentinel nodes for doubly-linked list
 
 	// Cleanup management
+	cleanupMu     sync.Mutex         // Protects cleanupCancel and cleanupOnce coordination
 	cleanupCancel context.CancelFunc // Function to stop background cleanup
 	cleanupOnce   sync.Once          // Ensures cleanup goroutine starts only once
 }
@@ -241,12 +242,12 @@ func (c *Cache) StartCleanup(interval time.Duration) context.CancelFunc {
 		interval = DefaultCacheCleanupInterval
 	}
 
-	var cancel context.CancelFunc
-
 	c.cleanupOnce.Do(func() {
 		ctx, cancelFunc := context.WithCancel(context.Background())
-		cancel = cancelFunc
+
+		c.cleanupMu.Lock()
 		c.cleanupCancel = cancelFunc
+		c.cleanupMu.Unlock()
 
 		// Set finalizer to ensure goroutine cleanup when Cache is garbage collected.
 		// This prevents goroutine leaks if StopCleanup() is not called explicitly.
@@ -269,6 +270,10 @@ func (c *Cache) StartCleanup(interval time.Duration) context.CancelFunc {
 		}()
 	})
 
+	// Always return the stored cancel func, even on repeated calls
+	c.cleanupMu.Lock()
+	cancel := c.cleanupCancel
+	c.cleanupMu.Unlock()
 	return cancel
 }
 
@@ -276,12 +281,26 @@ func (c *Cache) StartCleanup(interval time.Duration) context.CancelFunc {
 // It is safe to call this method multiple times.
 // This method also clears the finalizer to prevent double cleanup.
 func (c *Cache) StopCleanup() {
-	if c.cleanupCancel != nil {
-		c.cleanupCancel()
-		c.cleanupCancel = nil
-		// Clear the finalizer since we've already cleaned up
+	c.cleanupMu.Lock()
+	cancel := c.cleanupCancel
+	c.cleanupCancel = nil
+	c.cleanupMu.Unlock()
+
+	if cancel != nil {
+		cancel()
 		runtime.SetFinalizer(c, nil)
 	}
+}
+
+// RestartCleanup stops any running cleanup goroutine and starts a new one.
+// This is needed when a pooled processor is reused after Close(), since
+// Close() calls StopCleanup(). Without this, expired entries accumulate
+// indefinitely when the processor is reused from the pool.
+func (c *Cache) RestartCleanup(interval time.Duration) {
+	c.StopCleanup()
+	// Reset sync.Once so StartCleanup can run again
+	c.cleanupOnce = sync.Once{}
+	c.StartCleanup(interval)
 }
 
 // cleanupExpired removes all expired entries from the cache.

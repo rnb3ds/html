@@ -1,6 +1,5 @@
-// Package internal provides implementation details for the cybergodev/html library.
-// It contains content extraction, table processing, and text manipulation functionality
-// that is not part of the public API.
+// extraction.go provides content extraction, table processing, and text manipulation
+// functionality that is not part of the public API.
 package internal
 
 import (

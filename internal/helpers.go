@@ -229,72 +229,11 @@ func replaceEntityAt(text string, pos int) (string, int) {
 	return decoded, semi - pos + 1
 }
 
-
 var unwantedCharReplacer = strings.NewReplacer(
 	"☒", "[X]",
 	"☐", "[ ]",
 	"☑", "[X]",
 )
-
-// compressWhitespace compresses multiple whitespace characters to single space
-// without using regex. Returns the compressed string.
-// Optimized with single-pass detection and processing using pooled builder.
-func compressWhitespace(s string) string {
-	n := len(s)
-	if n == 0 {
-		return ""
-	}
-
-	// Single scan to find first position needing compression or tab conversion
-	// Use local variables for faster access
-	firstMod := -1
-	prevWasSpace := false
-	for i := 0; i < n; i++ {
-		c := s[i]
-		isSpace := c == ' ' || c == '\t'
-		if isSpace && prevWasSpace {
-			firstMod = i - 1
-			break
-		}
-		prevWasSpace = isSpace
-		// Also check for tabs that need conversion
-		if c == '\t' && firstMod == -1 {
-			firstMod = i
-		}
-	}
-
-	// No modification needed
-	if firstMod == -1 {
-		return s
-	}
-
-	// Use pooled builder for result
-	sb := GetBuilder()
-	defer PutBuilder(sb)
-	sb.Grow(n)
-
-	// Copy unchanged prefix
-	if firstMod > 0 {
-		sb.WriteString(s[:firstMod])
-	}
-
-	// Process from first modification point
-	inSpace := false
-	for i := firstMod; i < n; i++ {
-		c := s[i]
-		if c == ' ' || c == '\t' {
-			if !inSpace {
-				sb.WriteByte(' ')
-				inSpace = true
-			}
-		} else {
-			sb.WriteByte(c)
-			inSpace = false
-		}
-	}
-
-	return sb.String()
-}
 
 func CleanText(text string, whitespaceRegex *regexp.Regexp) string {
 	if text == "" {
@@ -307,6 +246,8 @@ func CleanText(text string, whitespaceRegex *regexp.Regexp) string {
 	hasNewlines := false
 	hasMultipleSpaces := false
 	hasNBSP := false
+	hasUnwanted := false
+	hasAmpersand := false
 	prevSpace := false
 
 	for i := 0; i < n; i++ {
@@ -323,23 +264,28 @@ func CleanText(text string, whitespaceRegex *regexp.Regexp) string {
 			prevSpace = true
 			continue
 		case c == 0xC2 && i+1 < n && text[i+1] == 0xA0:
-			// UTF-8 encoding of NBSP (U+00A0)
 			hasNBSP = true
+		case c == '&':
+			hasAmpersand = true
+		case c == 0xE2 && i+2 < n:
+			if text[i+1] == 0x98 && (text[i+2] == 0x92 || text[i+2] == 0x90 || text[i+2] == 0x91) {
+				hasUnwanted = true
+			}
 		}
 		prevSpace = false
 	}
 
-	if !hasNewlines && !hasMultipleSpaces && !hasNBSP {
-		// Clean text - just normalize entities
-		return ReplaceHTMLEntities(text)
+	if !hasNewlines && !hasMultipleSpaces && !hasNBSP && !hasUnwanted {
+		if hasAmpersand {
+			return ReplaceHTMLEntities(text)
+		}
+		return text
 	}
 
 	// Use pooled builder for better memory efficiency
 	sb := GetBuilder()
 	defer PutBuilder(sb)
 
-	// Pre-allocate buffer: text may expand slightly during processing
-	// Use n directly as upper bound since we're only compressing whitespace
 	if n > builderPoolInitialCapacity {
 		sb.Grow(n)
 	}
@@ -351,9 +297,7 @@ func CleanText(text string, whitespaceRegex *regexp.Regexp) string {
 			rawLine := text[start:i]
 			isEmpty := true
 
-			// Process the line while preserving leading indentation
 			if rawLine != "" {
-				// Find the first non-space character
 				firstNonSpace := 0
 				lineLen := len(rawLine)
 				for firstNonSpace < lineLen && rawLine[firstNonSpace] == ' ' {
@@ -361,13 +305,8 @@ func CleanText(text string, whitespaceRegex *regexp.Regexp) string {
 				}
 
 				if firstNonSpace < lineLen {
-					// Has leading indentation
 					indent := rawLine[:firstNonSpace]
-					content := rawLine[firstNonSpace:]
-
-					// Use optimized whitespace compression
-					content = compressWhitespace(content)
-					content = strings.TrimRight(content, " ")
+					content := compressAndTrimRight(rawLine[firstNonSpace:])
 
 					if content != "" {
 						if sb.Len() > 0 {
@@ -381,9 +320,7 @@ func CleanText(text string, whitespaceRegex *regexp.Regexp) string {
 						isEmpty = false
 					}
 				} else {
-					// No leading indentation, compress all whitespace
-					line := compressWhitespace(rawLine)
-					line = strings.TrimRight(line, " ")
+					line := compressAndTrimRight(rawLine)
 					if line != "" {
 						if sb.Len() > 0 {
 							if previousWasEmpty {
@@ -401,7 +338,80 @@ func CleanText(text string, whitespaceRegex *regexp.Regexp) string {
 			start = i + 1
 		}
 	}
-	return ReplaceHTMLEntities(unwantedCharReplacer.Replace(sb.String()))
+
+	result := sb.String()
+
+	if hasUnwanted {
+		result = unwantedCharReplacer.Replace(result)
+	}
+	if hasAmpersand {
+		return ReplaceHTMLEntities(result)
+	}
+	return result
+}
+
+// compressAndTrimRight compresses whitespace and trims trailing spaces in one pass.
+func compressAndTrimRight(s string) string {
+	n := len(s)
+	if n == 0 {
+		return ""
+	}
+
+	firstMod := -1
+	prevWasSpace := false
+	for i := 0; i < n; i++ {
+		c := s[i]
+		isSpace := c == ' ' || c == '\t'
+		if isSpace && prevWasSpace {
+			firstMod = i - 1
+			break
+		}
+		prevWasSpace = isSpace
+		if c == '\t' && firstMod == -1 {
+			firstMod = i
+		}
+	}
+
+	if firstMod == -1 {
+		end := n
+		for end > 0 && s[end-1] == ' ' {
+			end--
+		}
+		if end == n {
+			return s
+		}
+		return s[:end]
+	}
+
+	sb := GetBuilder()
+	defer PutBuilder(sb)
+	sb.Grow(n)
+
+	if firstMod > 0 {
+		sb.WriteString(s[:firstMod])
+	}
+
+	inSpace := false
+	lastContentEnd := sb.Len()
+	for i := firstMod; i < n; i++ {
+		c := s[i]
+		if c == ' ' || c == '\t' {
+			if !inSpace {
+				sb.WriteByte(' ')
+				inSpace = true
+			}
+		} else {
+			sb.WriteByte(c)
+			inSpace = false
+			lastContentEnd = sb.Len()
+		}
+	}
+
+	result := sb.String()
+	if lastContentEnd < len(result) {
+		return result[:lastContentEnd]
+	}
+	return result
 }
 
 // maxWalkDepth limits the maximum traversal depth to prevent memory exhaustion
@@ -505,7 +515,6 @@ func FindElementByTag(doc *html.Node, tagName string) *html.Node {
 }
 
 func GetTextContent(node *html.Node) string {
-	// Use pooled builder for better memory efficiency
 	sb := GetBuilder()
 	defer PutBuilder(sb)
 
@@ -514,20 +523,96 @@ func GetTextContent(node *html.Node) string {
 
 	WalkNodes(node, func(n *html.Node) bool {
 		if n.Type == html.TextNode {
-			textData := normalizeNonBreakingSpaces(n.Data)
-			textData = ReplaceHTMLEntities(textData)
-			textData = strings.ReplaceAll(textData, "\n", " ")
+			data := n.Data
+			dataLen := len(data)
+			if dataLen == 0 {
+				return true
+			}
 
-			endedWithSpace := len(textData) > 0 && (textData[len(textData)-1] == ' ' || textData[len(textData)-1] == '\t')
-			startedWithSpace := len(textData) > 0 && (textData[0] == ' ' || textData[0] == '\t')
+			// Single-pass: trim, normalize NBSP+newlines, replace entities
+			// Find first non-whitespace and last non-whitespace in one scan
+			// Whitespace includes: space, tab, newline, CR, and NBSP (0xC2 0xA0)
+			start := 0
+			for start < dataLen {
+				c := data[start]
+				if c == ' ' || c == '\t' || c == '\n' || c == '\r' {
+					start++
+				} else if c == 0xC2 && start+1 < dataLen && data[start+1] == 0xA0 {
+					start += 2
+				} else {
+					break
+				}
+			}
+			if start >= dataLen {
+				prevEndedWithSpace = true
+				return true
+			}
+			end := dataLen - 1
+			for end > start {
+				c := data[end]
+				if c == ' ' || c == '\t' || c == '\n' || c == '\r' {
+					end--
+				} else if c == 0xA0 && end > start && data[end-1] == 0xC2 {
+					end -= 2
+				} else {
+					break
+				}
+			}
 
-			text := strings.TrimSpace(textData)
+			// Track leading/trailing spaces for inter-node spacing
+			startedWithSpace := start > 0
+			endedWithSpace := end < dataLen-1
+
+			// Extract trimmed content and apply normalizations in one pass
+			trimmed := data[start : end+1]
+
+			// Fast check: does the trimmed content need any processing?
+			hasNBSP := false
+			hasNewline := false
+			hasAmp := false
+			for i := 0; i < len(trimmed); i++ {
+				c := trimmed[i]
+				if c == '\n' || c == '\r' {
+					hasNewline = true
+				} else if c == '&' {
+					hasAmp = true
+				} else if c == 0xC2 && i+1 < len(trimmed) && trimmed[i+1] == 0xA0 {
+					hasNBSP = true
+				}
+			}
+
+			var text string
+			if !hasNBSP && !hasNewline && !hasAmp {
+				text = trimmed
+			} else {
+				// Build normalized text in-place
+				buf := GetBuilder()
+				buf.Grow(len(trimmed))
+				for i := 0; i < len(trimmed); i++ {
+					c := trimmed[i]
+					switch {
+					case c == '\n' || c == '\r':
+						buf.WriteByte(' ')
+					case c == 0xC2 && i+1 < len(trimmed) && trimmed[i+1] == 0xA0:
+						buf.WriteByte(' ')
+						i++
+					case c == '&':
+						replaced, consumed := replaceEntityAt(trimmed, i)
+						buf.WriteString(replaced)
+						i += consumed - 1
+					default:
+						buf.WriteByte(c)
+					}
+				}
+				text = buf.String()
+				PutBuilder(buf)
+			}
+
 			if text != "" {
 				needsSpace := prevEndedWithSpace
 				if !needsSpace && sb.Len() > 0 {
 					needsSpace = startedWithSpace
 				}
-
 				if sb.Len() > 0 && needsSpace {
 					sb.WriteByte(' ')
 				}
@@ -544,8 +629,7 @@ func GetTextLength(node *html.Node) int {
 	length := 0
 	WalkNodes(node, func(n *html.Node) bool {
 		if n.Type == html.TextNode {
-			textData := normalizeNonBreakingSpaces(n.Data)
-			length += len(strings.TrimSpace(textData))
+			length += len(strings.TrimSpace(normalizeText(n.Data)))
 		}
 		return true
 	})
@@ -562,8 +646,7 @@ func GetLinkDensity(node *html.Node) float64 {
 
 	WalkNodes(node, func(n *html.Node) bool {
 		if n.Type == html.TextNode {
-			textData := normalizeNonBreakingSpaces(n.Data)
-			length := len(strings.TrimSpace(textData))
+			length := len(strings.TrimSpace(normalizeText(n.Data)))
 			textLength += length
 			for parent := n.Parent; parent != nil; parent = parent.Parent {
 				if parent.Type == html.ElementNode && parent.Data == "a" {

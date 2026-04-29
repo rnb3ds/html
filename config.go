@@ -183,6 +183,8 @@ func (c Config) Validate() error {
 		return newConfigError("MaxCacheEntries", c.MaxCacheEntries, fmt.Sprintf("exceeds maximum %d", maxConfigCacheEntries))
 	case c.CacheTTL < 0:
 		return newConfigError("CacheTTL", c.CacheTTL, "cannot be negative")
+	case c.CacheCleanup < 0:
+		return newConfigError("CacheCleanup", c.CacheCleanup, "cannot be negative")
 	case c.WorkerPoolSize <= 0:
 		return newConfigError("WorkerPoolSize", c.WorkerPoolSize, "must be positive")
 	case c.WorkerPoolSize > maxConfigWorkerSize:
@@ -282,9 +284,9 @@ type Result struct {
 	Links          []LinkInfo    `json:"links,omitempty"`
 	Videos         []VideoInfo   `json:"videos,omitempty"`
 	Audios         []AudioInfo   `json:"audios,omitempty"`
-	ProcessingTime time.Duration `json:"processing_time_ms"`
+	ProcessingTime time.Duration `json:"-"` // Serialized as processing_time_ms by MarshalJSON
 	WordCount      int           `json:"word_count"`
-	ReadingTime    time.Duration `json:"reading_time_ms"`
+	ReadingTime    time.Duration `json:"-"` // Serialized as reading_time_ms by MarshalJSON
 }
 
 // ImageInfo holds information about an extracted image.

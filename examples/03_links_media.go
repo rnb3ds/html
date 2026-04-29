@@ -1,4 +1,4 @@
-//go:build examples
+//go:build example_03
 
 package main
 
@@ -13,7 +13,8 @@ import (
 // This example demonstrates link extraction, URL resolution, and media extraction.
 // Learn how to extract links, images, videos, and audio from HTML content.
 func main() {
-	fmt.Println("=== Links & Media Extraction ===\n")
+	fmt.Println("=== Links & Media Extraction ===")
+	fmt.Println()
 
 	htmlContent := `
 		<html>
@@ -78,7 +79,6 @@ func main() {
 	fmt.Println("\nPart 2: Filter Links by Type")
 	fmt.Println("----------------------------")
 
-	// Create processor with filtered link extraction
 	filterCfg := html.DefaultConfig()
 	filterCfg.IncludeCSS = false
 	filterCfg.IncludeJS = false
@@ -114,8 +114,14 @@ func main() {
 	fmt.Printf("Found %d videos:\n", len(result.Videos))
 	for i, vid := range result.Videos {
 		fmt.Printf("  %d. %s\n", i+1, vid.URL)
-		fmt.Printf("     Type: %s, Poster: %s\n", vid.Type, vid.Poster)
-		fmt.Printf("     Size: %sx%s\n", vid.Width, vid.Height)
+		vidType := vid.Type
+		if vidType == "" {
+			vidType = "video"
+		}
+		fmt.Printf("     Type: %s, Poster: %s\n", vidType, vid.Poster)
+		if vid.Width != "" || vid.Height != "" {
+			fmt.Printf("     Size: %sx%s\n", vid.Width, vid.Height)
+		}
 	}
 
 	// ============================================================
@@ -127,7 +133,11 @@ func main() {
 	fmt.Printf("Found %d audio files:\n", len(result.Audios))
 	for i, aud := range result.Audios {
 		fmt.Printf("  %d. %s\n", i+1, aud.URL)
-		fmt.Printf("     Type: %s\n", aud.Type)
+		audType := aud.Type
+		if audType == "" {
+			audType = "audio"
+		}
+		fmt.Printf("     Type: %s\n", audType)
 	}
 
 	// ============================================================
@@ -136,24 +146,21 @@ func main() {
 	fmt.Println("\nPart 6: Selective Media Extraction")
 	fmt.Println("----------------------------------")
 
-	// Images only
-	imageOnlyConfig := html.DefaultConfig()
-	imageOnlyConfig.PreserveImages = true
-	imageOnlyConfig.PreserveVideos = false
-	imageOnlyConfig.PreserveAudios = false
-	imageProcessor, _ := html.New(imageOnlyConfig)
+	// Images only (disable video and audio)
+	imageOnlyCfg := html.DefaultConfig()
+	imageOnlyCfg.PreserveVideos = false
+	imageOnlyCfg.PreserveAudios = false
+	imageProcessor, _ := html.New(imageOnlyCfg)
 	defer imageProcessor.Close()
 
 	imgResult, _ := imageProcessor.Extract([]byte(htmlContent))
 	fmt.Printf("Images only: %d images, %d videos, %d audio\n",
 		len(imgResult.Images), len(imgResult.Videos), len(imgResult.Audios))
 
-	// Videos and audio only
-	mediaOnlyConfig := html.DefaultConfig()
-	mediaOnlyConfig.PreserveImages = false
-	mediaOnlyConfig.PreserveVideos = true
-	mediaOnlyConfig.PreserveAudios = true
-	mediaProcessor, _ := html.New(mediaOnlyConfig)
+	// Video and audio only (disable images)
+	mediaOnlyCfg := html.DefaultConfig()
+	mediaOnlyCfg.PreserveImages = false
+	mediaProcessor, _ := html.New(mediaOnlyCfg)
 	defer mediaProcessor.Close()
 
 	mediaResult, _ := mediaProcessor.Extract([]byte(htmlContent))

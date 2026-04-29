@@ -1,4 +1,4 @@
-// Package internal provides centralized constant definitions for internal use.
+// constants.go provides centralized constant definitions for internal use.
 package internal
 
 const (

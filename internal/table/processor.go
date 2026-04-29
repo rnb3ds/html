@@ -1,5 +1,4 @@
-// Package table provides HTML table extraction and rendering functionality.
-// This file contains the processor interface and implementation for table extraction.
+// processor.go contains the processor interface and implementation for table extraction.
 package table
 
 import (
@@ -68,11 +67,11 @@ func (p *Processor) Extract(table *html.Node, tb *TrackedBuilder, tableFormat st
 	// Step 2: Determine maximum columns
 	maxCols := calculateMaxColumns(tableData)
 
-	// Step 3: Render in requested format
-	switch sanitizeFormat(tableFormat) {
-	case "html":
-		extractTableAsHTML(tableData, tb)
-	default: // "markdown"
+	// Step 3: Render in requested format using registry
+	if renderer := globalRegistry.get(tableFormat); renderer != nil {
+		renderer.Render(tableData, tb, maxCols, colWidths)
+	} else {
+		// Fallback to markdown for unknown formats
 		extractTableAsMarkdown(tableData, tb, maxCols, colWidths)
 	}
 
@@ -164,9 +163,4 @@ func sanitizeCellText(text string) string {
 		return " "
 	}
 	return text
-}
-
-// sanitizeFormat normalizes the table format string.
-func sanitizeFormat(format string) string {
-	return strings.ToLower(strings.TrimSpace(format))
 }
