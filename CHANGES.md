@@ -4,7 +4,101 @@ All notable changes to the cybergodev/html library will be documented in this fi
 
 ---
 
-## v1.3.2 — Security Hardening & Performance Enhancement (2026-03-23)
+## v1.4.0 - Production Readiness & Performance (2026-04-29)
+
+### Breaking
+- `ExtractBatch`/`ExtractBatchFiles` return `*BatchResult` instead of `([]*Result, error)` — use `.Results`, `.Success`, `.Failed` fields
+- 8 fine-grained interfaces consolidated into composite `Extractor` + `StatsProvider` with unified method sets
+- `SetMaxSampleSize` returns void — method chaining removed per project conventions
+- `compat.go` removed; all wrappers (`filepathClean`, `readFile`, `now`, `since`) replaced by stdlib calls
+
+### Added
+- `*WithContext` variants for text, Markdown, JSON, batch, and link extraction (16 new methods/functions)
+- Package-level batch functions: `ExtractBatch`, `ExtractBatchWithContext`, `ExtractBatchFiles`, `ExtractBatchFilesWithContext`
+- `cachekey.go` with xxHash-style cache key generation extracted from extract.go
+- GitHub Actions CI workflow (vet, format check, race tests, golangci-lint)
+- `SharedDefaultScorer()` singleton — eliminates ~54 allocations per `New()` call
+- CSS sanitization (`sanitizeStyleValue`) stripping `expression()`, `behavior:`, `-moz-binding:`, `javascript:`, `vbscript:`
+- `escapeMarkdownText()` preventing Markdown injection via unescaped `]`, `[`, `\` in alt/link text
+- `sanitizeRawValue()` HTML-escaping audit `RawValue` fields to prevent XSS in downstream renderers
+- `ChannelAuditSink.DroppedCount()` monitoring dropped audit entries when buffer is full
+- `uniformErrorBatch` helper preserving `len(Errors) == len(Results)` invariant
+- `Cache.RestartCleanup()` for correct pool processor reuse after `Close()`
+- `maxBatchSize` constant (10,000) with early rejection preventing OOM on extreme input
+- Comprehensive panic protection test suite (32 tests) and boundary tests for uncovered functions
+- `generateCacheKey`/`hashMixInline` helpers with 128-bit xxHash-style output
+- `withProcessor[T]` and `withProcessorBatch` generic helpers eliminating delegation boilerplate
+
+### Fixed
+- `ExtractWithContext` silently discarded caller context when `ProcessingTimeout > 0`
+- `BatchResult.Errors` length mismatch on config resolution failure (broke index correspondence)
+- Temporary processors shared parent's stats pointer, inflating `totalProcessed`/`cacheMisses`
+- Unbounded goroutine spawning in batch (up to 10,000) — now bounded by `WorkerPoolSize`
+- Race condition: temp processors sharing `audit` with parent caused `ChannelAuditSink` panic
+- `FileError.Unwrap()` always returned `ErrInvalidFilePath` for non-NotFound errors
+- Empty `mediaType` index-out-of-range panic in `extractMediaLink`
+- Nil audit pointer dereference with fallback pooled processors
+- Cache cleanup goroutine not restarted on processor reuse
+- `CacheCleanup < 0` not validated in `Config.Validate()`
+- Panic in `withTimeout` goroutine escaping caller's `recover()` — goroutine panics not caught by parent recover
+- `WriterAuditSink.Write` silently discarded write errors
+- Stale closed atomic flag on pooled processor reuse
+- Data race on `cleanupCancel` field between `StopCleanup` and finalizer goroutine
+- `ChannelAuditSink` panic on write to closed channel (added `done` check)
+- `activeTimeoutGoroutines` TOCTOU race — replaced load-then-add with atomic CAS loop
+- `PutBuilder` corrupting slice header during secure clear
+- `ExtractAllLinksWithContext` timeout path not incrementing `errorCount`
+- Format-specific results polluting parent cache through temp processors
+- `isDangerousScheme` bypassed by fullwidth Unicode characters — added `normalizeFullwidthToASCII`
+- Duplicate manual `stringsToLower` implementation in errors.go
+- Audit `RawValue` XSS: HTML-escape `<`, `>`, `"`, `'`, `&` for downstream log renderers
+- Inconsistent HTML size limit in media tag extraction (`maxHTMLForRegex*10` → `maxHTMLForRegex`)
+- Unsafe `sync.Map` type assertion in `normalizeCharset()` — added ok check
+- WaitGroup counter corruption on pooled processor reuse — added `audit.Wait()` before `ClearAuditLog`
+- Package godoc example used non-existent `WithCache(1000, time.Hour)` API
+- README false "drop-in replacement for golang.org/x/net/html" claims corrected
+- `docs/COMPATIBILITY.md` rewritten — corrected all method signatures, type names, defaults, and code examples
+- `docs/SECURITY.md` fixed algorithm description (SHA-256 → xxHash), constants, unsafe locations, and code samples
+- Examples: build tag collisions resolved, redundant `\n` fixed, compilation errors corrected, API signatures updated
+
+### Changed
+- `Extract` delegates to `extractCoreWithContext(context.Background())`, eliminating ~80% code duplication
+- Consolidated 4 `recover*` functions into single generic `recoverPanic[T any]`; old names preserved as thin wrappers
+- Replaced ~70 individual on* handler entries with single `strings.HasPrefix("on")` prefix check
+- Merged `DetectAndConvertToUTF8String` + `Safe` variant into shared `detectAndConvertToUTF8StringCore` (~80 lines removed)
+- `resolveConfig` returns `(Config, bool, error)` — pool decision at call site, eliminating `reflect.DeepEqual` in hot path
+- Merged `extractImages`/`extractImagesWithPosition` and `extractLinks`/`extractLinksWithPosition` into unified methods
+- Pre-compute normalized `imageFormat`/`linkFormat` strings in `Processor`, eliminating per-call `ToLower`+`TrimSpace`
+- Pool `EncodingDetector` instances via `sync.Pool` for reduced allocation in non-ASCII path
+- Cache `strings.ToLower(n.Data)` result for tag name lookup in `sanitizeNodeWithAudit`
+- Removed dead `processContent`, `useDefaultScorer` branch, `extractCore` passthrough, `collectResults` helper
+- `processorStats` extracted to separate struct for accurate shared stats between main and temp processors
+- Examples: unique per-file build tags, `interface{}` → `any`, fixed timing demos, proper error checking
+- Test coverage improved from 78.9% to 79.7%; consolidated 31 test functions into 6 table-driven
+
+### Performance
+- `BenchmarkNew`: -18.8% latency, -4.6% memory, -69.2% allocs (78→24)
+- `BenchmarkProcessorCreationWithClose`: -19.3% latency, -16.8% memory, -42.5% allocs (127→73)
+- `countWords`: zero-allocation inline whitespace scanning replacing `strings.Fields`
+- `processContent`: fast-path whitespace check avoids `TrimSpace` allocation on ASCII content
+- `GetTextContent`: single-pass combining normalize + entity decode + newline + trim
+- `CleanText`: early-exit detection for clean text skips `ReplaceHTMLEntities`/`unwantedCharReplacer`
+- `compressAndTrimRight`: combines whitespace compression + trailing trim in one pass
+- Tag removal: O(1) map lookup replacing linear slice scan in `sanitizeNode`
+- Table rendering: pre-computed 32-entry padding table eliminates `strings.Repeat` per cell
+- `formatInlineImages`: skips `strings.NewReplacer` allocation when no replacements needed
+- Removed `reflect` import from processor_pool.go — no reflection in hot path
+
+### Removed
+- `compat.go` — all wrappers inlined to stdlib equivalents
+- `BytesToStringSafe`/`StringToBytesSafe` dead code from `internal/unsafe.go`
+- `isDefaultConfig`, `getProcessorWithConfig`, `putProcessorWithConfig` (reflection overhead)
+- `collectResults` helper superseded by `*BatchResult` return
+- `extractImages`/`extractLinks` (without position) superseded by position-tracking variants
+
+---
+
+## v1.3.2 - Security Hardening & Performance Enhancement (2026-03-23)
 
 ### Breaking Changes
 - Removed 11 deprecated package-level `*With()` functions — use `New(Config)` + processor methods instead

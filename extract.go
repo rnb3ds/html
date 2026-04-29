@@ -19,13 +19,44 @@ import (
 // Pre-compiled at package initialization for performance.
 var linkPlaceholderRegex = regexp.MustCompile(`\[LINK:(\d+)\]([^\[]*?)\[/LINK\]`)
 
+// markdownEscapeReplacer escapes characters that could break Markdown link/image syntax.
+var markdownEscapeReplacer = strings.NewReplacer(
+	`\`, `\\`,
+	`[`, `\[`,
+	`]`, `\]`,
+)
+
+// containsASCIIFold reports whether substr is contained in s, case-insensitively (ASCII only).
+func containsASCIIFold(s, substr string) bool {
+	substrLen := len(substr)
+	sLen := len(s)
+	if substrLen > sLen {
+		return false
+	}
+	for i := 0; i <= sLen-substrLen; i++ {
+		match := true
+		for j := 0; j < substrLen; j++ {
+			c := s[i+j]
+			sc := substr[j]
+			if c >= 'A' && c <= 'Z' {
+				c += 32
+			}
+			if c != sc {
+				match = false
+				break
+			}
+		}
+		if match {
+			return true
+		}
+	}
+	return false
+}
+
 // escapeMarkdownText escapes characters that could break Markdown link/image syntax.
 // Escapes ], [, and \ to prevent injection of arbitrary Markdown content.
 func escapeMarkdownText(s string) string {
-	s = strings.ReplaceAll(s, `\`, `\\`)
-	s = strings.ReplaceAll(s, `[`, `\[`)
-	s = strings.ReplaceAll(s, `]`, `\]`)
-	return s
+	return markdownEscapeReplacer.Replace(s)
 }
 
 // Timeout goroutine management constants.
@@ -817,9 +848,12 @@ func (p *Processor) formatInlineLinks(textWithPlaceholders string, links []LinkI
 			return match
 		}
 
-		position := 0
-		fmt.Sscanf(submatches[1], "%d", &position)
 		linkText := submatches[2]
+
+		position := 0
+		if _, err := fmt.Sscanf(submatches[1], "%d", &position); err != nil {
+			return linkText
+		}
 
 		link, ok := linkMap[position]
 		if !ok {
@@ -930,8 +964,8 @@ func (p *Processor) parseLinkNode(n *stdxhtml.Node) LinkInfo {
 		case "title":
 			link.Title = attr.Val
 		case "rel":
-			// Check for nofollow in rel attribute (case-insensitive)
-			if strings.Contains(strings.ToLower(attr.Val), "nofollow") {
+			// Check for nofollow in rel attribute (case-insensitive, no allocation)
+			if containsASCIIFold(attr.Val, "nofollow") {
 				link.IsNoFollow = true
 			}
 		}

@@ -96,7 +96,7 @@ func (n contentNodeAdapter) AttrValue(key string) string {
 	if n.Node == nil {
 		return ""
 	}
-	for _, attr := range n.Node.Attr {
+	for _, attr := range n.Attr {
 		if attr.Key == key {
 			return attr.Val
 		}
@@ -108,8 +108,8 @@ func (n contentNodeAdapter) Attrs() []NodeAttr {
 	if n.Node == nil {
 		return nil
 	}
-	attrs := make([]NodeAttr, len(n.Node.Attr))
-	for i, attr := range n.Node.Attr {
+	attrs := make([]NodeAttr, len(n.Attr))
+	for i, attr := range n.Attr {
 		attrs[i] = NodeAttr{Key: attr.Key, Value: attr.Val}
 	}
 	return attrs
@@ -308,7 +308,7 @@ func (p *Processor) Close() error {
 	p.cache.StopCleanup()
 	p.cache.Clear()
 	if p.audit != nil {
-		p.audit.Close()
+		_ = p.audit.Close() // best-effort cleanup
 	}
 	return nil
 }

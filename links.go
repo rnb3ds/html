@@ -305,9 +305,10 @@ func (p *Processor) detectBaseURL(doc *stdxhtml.Node) string {
 			if canonicalURL == "" {
 				var property, content string
 				for _, attr := range n.Attr {
-					if attr.Key == "property" {
+					switch attr.Key {
+					case "property":
 						property = attr.Val
-					} else if attr.Key == "content" {
+					case "content":
 						content = attr.Val
 					}
 				}
@@ -319,9 +320,10 @@ func (p *Processor) detectBaseURL(doc *stdxhtml.Node) string {
 			if canonicalLink == "" {
 				var rel, href string
 				for _, attr := range n.Attr {
-					if attr.Key == "rel" {
+					switch attr.Key {
+					case "rel":
 						rel = attr.Val
-					} else if attr.Key == "href" {
+					case "href":
 						href = attr.Val
 					}
 				}
@@ -489,9 +491,10 @@ func (p *Processor) extractImageLinks(n *stdxhtml.Node, baseURL string, linkMap 
 func (p *Processor) extractMediaLink(n *stdxhtml.Node, baseURL string, linkMap map[string]LinkResource, mediaType string) {
 	var src, title string
 	for _, attr := range n.Attr {
-		if attr.Key == "src" {
+		switch attr.Key {
+		case "src":
 			src = attr.Val
-		} else if attr.Key == "title" {
+		case "title":
 			title = attr.Val
 		}
 	}

@@ -953,7 +953,7 @@ func replaceNumericEntity(text string, start int) (string, int) {
 			return text[start : semi+1], semi - start + 1
 		}
 		for _, c := range entity {
-			if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')) {
+			if (c < '0' || c > '9') && (c < 'a' || c > 'f') && (c < 'A' || c > 'F') {
 				return text[start : semi+1], semi - start + 1
 			}
 		}
@@ -1002,7 +1002,7 @@ func isValidEntityName(name string) bool {
 		return false
 	}
 	for _, c := range name {
-		if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')) {
+		if (c < 'a' || c > 'z') && (c < 'A' || c > 'Z') && (c < '0' || c > '9') {
 			return false
 		}
 	}

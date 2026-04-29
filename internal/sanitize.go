@@ -135,15 +135,12 @@ func sanitizeNodeWithAudit(n *html.Node, audit AuditRecorder) {
 			return
 		}
 
-		// Pre-allocate filtered attributes slice with capacity
-		// Use the original length as capacity to avoid reallocation in most cases
 		attrLen := len(n.Attr)
 		if attrLen > 0 {
 			filteredAttrs := make([]html.Attribute, 0, attrLen)
 			for _, attr := range n.Attr {
 				attrKey := strings.ToLower(attr.Key)
-				// Block all on* event handlers by prefix — covers current and future handlers
-				if strings.HasPrefix(attrKey, "on") {
+				if len(attrKey) >= 2 && attrKey[0] == 'o' && attrKey[1] == 'n' {
 					audit.RecordBlockedAttr(attr.Key, attr.Val)
 					continue
 				}
@@ -151,7 +148,6 @@ func sanitizeNodeWithAudit(n *html.Node, audit AuditRecorder) {
 					audit.RecordBlockedAttr(attr.Key, attr.Val)
 					continue
 				}
-				// Sanitize style values: strip dangerous CSS, preserve safe properties
 				if attrKey == "style" {
 					sanitized := sanitizeStyleValue(attr.Val)
 					if sanitized == "" {
@@ -194,21 +190,92 @@ func RemoveTagContent(content, tag string) string {
 	}
 
 	// Quick check: if tag is not present, return as-is
-	openTag := "<" + strings.ToLower(tag)
-	if !strings.Contains(strings.ToLower(content), openTag) {
+	if !containsTagIgnoreCase(content, "<"+tag) {
 		return content
 	}
 
 	return removeTagContentStringBased(content, tag)
 }
 
+// asciiEqualFold checks if two ASCII strings are equal case-insensitively.
+func asciiEqualFold(a, b string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := 0; i < len(a); i++ {
+		ca, cb := a[i], b[i]
+		if ca >= 'A' && ca <= 'Z' {
+			ca += 32
+		}
+		if cb >= 'A' && cb <= 'Z' {
+			cb += 32
+		}
+		if ca != cb {
+			return false
+		}
+	}
+	return true
+}
+
+// containsTagIgnoreCase checks if content contains the given tag prefix case-insensitively.
+func containsTagIgnoreCase(content, tagPrefix string) bool {
+	prefixLen := len(tagPrefix)
+	for i := 0; i <= len(content)-prefixLen; i++ {
+		if asciiEqualFold(content[i:i+prefixLen], tagPrefix) {
+			return true
+		}
+	}
+	return false
+}
+
+// indexASCIIFold finds the case-insensitive index of target in s (ASCII only).
+// Optimized to use strings.IndexByte for fast first-character scanning.
+func indexASCIIFold(s, target string) int {
+	targetLen := len(target)
+	sLen := len(s)
+	if targetLen == 0 {
+		return 0
+	}
+	if sLen < targetLen {
+		return -1
+	}
+	// Use IndexByte to scan for the first character (SIMD-optimized)
+	firstByte := target[0]
+	pos := 0
+	for pos <= sLen-targetLen {
+		idx := strings.IndexByte(s[pos:], firstByte)
+		if idx < 0 {
+			// Also check uppercase variant
+			var upperByte byte
+			if firstByte >= 'a' && firstByte <= 'z' {
+				upperByte = firstByte - 32
+			} else {
+				break
+			}
+			idx = strings.IndexByte(s[pos:], upperByte)
+			if idx < 0 {
+				break
+			}
+		}
+		idx += pos
+		if idx+targetLen > sLen {
+			return -1
+		}
+		if asciiEqualFold(s[idx:idx+targetLen], target) {
+			return idx
+		}
+		pos = idx + 1
+	}
+	return -1
+}
+
 // removeTagContentStringBased removes tags using string operations.
 // This approach preserves character case and handles malformed HTML better than DOM parsing.
 // Uses BuilderPool for memory efficiency to reduce allocations during string building.
+// Optimized to avoid strings.ToLower copy of full content.
 func removeTagContentStringBased(content, tag string) string {
 	openTag := "<" + strings.ToLower(tag)
 	closeTag := "</" + strings.ToLower(tag) + ">"
-	lowerContent := strings.ToLower(content)
 
 	// Use pooled builder for better memory efficiency
 	sb := GetBuilder()
@@ -218,8 +285,8 @@ func removeTagContentStringBased(content, tag string) string {
 
 	pos := 0
 	for pos < len(content) {
-		// Find the next opening tag (case-insensitive)
-		start := strings.Index(lowerContent[pos:], openTag)
+		// Find the next opening tag (case-insensitive) without creating a lowercase copy
+		start := indexASCIIFold(content[pos:], openTag)
 		if start == -1 {
 			sb.WriteString(content[pos:])
 			break
@@ -227,12 +294,14 @@ func removeTagContentStringBased(content, tag string) string {
 		start += pos
 
 		// Verify this is actually the tag we're looking for
-		// Check that the character after the tag name is valid (space, >, /, or end)
 		tagNameLen := len(tag) + 1 // +1 for the '<'
 		if start+tagNameLen < len(content) {
-			nextChar := lowerContent[start+tagNameLen]
-			if nextChar != ' ' && nextChar != '>' && nextChar != '\t' && nextChar != '\n' && nextChar != '/' {
-				// Not our tag, write content up to after the match and continue
+			nextChar := content[start+tagNameLen]
+			lc := nextChar
+			if lc >= 'A' && lc <= 'Z' {
+				lc += 32
+			}
+			if lc != ' ' && lc != '>' && lc != '\t' && lc != '\n' && lc != '/' {
 				sb.WriteString(content[pos : start+tagNameLen])
 				pos = start + tagNameLen
 				continue
@@ -245,18 +314,16 @@ func removeTagContentStringBased(content, tag string) string {
 		// Find the end of the opening tag
 		tagEnd := strings.IndexByte(content[start:], '>')
 		if tagEnd == -1 {
-			// Unclosed tag, write the rest as-is
 			sb.WriteString(content[start:])
 			break
 		}
 		tagEnd += start + 1
-		// Ensure tagEnd is within bounds
 		if tagEnd > len(content) {
 			tagEnd = len(content)
 		}
 
-		// Look for the corresponding closing tag
-		if end := strings.Index(lowerContent[tagEnd:], closeTag); end != -1 {
+		// Look for the corresponding closing tag (case-insensitive, no copy)
+		if end := indexASCIIFold(content[tagEnd:], closeTag); end != -1 {
 			// Found closing tag, skip everything between opening and closing
 			pos = tagEnd + end + len(closeTag)
 		} else {
@@ -436,7 +503,7 @@ func isValidDataURLWithAudit(url string, audit AuditRecorder) bool {
 	for i := 0; i < len(dataPart); i++ {
 		b := dataPart[i]
 		if isBase64 {
-			if !(isBase64Char(b) || b == '=' || b == '\r' || b == '\n') {
+			if !isBase64Char(b) && b != '=' && b != '\r' && b != '\n' {
 				audit.RecordBlockedURL(url, "invalid base64 in data URL")
 				return false
 			}
@@ -451,45 +518,22 @@ func isValidDataURLWithAudit(url string, audit AuditRecorder) bool {
 	return true
 }
 
+// safeMediaTypes is the whitelist of safe media types for data URLs.
+// Package-level to avoid allocation on every isSafeMediaType call.
+var safeMediaTypes = map[string]bool{
+	"image/gif": true, "image/jpeg": true, "image/jpg": true,
+	"image/png": true, "image/webp": true, "image/bmp": true,
+	"image/x-icon": true, "image/vnd.microsoft.icon": true,
+	"image/avif": true, "image/apng": true,
+	"font/woff": true, "font/woff2": true, "font/ttf": true, "font/otf": true,
+	"application/font-woff": true, "application/font-woff2": true,
+	"application/pdf": true,
+}
+
 // isSafeMediaType checks if the media type is in the whitelist of safe types.
 // This prevents XSS through script data URIs and other dangerous content types.
 func isSafeMediaType(mediaType string) bool {
-	mediaType = strings.ToLower(strings.TrimSpace(mediaType))
-
-	// Whitelist of safe media types
-	safeTypes := map[string]bool{
-		// Image types (explicit whitelist for security)
-		"image/gif":                true,
-		"image/jpeg":               true,
-		"image/jpg":                true,
-		"image/png":                true,
-		"image/webp":               true,
-		"image/bmp":                true,
-		"image/x-icon":             true,
-		"image/vnd.microsoft.icon": true,
-		"image/avif":               true,
-		"image/apng":               true,
-		// Note: image/svg+xml is NOT included because SVG can contain JavaScript
-		// and other executable content that poses XSS risks
-		// Font types
-		"font/woff":              true,
-		"font/woff2":             true,
-		"font/ttf":               true,
-		"font/otf":               true,
-		"application/font-woff":  true,
-		"application/font-woff2": true,
-		// Common document formats
-		"application/pdf": true,
-	}
-
-	// Check whitelist first for explicit allow-list
-	if safeTypes[mediaType] {
-		return true
-	}
-
-	// No wildcard matching - all types must be explicitly whitelisted
-	// This prevents bypass attempts with variants like image/svg+xml
-	return false
+	return safeMediaTypes[strings.ToLower(strings.TrimSpace(mediaType))]
 }
 
 func isValidMediaType(mediaType string) bool {
@@ -504,9 +548,9 @@ func isValidMediaType(mediaType string) bool {
 
 	for i := 0; i < len(mediaType); i++ {
 		c := mediaType[i]
-		if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
-			(c >= '0' && c <= '9') || c == '-' || c == '+' ||
-			c == '/' || c == '.' || c == '_') {
+		if (c < 'a' || c > 'z') && (c < 'A' || c > 'Z') &&
+			(c < '0' || c > '9') && c != '-' && c != '+' &&
+			c != '/' && c != '.' && c != '_' {
 			return false
 		}
 	}

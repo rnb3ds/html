@@ -409,22 +409,29 @@ defer processor.Close()
 processor.Extract(htmlBytes []byte) (*Result, error)
 processor.ExtractText(htmlBytes []byte) (string, error)
 processor.ExtractWithContext(ctx context.Context, htmlBytes []byte) (*Result, error)
+processor.ExtractTextWithContext(ctx context.Context, htmlBytes []byte) (string, error)
 
 // Extract (from file)
 processor.ExtractFromFile(filePath string) (*Result, error)
 processor.ExtractTextFromFile(filePath string) (string, error)
 processor.ExtractFromFileWithContext(ctx context.Context, filePath string) (*Result, error)
+processor.ExtractTextFromFileWithContext(ctx context.Context, filePath string) (string, error)
 
 // Format conversion
 processor.ExtractToMarkdown(htmlBytes []byte) (string, error)
 processor.ExtractToJSON(htmlBytes []byte) ([]byte, error)
 processor.ExtractToMarkdownFromFile(filePath string) (string, error)
 processor.ExtractToJSONFromFile(filePath string) ([]byte, error)
+processor.ExtractToMarkdownWithContext(ctx context.Context, htmlBytes []byte) (string, error)
+processor.ExtractToMarkdownFromFileWithContext(ctx context.Context, filePath string) (string, error)
+processor.ExtractToJSONWithContext(ctx context.Context, htmlBytes []byte) ([]byte, error)
+processor.ExtractToJSONFromFileWithContext(ctx context.Context, filePath string) ([]byte, error)
 
 // Links
 processor.ExtractAllLinks(htmlBytes []byte) ([]LinkResource, error)
 processor.ExtractAllLinksFromFile(filePath string) ([]LinkResource, error)
 processor.ExtractAllLinksWithContext(ctx context.Context, htmlBytes []byte) ([]LinkResource, error)
+processor.ExtractAllLinksFromFileWithContext(ctx context.Context, filePath string) ([]LinkResource, error)
 
 // Batch processing
 processor.ExtractBatch(htmlContents [][]byte) *BatchResult
@@ -757,7 +764,7 @@ type Extractor interface {
     ExtractTextWithContext(ctx context.Context, htmlBytes []byte) (string, error)
     ExtractTextFromFileWithContext(ctx context.Context, filePath string) (string, error)
 
-    // Output formats
+    // Formatted output
     ExtractToMarkdown(htmlBytes []byte) (string, error)
     ExtractToMarkdownFromFile(filePath string) (string, error)
     ExtractToJSON(htmlBytes []byte) ([]byte, error)
@@ -779,6 +786,7 @@ type Extractor interface {
     ExtractAllLinksWithContext(ctx context.Context, htmlBytes []byte) ([]LinkResource, error)
     ExtractAllLinksFromFileWithContext(ctx context.Context, filePath string) ([]LinkResource, error)
 
+    // Resource cleanup
     Close() error
 }
 

@@ -73,19 +73,20 @@ func (p *Processor) generateCacheKey(content string) string {
 		// Pre-compute step size for even distribution
 		for i := 0; i < sampleCount; i++ {
 			var start, end int
-			if i == sampleCount-1 {
+			switch i {
+			case sampleCount - 1:
 				end = contentLen
 				start = contentLen - sampleSize
 				if start < 0 {
 					start = 0
 				}
-			} else if i == 0 {
+			case 0:
 				start = 0
 				end = sampleSize
 				if end > contentLen {
 					end = contentLen
 				}
-			} else {
+			default:
 				offset := (contentLen * i) / (sampleCount - 1)
 				start = offset - sampleSize/2
 				if start < 0 {
@@ -168,7 +169,7 @@ func hashMixBytesInline(h uint64, data []byte) uint64 {
 	i := 0
 
 	// Process 32 bytes at a time using 4 accumulators
-	var acc1, acc2, acc3, acc4 uint64 = prime64_1, prime64_2, prime64_3, prime64_4
+	var acc1, acc2, acc3, acc4 = prime64_1, prime64_2, prime64_3, prime64_4
 
 	for i+32 <= n {
 		acc1 += *(*uint64)(unsafe.Add(ptr, i)) * prime64_2

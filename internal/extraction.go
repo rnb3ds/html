@@ -10,6 +10,16 @@ import (
 	"golang.org/x/net/html"
 )
 
+// writeInt writes a non-negative integer to the builder without allocating a string.
+func writeInt(tb *table.TrackedBuilder, n int) {
+	if n < 10 {
+		_ = tb.WriteByte(byte('0' + n))
+		return
+	}
+	var buf [20]byte
+	tb.Write(strconv.AppendInt(buf[:0], int64(n), 10))
+}
+
 // ExtractTextWithStructureAndImages extracts text content from an HTML node tree
 // while preserving document structure (headings, paragraphs, lists, tables).
 func ExtractTextWithStructureAndImages(node *html.Node, sb *strings.Builder, imageCounter *int, linkCounter *int, tableFormat string) {
@@ -59,7 +69,7 @@ func extractTextWithStructure(node *html.Node, tb *table.TrackedBuilder, imageCo
 						}
 					}
 					if shouldPreserveSpace {
-						tb.WriteByte(' ')
+						_ = tb.WriteByte(' ')
 					}
 				}
 			}
@@ -72,7 +82,7 @@ func extractTextWithStructure(node *html.Node, tb *table.TrackedBuilder, imageCo
 				tb.WriteString(content)
 				// Preserve trailing space from original HTML
 				if hasTrailingSpace {
-					tb.WriteByte(' ')
+					_ = tb.WriteByte(' ')
 				}
 			}
 		}
@@ -83,22 +93,22 @@ func extractTextWithStructure(node *html.Node, tb *table.TrackedBuilder, imageCo
 			*imageCounter++
 			table.EnsureNewline(tb)
 			tb.WriteString("[IMAGE:")
-			tb.WriteString(strconv.Itoa(*imageCounter))
+			writeInt(tb, *imageCounter)
 			tb.WriteString("]\n")
 			return
 		}
 		if node.Data == "a" && linkCounter != nil {
 			*linkCounter++
 			tb.WriteString("[LINK:")
-			tb.WriteString(strconv.Itoa(*linkCounter))
+			writeInt(tb, *linkCounter)
 			tb.WriteString("]")
 			// Continue processing children for link text
 		}
 		if node.Data == "br" {
 			// BR creates a single line break, not paragraph spacing
 			// Only add newline if we have content and don't already have one
-			if tb.Builder.Len() > 0 && tb.LastChar != '\n' {
-				tb.WriteByte('\n')
+			if tb.Len() > 0 && tb.LastChar != '\n' {
+				_ = tb.WriteByte('\n')
 			}
 			return
 		}
@@ -121,7 +131,7 @@ func extractTextWithStructure(node *html.Node, tb *table.TrackedBuilder, imageCo
 			}
 		}
 
-		startLen := tb.Builder.Len()
+		startLen := tb.Len()
 		if isBlockElement && startLen > 0 {
 			table.EnsureNewline(tb)
 			// Add Markdown list prefix based on padding-left level
@@ -132,7 +142,7 @@ func extractTextWithStructure(node *html.Node, tb *table.TrackedBuilder, imageCo
 					tb.WriteString(listPrefix)
 				}
 			}
-			startLen = tb.Builder.Len()
+			startLen = tb.Len()
 		} else if isBlockElement && startLen == 0 {
 			// First element - add list prefix if it has padding-left
 			paddingLeft := extractPaddingLeft(node)
@@ -141,7 +151,7 @@ func extractTextWithStructure(node *html.Node, tb *table.TrackedBuilder, imageCo
 				if listPrefix != "" {
 					tb.WriteString(listPrefix)
 				}
-				startLen = tb.Builder.Len()
+				startLen = tb.Len()
 			}
 		}
 
@@ -152,12 +162,12 @@ func extractTextWithStructure(node *html.Node, tb *table.TrackedBuilder, imageCo
 		if node.Data == "a" && linkCounter != nil {
 			tb.WriteString("[/LINK]")
 		}
-		hasContent := tb.Builder.Len() > startLen
+		hasContent := tb.Len() > startLen
 		if isBlockElement && hasContent {
 			table.EnsureNewline(tb)
 			// Add an extra newline for paragraph-level blocks to create paragraph spacing in Markdown
 			if isParagraphBlock && tb.LastChar == '\n' {
-				tb.WriteByte('\n')
+				_ = tb.WriteByte('\n')
 			}
 		}
 		// Add spacing for non-root inline elements (depth > 0)

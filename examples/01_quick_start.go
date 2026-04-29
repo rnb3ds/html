@@ -1,4 +1,4 @@
-//go:build example_01
+//go:build examples
 
 package main
 

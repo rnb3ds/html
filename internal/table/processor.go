@@ -54,7 +54,7 @@ func (p *Processor) Extract(table *html.Node, tb *TrackedBuilder, tableFormat st
 	// Ensure blank line before table for proper Markdown parsing
 	EnsureNewline(tb)
 	if tb.LastChar == '\n' {
-		tb.WriteByte('\n')
+		_ = tb.WriteByte('\n')
 	}
 
 	// Step 1: Extract all row data from table
@@ -76,9 +76,9 @@ func (p *Processor) Extract(table *html.Node, tb *TrackedBuilder, tableFormat st
 	}
 
 	// Ensure blank line after table for proper Markdown parsing
-	tb.WriteByte('\n')
+	_ = tb.WriteByte('\n')
 	if tb.LastChar == '\n' {
-		tb.WriteByte('\n')
+		_ = tb.WriteByte('\n')
 	}
 }
 
