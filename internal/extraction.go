@@ -191,7 +191,12 @@ func CleanContentNode(node *html.Node) *html.Node {
 	}
 
 	toRemove := make([]*html.Node, 0, 8)
-	stack := make([]*html.Node, 0, 64)
+
+	// Use pooled stack to avoid allocation
+	stackPtr := GetNodeSlice()
+	defer PutNodeSlice(stackPtr)
+	stack := *stackPtr
+
 	stack = append(stack, node)
 
 	// Iterative traversal using explicit stack
@@ -215,5 +220,6 @@ func CleanContentNode(node *html.Node) *html.Node {
 		}
 	}
 
+	*stackPtr = stack
 	return node
 }

@@ -37,6 +37,19 @@ var dangerousCSSPatterns = []string{
 	"vbscript:",
 }
 
+// maxAuditURLLength limits the URL value passed to audit RecordBlockedURL.
+// Data URLs can contain large base64 payloads; logging the full content
+// wastes disk space and risks leaking embedded sensitive content.
+const maxAuditURLLength = 256
+
+// truncateAuditURL truncates a URL for safe inclusion in audit log entries.
+func truncateAuditURL(url string) string {
+	if len(url) <= maxAuditURLLength {
+		return url
+	}
+	return url[:maxAuditURLLength] + "...[truncated]"
+}
+
 // sanitizeStyleValue removes dangerous CSS constructs from a style attribute value.
 // Safe properties (text-align, width, etc.) are preserved for metadata extraction.
 func sanitizeStyleValue(style string) string {
@@ -68,6 +81,16 @@ var uriAttributes = map[string]bool{
 
 func SanitizeHTML(htmlContent string) string {
 	return SanitizeHTMLWithAudit(htmlContent, NoOpAuditRecorder{})
+}
+
+// SanitizeDOM sanitizes an already-parsed HTML DOM tree in-place.
+// This avoids the overhead of rendering back to string and re-parsing.
+// The doc node is modified directly.
+func SanitizeDOM(doc *html.Node, audit AuditRecorder) {
+	if doc == nil {
+		return
+	}
+	sanitizeNodeWithAudit(doc, audit)
 }
 
 // SanitizeHTMLWithAudit sanitizes HTML content and records security events.
@@ -460,7 +483,7 @@ func isValidDataURLWithAudit(url string, audit AuditRecorder) bool {
 
 	commaIdx := strings.Index(url, ",")
 	if commaIdx == -1 || commaIdx == 5 {
-		audit.RecordBlockedURL(url, "malformed data URL")
+		audit.RecordBlockedURL(truncateAuditURL(url), "malformed data URL")
 		return false
 	}
 
@@ -470,7 +493,7 @@ func isValidDataURLWithAudit(url string, audit AuditRecorder) bool {
 	// Enforce maximum data URL size to prevent memory exhaustion
 	// Uses the same limit as IsValidURL for consistency
 	if len(url) > MaxDataURILength {
-		audit.RecordBlockedURL(url, "data URL exceeds size limit")
+		audit.RecordBlockedURL(truncateAuditURL(url), "data URL exceeds size limit")
 		return false
 	}
 
@@ -490,11 +513,11 @@ func isValidDataURLWithAudit(url string, audit AuditRecorder) bool {
 
 		// Validate media type and check against whitelist of safe types
 		if mediaType != "" && !isValidMediaType(mediaType) {
-			audit.RecordBlockedURL(url, "invalid media type in data URL")
+			audit.RecordBlockedURL(truncateAuditURL(url), "invalid media type in data URL")
 			return false
 		}
 		if mediaType != "" && !isSafeMediaType(mediaType) {
-			audit.RecordBlockedURL(url, "unsafe media type in data URL: "+mediaType)
+			audit.RecordBlockedURL(truncateAuditURL(url), "unsafe media type in data URL: "+mediaType)
 			return false
 		}
 	}
@@ -504,12 +527,12 @@ func isValidDataURLWithAudit(url string, audit AuditRecorder) bool {
 		b := dataPart[i]
 		if isBase64 {
 			if !isBase64Char(b) && b != '=' && b != '\r' && b != '\n' {
-				audit.RecordBlockedURL(url, "invalid base64 in data URL")
+				audit.RecordBlockedURL(truncateAuditURL(url), "invalid base64 in data URL")
 				return false
 			}
 		} else {
 			if b < 9 || (b >= 11 && b <= 12) || (b >= 14 && b < 32) || b == 127 {
-				audit.RecordBlockedURL(url, "invalid character in data URL")
+				audit.RecordBlockedURL(truncateAuditURL(url), "invalid character in data URL")
 				return false
 			}
 		}

@@ -414,18 +414,17 @@ func (s *LoggerAuditSink) Close() error {
 // Useful for integrating with external logging systems.
 // Use DroppedCount() to check if any entries were discarded due to a full buffer.
 type ChannelAuditSink struct {
-	ch      chan AuditEntry
-	done    chan struct{}
-	closed  sync.Once
-	dropped atomic.Int64
+	ch       chan AuditEntry
+	closeMu  sync.RWMutex
+	isClosed bool
+	dropped  atomic.Int64
 }
 
 // NewChannelAuditSink creates a new sink that sends entries to a channel.
 // The channel must be consumed by the caller to prevent blocking.
 func NewChannelAuditSink(bufferSize int) *ChannelAuditSink {
 	return &ChannelAuditSink{
-		ch:   make(chan AuditEntry, bufferSize),
-		done: make(chan struct{}),
+		ch: make(chan AuditEntry, bufferSize),
 	}
 }
 
@@ -435,12 +434,14 @@ func (s *ChannelAuditSink) Write(entry AuditEntry) {
 	if s == nil {
 		return
 	}
+	s.closeMu.RLock()
+	defer s.closeMu.RUnlock()
+	if s.isClosed {
+		return
+	}
 	select {
-	case <-s.done:
-		// Already closed, discard
 	case s.ch <- entry:
 	default:
-		// Channel full, drop the entry
 		s.dropped.Add(1)
 	}
 }
@@ -465,10 +466,13 @@ func (s *ChannelAuditSink) Close() error {
 	if s == nil {
 		return nil
 	}
-	s.closed.Do(func() {
-		close(s.done)
-		close(s.ch)
-	})
+	s.closeMu.Lock()
+	defer s.closeMu.Unlock()
+	if s.isClosed {
+		return nil
+	}
+	s.isClosed = true
+	close(s.ch)
 	return nil
 }
 

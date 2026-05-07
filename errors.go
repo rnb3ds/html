@@ -1,6 +1,7 @@
 package html
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -192,6 +193,25 @@ func (e *FileError) Unwrap() error {
 		return e.FileErr
 	}
 	return ErrInvalidFilePath
+}
+
+// MarshalJSON implements custom JSON marshaling for FileError.
+// The Path field is sanitized via SafePath() to prevent filesystem path
+// disclosure when errors are serialized to JSON for API responses.
+func (e *FileError) MarshalJSON() ([]byte, error) {
+	msg := ""
+	if sanitized := e.sanitizeErrorMessage(); sanitized != nil {
+		msg = sanitized.Error()
+	}
+	return json.Marshal(&struct {
+		Op      string `json:"op"`
+		Path    string `json:"path"`
+		Message string `json:"message"`
+	}{
+		Op:      e.Op,
+		Path:    e.SafePath(),
+		Message: msg,
+	})
 }
 
 // newFileError creates a new FileError with the provided details.

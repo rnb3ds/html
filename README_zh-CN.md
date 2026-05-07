@@ -1,4 +1,4 @@
-# HTML 库
+# HTML 提取库
 
 [![Go Version](https://img.shields.io/badge/Go-1.25+-00ADD8?logo=go)](https://golang.org)
 [![GoDoc](https://pkg.go.dev/badge/github.com/cybergodev/html.svg)](https://pkg.go.dev/github.com/cybergodev/html)
@@ -8,7 +8,7 @@
 
 **一个高性能的 Go 库，用于智能 HTML 内容提取**，基于 `golang.org/x/net/html` 构建。
 
-[📖 English Documentation](README.md)
+**[English Documentation](README.md)** | **[www.cybergo.dev/html](https://www.cybergo.dev/html)**
 
 ---
 

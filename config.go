@@ -98,6 +98,7 @@ type Config struct {
 	// === Security ===
 	EnableSanitization bool        // Controls whether HTML sanitization is applied. Default: true. Should only be disabled for trusted input.
 	MaxDepth           int         // Maximum allowed nesting depth of HTML elements. Prevents stack overflow. Default: 500.
+	AllowedBaseDir     string      // Restricts file operations to this directory. Empty (default) means no restriction. Use when accepting file paths from untrusted input.
 	Audit              AuditConfig // Security audit logging configuration.
 
 	// === Content Extraction ===

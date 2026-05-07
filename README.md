@@ -1,4 +1,4 @@
-# HTML Library
+# HTML Extracted Library
 
 [![Go Version](https://img.shields.io/badge/Go-1.25+-00ADD8?logo=go)](https://golang.org)
 [![GoDoc](https://pkg.go.dev/badge/github.com/cybergodev/html.svg)](https://pkg.go.dev/github.com/cybergodev/html)
@@ -8,7 +8,7 @@
 
 **A high-performance Go library for intelligent HTML content extraction**, built on `golang.org/x/net/html`.
 
-[📖 中文文档](README_zh-CN.md)
+**[中文文档](README_zh-CN.md)** | **[www.cybergo.dev/html](https://www.cybergo.dev/html)**
 
 ---
 

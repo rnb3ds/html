@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	htmlstd "html"
-	"regexp"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -14,10 +13,6 @@ import (
 	"github.com/cybergodev/html/internal"
 	stdxhtml "golang.org/x/net/html"
 )
-
-// linkPlaceholderRegex matches [LINK:N]text[/LINK] pattern for inline link formatting.
-// Pre-compiled at package initialization for performance.
-var linkPlaceholderRegex = regexp.MustCompile(`\[LINK:(\d+)\]([^\[]*?)\[/LINK\]`)
 
 // markdownEscapeReplacer escapes characters that could break Markdown link/image syntax.
 var markdownEscapeReplacer = strings.NewReplacer(
@@ -311,7 +306,7 @@ func (p *Processor) extractCoreWithContext(ctx context.Context, htmlBytes []byte
 			p.stats.cacheHits.Add(1)
 			p.stats.totalProcessed.Add(1)
 			if cachedResult, ok := cached.(*Result); ok {
-				return cachedResult, nil
+				return cloneResult(cachedResult), nil
 			}
 		}
 		p.stats.cacheMisses.Add(1)
@@ -375,15 +370,6 @@ func (p *Processor) processContentWithContext(ctx context.Context, htmlContent s
 
 	originalHTML := htmlContent
 
-	// Check context before sanitization
-	select {
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	default:
-	}
-
-	htmlContent = p.sanitizeContent(htmlContent)
-
 	// Check context before HTML parsing
 	select {
 	case <-ctx.Done():
@@ -394,6 +380,15 @@ func (p *Processor) processContentWithContext(ctx context.Context, htmlContent s
 	doc, err := stdxhtml.Parse(strings.NewReader(htmlContent))
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrInvalidHTML, err)
+	}
+
+	// Sanitize DOM in-place (avoids render + re-parse overhead)
+	if p.config.EnableSanitization {
+		if p.audit != nil && p.config.Audit.Enabled {
+			internal.SanitizeDOM(doc, p.auditAdapter)
+		} else {
+			internal.SanitizeDOM(doc, internal.NoOpAuditRecorder{})
+		}
 	}
 
 	// Check context before depth validation
@@ -610,17 +605,6 @@ func (p *Processor) isBlankContent(content string) bool {
 	return true
 }
 
-// sanitizeContent applies HTML sanitization if enabled in the config.
-func (p *Processor) sanitizeContent(htmlContent string) string {
-	if !p.config.EnableSanitization {
-		return htmlContent
-	}
-	if p.audit != nil && p.config.Audit.Enabled {
-		return internal.SanitizeHTMLWithAudit(htmlContent, p.auditAdapter)
-	}
-	return internal.SanitizeHTML(htmlContent)
-}
-
 // validateDepthTraversal validates DOM tree depth using an iterative approach
 // to avoid potential stack overflow on deeply nested documents.
 // This is more efficient than separately calling validateDepth and extractFromDocument.
@@ -833,7 +817,12 @@ func (p *Processor) formatInlineLinks(textWithPlaceholders string, links []LinkI
 		return textWithPlaceholders
 	}
 
-	// Create a map of link position to link info for fast lookup
+	// Fast check: any [LINK: present?
+	if !strings.Contains(textWithPlaceholders, "[LINK:") {
+		return textWithPlaceholders
+	}
+
+	// Build lookup map
 	linkMap := make(map[int]LinkInfo, len(links))
 	for _, link := range links {
 		if link.Position > 0 {
@@ -841,48 +830,91 @@ func (p *Processor) formatInlineLinks(textWithPlaceholders string, links []LinkI
 		}
 	}
 
-	// Use pre-compiled regex for performance
-	result := linkPlaceholderRegex.ReplaceAllStringFunc(textWithPlaceholders, func(match string) string {
-		submatches := linkPlaceholderRegex.FindStringSubmatch(match)
-		if len(submatches) != 3 {
-			return match
-		}
+	// Direct string scanning to avoid regex overhead
+	sb := internal.GetBuilder()
+	defer internal.PutBuilder(sb)
+	sb.Grow(len(textWithPlaceholders))
 
-		linkText := submatches[2]
-
-		position := 0
-		if _, err := fmt.Sscanf(submatches[1], "%d", &position); err != nil {
-			return linkText
-		}
-
-		link, ok := linkMap[position]
-		if !ok {
-			return linkText
-		}
-
-		if linkText == "" {
-			linkText = "Link " + strconv.Itoa(position)
-		}
-
-		switch format {
-		case "markdown":
-			return "[" + escapeMarkdownText(linkText) + "](" + link.URL + ")"
-		case "html":
-			if link.Title != "" {
-				return fmt.Sprintf(`<a href="%s" title="%s">%s</a>`,
-					htmlstd.EscapeString(link.URL),
-					htmlstd.EscapeString(link.Title),
-					htmlstd.EscapeString(linkText))
+	i := 0
+	n := len(textWithPlaceholders)
+	for i < n {
+		// Look for [LINK:
+		if textWithPlaceholders[i] == '[' && i+6 <= n && textWithPlaceholders[i:i+6] == "[LINK:" {
+			// Parse position number
+			j := i + 6
+			numStart := j
+			for j < n && textWithPlaceholders[j] >= '0' && textWithPlaceholders[j] <= '9' {
+				j++
 			}
-			return fmt.Sprintf(`<a href="%s">%s</a>`,
-				htmlstd.EscapeString(link.URL),
-				htmlstd.EscapeString(linkText))
-		default:
-			return linkText
-		}
-	})
+			if j > numStart && j < n && textWithPlaceholders[j] == ']' {
+				position, err := strconv.Atoi(textWithPlaceholders[numStart:j])
+				if err == nil {
+					j++ // skip ']'
+					// Find [/LINK]
+					textStart := j
+					endTag := "[/LINK]"
+				endSearch:
+					for j <= n-len(endTag) {
+						if textWithPlaceholders[j] == '[' && textWithPlaceholders[j:j+7] == endTag {
+							// Found the closing tag
+							linkText := textWithPlaceholders[textStart:j]
 
-	return result
+							link, ok := linkMap[position]
+							if !ok {
+								// Unknown position, output just the text
+								sb.WriteString(linkText)
+							} else {
+								if linkText == "" {
+									linkText = "Link " + strconv.Itoa(position)
+								}
+								switch format {
+								case "markdown":
+									sb.WriteByte('[')
+									sb.WriteString(escapeMarkdownText(linkText))
+									sb.WriteString("](")
+									sb.WriteString(link.URL)
+									sb.WriteByte(')')
+								case "html":
+									sb.WriteString(`<a href="`)
+									sb.WriteString(htmlstd.EscapeString(link.URL))
+									sb.WriteString(`"`)
+									if link.Title != "" {
+										sb.WriteString(` title="`)
+										sb.WriteString(htmlstd.EscapeString(link.Title))
+										sb.WriteString(`"`)
+									}
+									sb.WriteString(`>`)
+									sb.WriteString(htmlstd.EscapeString(linkText))
+									sb.WriteString("</a>")
+								default:
+									sb.WriteString(linkText)
+								}
+							}
+							j += len(endTag)
+							break endSearch
+						}
+						j++
+					}
+					// If we didn't find [/LINK], just skip the opening tag
+					if j > n-len(endTag) && j == textStart {
+						// Didn't find closing tag, write as-is
+						sb.WriteString(textWithPlaceholders[i:textStart])
+						j = textStart
+					}
+					i = j
+					continue
+				}
+			}
+			// Failed to parse, write as-is
+			sb.WriteByte(textWithPlaceholders[i])
+			i++
+		} else {
+			sb.WriteByte(textWithPlaceholders[i])
+			i++
+		}
+	}
+
+	return sb.String()
 }
 
 func (p *Processor) extractImagesWithPosition(node *stdxhtml.Node) []ImageInfo {
@@ -1006,4 +1038,27 @@ func (p *Processor) calculateReadingTime(wordCount int) time.Duration {
 	}
 	minutes := float64(wordCount) / wordsPerMinute
 	return time.Duration(minutes * float64(time.Minute))
+}
+
+// cloneResult returns a deep copy of a Result to prevent data races
+// when the same cached entry is returned to multiple callers.
+func cloneResult(r *Result) *Result {
+	clone := *r
+	if r.Images != nil {
+		clone.Images = make([]ImageInfo, len(r.Images))
+		copy(clone.Images, r.Images)
+	}
+	if r.Links != nil {
+		clone.Links = make([]LinkInfo, len(r.Links))
+		copy(clone.Links, r.Links)
+	}
+	if r.Videos != nil {
+		clone.Videos = make([]VideoInfo, len(r.Videos))
+		copy(clone.Videos, r.Videos)
+	}
+	if r.Audios != nil {
+		clone.Audios = make([]AudioInfo, len(r.Audios))
+		copy(clone.Audios, r.Audios)
+	}
+	return &clone
 }

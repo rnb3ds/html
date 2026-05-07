@@ -283,6 +283,10 @@ type jsonResult struct {
 
 // MarshalJSON implements custom JSON marshaling for Result.
 // It converts time.Duration fields to milliseconds for better JSON interoperability.
+// Note: Result does not implement UnmarshalJSON. Deserializing JSON output back into
+// Result will lose duration fields (ProcessingTime, ReadingTime) because the JSON keys
+// differ from the struct field names. This is intentional — the JSON format is designed
+// for external consumption, not round-tripping.
 func (r *Result) MarshalJSON() ([]byte, error) {
 	jr := jsonResult{
 		Text:             r.Text,

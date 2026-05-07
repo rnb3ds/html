@@ -1,8 +1,11 @@
 package internal
 
 import (
+	"bytes"
 	"strings"
 	"testing"
+
+	"golang.org/x/net/html"
 )
 
 func TestSanitizeHTML(t *testing.T) {
@@ -526,6 +529,166 @@ func TestSanitizeHTML_URIAttributes(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestSanitizeStyleValue(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{
+			name:  "safe style preserved",
+			input: "text-align: center",
+			want:  "text-align: center",
+		},
+		{
+			name:  "expression blocked",
+			input: "width: expression(alert('xss'))",
+			want:  "",
+		},
+		{
+			name:  "behavior blocked",
+			input: "color: red; behavior: url(evil.htc)",
+			want:  "",
+		},
+		{
+			name:  "moz-binding blocked",
+			input: "width: 100px; -moz-binding: url(evil.xml#xss)",
+			want:  "",
+		},
+		{
+			name:  "javascript in style blocked",
+			input: "background: javascript:alert(1)",
+			want:  "",
+		},
+		{
+			name:  "vbscript in style blocked",
+			input: "background: vbscript:msgbox(1)",
+			want:  "",
+		},
+		{
+			name:  "empty style preserved",
+			input: "",
+			want:  "",
+		},
+		{
+			name:  "multiple safe properties",
+			input: "color: red; font-size: 14px; margin: 10px",
+			want:  "color: red; font-size: 14px; margin: 10px",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := sanitizeStyleValue(tt.input)
+			if result != tt.want {
+				t.Errorf("sanitizeStyleValue(%q) = %q, want %q", tt.input, result, tt.want)
+			}
+		})
+	}
+}
+
+func TestSanitizeDOM(t *testing.T) {
+	t.Parallel()
+
+	t.Run("removes script from DOM tree", func(t *testing.T) {
+		doc := mustParseHTML(t, `<div>Keep<script>alert('xss')</script>Keep</div>`)
+		SanitizeDOM(doc, NoOpAuditRecorder{})
+
+		result := mustRenderBody(t, doc)
+		if strings.Contains(result, "script") {
+			t.Errorf("script tag should be removed, got: %s", result)
+		}
+		if !strings.Contains(result, "Keep") {
+			t.Errorf("text should be preserved, got: %s", result)
+		}
+	})
+
+	t.Run("removes event handlers from DOM", func(t *testing.T) {
+		doc := mustParseHTML(t, `<a href="https://example.com" onclick="alert('xss')">click</a>`)
+		SanitizeDOM(doc, NoOpAuditRecorder{})
+
+		result := mustRenderBody(t, doc)
+		if strings.Contains(strings.ToLower(result), "onclick") {
+			t.Errorf("onclick should be removed, got: %s", result)
+		}
+	})
+
+	t.Run("removes dangerous URIs from DOM", func(t *testing.T) {
+		doc := mustParseHTML(t, `<a href="javascript:alert('xss')">click</a>`)
+		SanitizeDOM(doc, NoOpAuditRecorder{})
+
+		result := mustRenderBody(t, doc)
+		if strings.Contains(strings.ToLower(result), "javascript:") {
+			t.Errorf("javascript: URI should be removed, got: %s", result)
+		}
+	})
+
+	t.Run("preserves safe content in DOM", func(t *testing.T) {
+		doc := mustParseHTML(t, `<p>Hello <strong>world</strong></p>`)
+		SanitizeDOM(doc, NoOpAuditRecorder{})
+
+		result := mustRenderBody(t, doc)
+		if !strings.Contains(result, "Hello") || !strings.Contains(result, "world") {
+			t.Errorf("safe content should be preserved, got: %s", result)
+		}
+	})
+
+	t.Run("nil document is safe", func(t *testing.T) {
+		SanitizeDOM(nil, NoOpAuditRecorder{})
+	})
+
+	t.Run("sanitizes style attribute", func(t *testing.T) {
+		doc := mustParseHTML(t, `<div style="color: red; expression(evil)">text</div>`)
+		SanitizeDOM(doc, NoOpAuditRecorder{})
+
+		result := mustRenderBody(t, doc)
+		if strings.Contains(result, "expression") {
+			t.Errorf("dangerous CSS should be removed, got: %s", result)
+		}
+	})
+}
+
+// mustParseHTML is a test helper that parses an HTML string into a DOM tree.
+func mustParseHTML(t *testing.T, content string) *html.Node {
+	t.Helper()
+	doc, err := html.Parse(strings.NewReader(content))
+	if err != nil {
+		t.Fatalf("failed to parse HTML: %v", err)
+	}
+	return doc
+}
+
+// mustRenderBody is a test helper that renders the body content of a DOM tree.
+// It handles both full documents (<html><head></head><body>...) and fragment bodies.
+func mustRenderBody(t *testing.T, doc *html.Node) string {
+	t.Helper()
+	body := findBody(t, doc)
+	if body == nil {
+		return ""
+	}
+	var buf bytes.Buffer
+	for child := body.FirstChild; child != nil; child = child.NextSibling {
+		html.Render(&buf, child)
+	}
+	return buf.String()
+}
+
+// findBody recursively searches for the body element in a DOM tree.
+func findBody(t *testing.T, n *html.Node) *html.Node {
+	t.Helper()
+	if n.Type == html.ElementNode && n.Data == "body" {
+		return n
+	}
+	for child := n.FirstChild; child != nil; child = child.NextSibling {
+		if found := findBody(t, child); found != nil {
+			return found
+		}
+	}
+	return nil
 }
 
 func TestIsSafeURI(t *testing.T) {

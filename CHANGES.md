@@ -4,6 +4,36 @@ All notable changes to the cybergodev/html library will be documented in this fi
 
 ---
 
+## v1.4.1 - Security Hardening, Performance & Race Fix (2026-05-07)
+
+### Security
+- `AllowedBaseDir` config field restricts file operations to paths under a specified directory
+- `truncateAuditURL` helper caps data URLs at 256 chars in audit logs, preventing disk exhaustion
+- `FileError.MarshalJSON` uses `SafePath()` to prevent raw filesystem path disclosure in JSON responses
+
+### Performance
+- Single-pass HTML parse with in-place DOM sanitization (~41% faster on large documents)
+- Direct string scanning replaces regex-based link placeholder matching in `formatInlineLinks`
+- Inlined `compressAndTrimRight` into `CleanText`, eliminating nested builder pool overhead
+- Pooled `NodeSlicePool` for traversal stack in `CleanContentNode`
+
+### Fixed
+- `ChannelAuditSink` Write/Close race condition — replaced done+Once with RWMutex+isClosed
+- Cache hit returns deep copy via `cloneResult()` to prevent data races on concurrent access
+
+### Added
+- `SanitizeDOM` function for in-place DOM sanitization
+- DOM-path tests for iframe/embed/object video extraction
+- CSS injection prevention tests (`expression`/`behavior`/`-moz-binding`/`javascript`/`vbscript`)
+- In-place DOM sanitization test suite (script removal, event handler stripping, URI/style sanitization)
+
+### Changed
+- Removed unused `sanitizeContent` method and `linkPlaceholderRegex` variable
+- Clarified `configMu` mutex comment to reflect its narrow scope
+- Documented `MarshalJSON` asymmetry — JSON format is for external consumption, not round-tripping
+
+---
+
 ## v1.4.0 - Production Readiness & Performance (2026-04-29)
 
 ### Breaking

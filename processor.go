@@ -141,7 +141,7 @@ func (n contentNodeAdapter) Parent() ContentNode {
 // with automatic encoding detection and caching support.
 type Processor struct {
 	config   *Config
-	configMu sync.Mutex // Protects config fields during temporary modifications
+	configMu sync.Mutex // Protects config snapshot copy during extractWithFormats
 	cache    *internal.Cache
 	scorer   internal.Scorer
 	audit    *auditCollector
@@ -346,7 +346,7 @@ func (p *Processor) detectEncoding(htmlBytes []byte) (string, error) {
 }
 
 // validateAndReadFile validates the file path and reads the file contents.
-// It performs security checks including path traversal detection.
+// It performs security checks including path traversal detection and optional directory restriction.
 // Returns the file contents or an appropriate error.
 func (p *Processor) validateAndReadFile(filePath string) ([]byte, error) {
 	// Validate file path
@@ -364,6 +364,29 @@ func (p *Processor) validateAndReadFile(filePath string) ([]byte, error) {
 			p.audit.RecordPathTraversal(filePath)
 		}
 		return nil, newFileError("ReadFile", filePath, fmt.Errorf("path traversal detected: %s", cleanPath))
+	}
+
+	// Enforce AllowedBaseDir restriction when configured.
+	// Both paths are converted to absolute form for reliable prefix comparison.
+	if p.config.AllowedBaseDir != "" {
+		absPath, err := filepath.Abs(cleanPath)
+		if err != nil {
+			return nil, newFileError("ReadFile", cleanPath, fmt.Errorf("failed to resolve path: %w", err))
+		}
+		absBase, err := filepath.Abs(p.config.AllowedBaseDir)
+		if err != nil {
+			return nil, newFileError("ReadFile", cleanPath, fmt.Errorf("invalid AllowedBaseDir: %w", err))
+		}
+		// Ensure trailing separator so "/data-allowed" doesn't match "/data"
+		if !strings.HasSuffix(absBase, string(filepath.Separator)) {
+			absBase += string(filepath.Separator)
+		}
+		if !strings.HasPrefix(absPath+string(filepath.Separator), absBase) {
+			if p.audit != nil {
+				p.audit.RecordPathTraversal(filePath)
+			}
+			return nil, newFileError("ReadFile", filePath, fmt.Errorf("path outside allowed directory"))
+		}
 	}
 
 	data, err := os.ReadFile(cleanPath)

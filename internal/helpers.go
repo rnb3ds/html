@@ -241,7 +241,6 @@ func CleanText(text string, whitespaceRegex *regexp.Regexp) string {
 	}
 
 	// Fast path: check if processing is needed
-	// Use single scan for all checks to reduce string traversals
 	n := len(text)
 	hasNewlines := false
 	hasMultipleSpaces := false
@@ -282,7 +281,6 @@ func CleanText(text string, whitespaceRegex *regexp.Regexp) string {
 		return text
 	}
 
-	// Use pooled builder for better memory efficiency
 	sb := GetBuilder()
 	defer PutBuilder(sb)
 
@@ -304,11 +302,39 @@ func CleanText(text string, whitespaceRegex *regexp.Regexp) string {
 					firstNonSpace++
 				}
 
+				var indent, contentPart string
 				if firstNonSpace < lineLen {
-					indent := rawLine[:firstNonSpace]
-					content := compressAndTrimRight(rawLine[firstNonSpace:])
+					indent = rawLine[:firstNonSpace]
+					contentPart = rawLine[firstNonSpace:]
+				} else {
+					contentPart = rawLine
+				}
 
-					if content != "" {
+				contentLen := len(contentPart)
+				if contentLen > 0 {
+					// Scan for compression need
+					needsCompress := false
+					prevSp := false
+					for j := 0; j < contentLen; j++ {
+						c := contentPart[j]
+						if c == '\t' {
+							needsCompress = true
+							break
+						}
+						if c == ' ' && prevSp {
+							needsCompress = true
+							break
+						}
+						prevSp = c == ' '
+					}
+
+					// Trim trailing spaces/tabs
+					contentEnd := contentLen
+					for contentEnd > 0 && (contentPart[contentEnd-1] == ' ' || contentPart[contentEnd-1] == '\t') {
+						contentEnd--
+					}
+
+					if contentEnd > 0 {
 						if sb.Len() > 0 {
 							if previousWasEmpty {
 								sb.WriteByte('\n')
@@ -316,19 +342,23 @@ func CleanText(text string, whitespaceRegex *regexp.Regexp) string {
 							sb.WriteByte('\n')
 						}
 						sb.WriteString(indent)
-						sb.WriteString(content)
-						isEmpty = false
-					}
-				} else {
-					line := compressAndTrimRight(rawLine)
-					if line != "" {
-						if sb.Len() > 0 {
-							if previousWasEmpty {
-								sb.WriteByte('\n')
+						if needsCompress {
+							inSpace := false
+							for j := 0; j < contentEnd; j++ {
+								c := contentPart[j]
+								if c == ' ' || c == '\t' {
+									if !inSpace {
+										sb.WriteByte(' ')
+										inSpace = true
+									}
+								} else {
+									sb.WriteByte(c)
+									inSpace = false
+								}
 							}
-							sb.WriteByte('\n')
+						} else {
+							sb.WriteString(contentPart[:contentEnd])
 						}
-						sb.WriteString(line)
 						isEmpty = false
 					}
 				}
@@ -346,70 +376,6 @@ func CleanText(text string, whitespaceRegex *regexp.Regexp) string {
 	}
 	if hasAmpersand {
 		return ReplaceHTMLEntities(result)
-	}
-	return result
-}
-
-// compressAndTrimRight compresses whitespace and trims trailing spaces in one pass.
-func compressAndTrimRight(s string) string {
-	n := len(s)
-	if n == 0 {
-		return ""
-	}
-
-	firstMod := -1
-	prevWasSpace := false
-	for i := 0; i < n; i++ {
-		c := s[i]
-		isSpace := c == ' ' || c == '\t'
-		if isSpace && prevWasSpace {
-			firstMod = i - 1
-			break
-		}
-		prevWasSpace = isSpace
-		if c == '\t' && firstMod == -1 {
-			firstMod = i
-		}
-	}
-
-	if firstMod == -1 {
-		end := n
-		for end > 0 && s[end-1] == ' ' {
-			end--
-		}
-		if end == n {
-			return s
-		}
-		return s[:end]
-	}
-
-	sb := GetBuilder()
-	defer PutBuilder(sb)
-	sb.Grow(n)
-
-	if firstMod > 0 {
-		sb.WriteString(s[:firstMod])
-	}
-
-	inSpace := false
-	lastContentEnd := sb.Len()
-	for i := firstMod; i < n; i++ {
-		c := s[i]
-		if c == ' ' || c == '\t' {
-			if !inSpace {
-				sb.WriteByte(' ')
-				inSpace = true
-			}
-		} else {
-			sb.WriteByte(c)
-			inSpace = false
-			lastContentEnd = sb.Len()
-		}
-	}
-
-	result := sb.String()
-	if lastContentEnd < len(result) {
-		return result[:lastContentEnd]
 	}
 	return result
 }
