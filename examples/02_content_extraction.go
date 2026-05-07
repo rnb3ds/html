@@ -13,7 +13,8 @@ import (
 // This example demonstrates content extraction options and output formats.
 // Learn how to customize extraction and produce different output formats.
 func main() {
-	fmt.Println("=== Content Extraction & Output Formats ===\n")
+	fmt.Println("=== Content Extraction & Output Formats ===")
+	fmt.Println()
 
 	sampleHTML := `
 		<html>
@@ -86,10 +87,8 @@ func main() {
 	for _, format := range formats {
 		cfg := html.DefaultConfig()
 		cfg.InlineImageFormat = format
-		p, _ := html.New(cfg)
-		r, _ := p.Extract([]byte(imageHTML))
+		r, _ := html.Extract([]byte(imageHTML), cfg)
 		fmt.Printf("  %-12s: %s\n", format, r.Text)
-		p.Close()
 	}
 
 	// ============================================================
@@ -123,8 +122,8 @@ func main() {
 		log.Fatal(err)
 	}
 
-	var data map[string]interface{}
-	json.Unmarshal(jsonBytes, &data)
+	var data map[string]any
+	_ = json.Unmarshal(jsonBytes, &data) // best-effort pretty print
 	pretty, _ := json.MarshalIndent(data, "", "  ")
 	if len(pretty) > 400 {
 		fmt.Printf("%s...\n\n", string(pretty[:400]))

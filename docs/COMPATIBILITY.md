@@ -1,381 +1,291 @@
-# 100% Compatibility with golang.org/x/net/html
+# HTML Content Extraction Library
 
-This library is **100% API-compatible** with `golang.org/x/net/html` and serves as a **drop-in replacement** with enhanced content extraction features.
+`github.com/cybergodev/html` is a feature-rich HTML content extraction library with automatic encoding detection, content sanitization, caching, and batch processing.
 
-## What Does 100% Compatible Mean?
+> **Note:** This library uses `golang.org/x/net/html` internally for HTML parsing but does **not** re-export its types or functions. It is not a drop-in replacement for `golang.org/x/net/html`. It is an independent content extraction library built on top of it.
 
-All types, functions, and constants from `golang.org/x/net/html` are re-exported:
-
-### Types
-- `Node` - HTML parse tree node
-- `NodeType` - Type of node (ErrorNode, TextNode, DocumentNode, ElementNode, CommentNode, DoctypeNode)
-- `Attribute` - HTML element attribute
-- `Token` - HTML token
-- `TokenType` - Type of token (ErrorToken, TextToken, StartTagToken, EndTagToken, SelfClosingTagToken, CommentToken, DoctypeToken)
-- `Tokenizer` - HTML tokenizer
-
-### Functions
-- `Parse(r io.Reader) (*Node, error)` - Parse HTML document
-- `ParseFragment(r io.Reader, context *Node) ([]*Node, error)` - Parse HTML fragment
-- `Render(w io.Writer, n *Node) error` - Render HTML tree
-- `EscapeString(s string) string` - Escape HTML special characters
-- `UnescapeString(s string) string` - Unescape HTML entities (all 2,231 entities)
-- `NewTokenizer(r io.Reader) *Tokenizer` - Create HTML tokenizer
-
-## Migration Guide
-
-### From golang.org/x/net/html
-
-Simply change your import statement:
-
-```go
-// Before
-import "golang.org/x/net/html"
-
-// After
-import "github.com/cybergodev/html"
-```
-
-**That's it!** All your existing code works unchanged.
-
-### Real-World Migration Example
-
-**Before (using golang.org/x/net/html):**
-```go
-package main
-
-import (
-    "fmt"
-    "strings"
-    "golang.org/x/net/html"
-)
-
-func main() {
-    htmlContent := "<html><body><h1>Hello</h1><p>World</p></body></html>"
-    
-    doc, err := html.Parse(strings.NewReader(htmlContent))
-    if err != nil {
-        panic(err)
-    }
-    
-    // Walk the tree and extract text
-    var extractText func(*html.Node) string
-    extractText = func(n *html.Node) string {
-        if n.Type == html.TextNode {
-            return n.Data
-        }
-        var text string
-        for c := n.FirstChild; c != nil; c = c.NextSibling {
-            text += extractText(c)
-        }
-        return text
-    }
-    
-    text := extractText(doc)
-    fmt.Println(text)
-}
-```
-
-**After (using github.com/cybergodev/html):**
-```go
-package main
-
-import (
-    "fmt"
-    "strings"
-    "github.com/cybergodev/html"  // Only change: import path
-)
-
-func main() {
-    htmlContent := "<html><body><h1>Hello</h1><p>World</p></body></html>"
-    
-    // Option 1: Use standard parsing (100% compatible)
-    doc, err := html.Parse(strings.NewReader(htmlContent))
-    if err != nil {
-        panic(err)
-    }
-    
-    // Same tree walking code works identically
-    var extractText func(*html.Node) string
-    extractText = func(n *html.Node) string {
-        if n.Type == html.TextNode {
-            return n.Data
-        }
-        var text string
-        for c := n.FirstChild; c != nil; c = c.NextSibling {
-            text += extractText(c)
-        }
-        return text
-    }
-    
-    text := extractText(doc)
-    fmt.Println(text)
-    
-    // Option 2: Or use enhanced extraction (simpler!)
-    processor, err := html.New()
-	if err != nil {
-		log.Fatal(err)
-	}
-    defer processor.Close()
-    
-    result, err := processor.ExtractWithDefaults(htmlContent)
-    if err != nil {
-        panic(err)
-    }
-    
-    fmt.Println("Title:", result.Title)
-    fmt.Println("Text:", result.Text)
-    fmt.Println("Words:", result.WordCount)
-}
-```
-
-### Example: Standard HTML Parsing
-
-```go
-package main
-
-import (
-    "bytes"
-    "fmt"
-    "strings"
-    
-    "github.com/cybergodev/html"  // Drop-in replacement
-)
-
-func main() {
-    // Parse HTML
-    doc, err := html.Parse(strings.NewReader("<html><body><h1>Hello</h1></body></html>"))
-    if err != nil {
-        panic(err)
-    }
-    
-    // Render HTML
-    var buf bytes.Buffer
-    html.Render(&buf, doc)
-    fmt.Println(buf.String())
-    
-    // Escape/Unescape
-    escaped := html.EscapeString("<script>alert('xss')</script>")
-    fmt.Println(escaped)
-    
-    unescaped := html.UnescapeString("&lt;html&gt; &copy; 2024")
-    fmt.Println(unescaped)
-    
-    // Tokenize
-    tokenizer := html.NewTokenizer(strings.NewReader("<p>Test</p>"))
-    for {
-        tt := tokenizer.Next()
-        if tt == html.ErrorToken {
-            break
-        }
-        fmt.Printf("Token: %v\n", tt)
-    }
-    
-    // Create nodes
-    node := &html.Node{
-        Type: html.ElementNode,
-        Data: "div",
-        Attr: []html.Attribute{
-            {Key: "class", Val: "container"},
-            {Key: "id", Val: "main"},
-        },
-    }
-}
-```
-
-## Enhanced Features (Bonus)
-
-In addition to standard HTML parsing, this library provides advanced content extraction:
+## Quick Start
 
 ```go
 package main
 
 import (
     "fmt"
-    "strings"
+
     "github.com/cybergodev/html"
 )
 
 func main() {
-    // Standard parsing still works
-    doc, _ := html.Parse(strings.NewReader(htmlContent))
-    
-    // Plus enhanced extraction
+    // Create a processor with default configuration
     processor, err := html.New()
-	if err != nil {
-		log.Fatal(err)
-	}
-    defer processor.Close()
-    
-    result, err := processor.ExtractWithDefaults(`
-        <article>
-            <h1>Article Title</h1>
-            <p>Main content here.</p>
-            <img src="image.jpg" alt="Test">
-        </article>
-    `)
-    
     if err != nil {
         panic(err)
     }
-    
+    defer processor.Close()
+
+    // Extract content from HTML bytes
+    htmlBytes := []byte(`<article>
+        <h1>Article Title</h1>
+        <p>Main content here.</p>
+        <img src="image.jpg" alt="Test">
+    </article>`)
+
+    result, err := processor.Extract(htmlBytes)
+    if err != nil {
+        panic(err)
+    }
+
     fmt.Printf("Title: %s\n", result.Title)
     fmt.Printf("Text: %s\n", result.Text)
     fmt.Printf("Word Count: %d\n", result.WordCount)
     fmt.Printf("Images: %d\n", len(result.Images))
-    fmt.Printf("Processing Time: %v\n", result.ProcessingTime)
 }
 ```
 
-## Two-Tier API Design
+## Configuration
 
-### Tier 1: Standard HTML Parsing (100% Compatible)
+### Config Struct
 
-Use all `golang.org/x/net/html` APIs directly:
-
-```go
-doc, _ := html.Parse(r)
-html.Render(w, doc)
-escaped := html.EscapeString(s)
-tokenizer := html.NewTokenizer(r)
-```
-
-### Tier 2: Enhanced Content Extraction (Library-Specific)
-
-Use `Processor` for advanced features:
+All configuration is done through the `Config` struct. Start from `DefaultConfig()` and modify as needed:
 
 ```go
-processor, err := html.New()
-	if err != nil {
-		log.Fatal(err)
-	}
+cfg := html.DefaultConfig()
+cfg.MaxInputSize = 10 * 1024 * 1024
+cfg.InlineImageFormat = "markdown"
+processor, err := html.New(cfg)
+if err != nil {
+    log.Fatal(err)
+}
 defer processor.Close()
-
-result, _ := processor.ExtractWithDefaults(htmlContent)
-// Access: result.Title, result.Text, result.Images, result.Links, etc.
-
-// Or with custom configuration
-config := html.ExtractConfig{
-    ExtractArticle:    true,
-    PreserveImages:    true,
-    PreserveLinks:     true,
-    InlineImageFormat: "markdown",
-}
-result, _ = processor.Extract(htmlContent, config)
 ```
 
-## Verification
+### Configuration Options
 
-All compatibility is verified with automated tests:
-
-```bash
-# Run compatibility tests
-go test -v -run Compatibility
-
-# Run examples
-go run examples/compatibility.go
-```
-
-### Test Coverage
-
-The library includes comprehensive compatibility tests that verify:
-
-- ✓ **Node Types** - All 6 node types (ErrorNode, TextNode, DocumentNode, ElementNode, CommentNode, DoctypeNode)
-- ✓ **Token Types** - All 7 token types (ErrorToken, TextToken, StartTagToken, EndTagToken, SelfClosingTagToken, CommentToken, DoctypeToken)
-- ✓ **Parse Function** - Identical parsing behavior
-- ✓ **Render Function** - Identical rendering output
-- ✓ **EscapeString** - All HTML escape sequences
-- ✓ **UnescapeString** - All 2,231 HTML entities
-- ✓ **Tokenizer** - Identical tokenization behavior
-- ✓ **Node Structure** - Identical node tree structure
-- ✓ **ParseFragment** - Identical fragment parsing
-
-Run `go test -v ./...` to verify all tests pass.
-
-## Enhanced API Methods
-
-Beyond standard HTML parsing, the `Processor` provides these additional methods:
-
-### Content Extraction
 ```go
-// Extract with default configuration
-result, err := processor.ExtractWithDefaults(htmlContent)
+cfg := html.Config{
+    // Resource Management
+    MaxInputSize:      50 * 1024 * 1024, // 50MB max input (default)
+    MaxCacheEntries:   2000,             // Cache up to 2000 results (default)
+    CacheTTL:          time.Hour,        // 1 hour TTL (default)
+    CacheCleanup:      5 * time.Minute,  // Background cleanup interval (default)
+    WorkerPoolSize:    4,                // 4 parallel workers (default)
+    ProcessingTimeout: 30 * time.Second, // 30s timeout (default)
 
-// Extract with custom configuration
-config := html.ExtractConfig{
-    ExtractArticle:    true,       // Enable intelligent article detection
-    PreserveImages:    true,       // Extract image metadata
-    PreserveLinks:     true,       // Extract link metadata
-    PreserveVideos:    true,       // Extract video metadata
-    PreserveAudios:    true,       // Extract audio metadata
-    InlineImageFormat: "markdown", // none, placeholder, markdown, html
+    // Security
+    EnableSanitization: true, // Sanitize HTML (default: true)
+    MaxDepth:           500,  // Max nesting depth (default)
+
+    // Content Extraction
+    ExtractArticle: true, // Enable article detection (default: true)
+    PreserveImages: true, // Extract image metadata (default: true)
+    PreserveLinks:  true, // Extract link metadata (default: true)
+    PreserveVideos: true, // Extract video metadata (default: true)
+    PreserveAudios: true, // Extract audio metadata (default: true)
+
+    // Output Formats
+    InlineImageFormat: "none",      // "none", "markdown", "html", "placeholder" (default: "none")
+    InlineLinkFormat:  "none",      // "none", "markdown", "html" (default: "none")
+    TableFormat:       "markdown",  // "markdown", "html" (default: "markdown")
+    Encoding:          "",          // Auto-detect if empty (default)
+
+    // Link Extraction
+    ResolveRelativeURLs:  true,  // Resolve relative URLs (default: true)
+    BaseURL:              "",    // Base URL for resolution
+    IncludeImages:        true,  // Include image URLs in links (default: true)
+    IncludeVideos:        true,  // Include video URLs in links (default: true)
+    IncludeAudios:        true,  // Include audio URLs in links (default: true)
+    IncludeCSS:           true,  // Include CSS URLs in links (default: true)
+    IncludeJS:            true,  // Include JS URLs in links (default: true)
+    IncludeContentLinks:  true,  // Include <a href> links (default: true)
+    IncludeExternalLinks: true,  // Include external links (default: true)
+    IncludeIcons:         true,  // Include favicon URLs (default: true)
 }
-result, err := processor.Extract(htmlContent, config)
-
-// Extract from file
-result, err := processor.ExtractFromFile("page.html", config)
+processor, err := html.New(cfg)
 ```
 
-### Batch Processing
+### Preset Configurations
+
 ```go
-// Process multiple HTML strings in parallel
-htmlContents := []string{html1, html2, html3}
-results, err := processor.ExtractBatch(htmlContents, config)
+// Default configuration
+processor, err := html.New()
 
-// Process multiple files in parallel
-filePaths := []string{"page1.html", "page2.html", "page3.html"}
-results, err := processor.ExtractBatchFiles(filePaths, config)
+// High security (reduced limits, strict settings)
+processor, err := html.New(html.HighSecurityConfig())
+
+// Plain text only (no media metadata)
+processor, err := html.New(html.TextOnlyConfig())
+
+// Markdown output format
+processor, err := html.New(html.MarkdownConfig())
+
+// Custom configuration
+cfg := html.DefaultConfig()
+cfg.MaxInputSize = 10 * 1024 * 1024
+processor, err := html.New(cfg)
 ```
 
-### Monitoring & Cache Management
+## API Reference
+
+### Processor Methods
+
+The `Processor` is the main processing engine. Create one with `html.New(cfg ...Config)`.
+
+#### Content Extraction
+
+```go
+// From bytes (primary method)
+result, err := processor.Extract(htmlBytes []byte) (*Result, error)
+
+// From file
+result, err := processor.ExtractFromFile(filePath string) (*Result, error)
+
+// Plain text only
+text, err := processor.ExtractText(htmlBytes []byte) (string, error)
+text, err := processor.ExtractTextFromFile(filePath string) (string, error)
+```
+
+#### Context-Aware Extraction
+
+All extraction methods have context-aware variants that support cooperative cancellation:
+
+```go
+// From bytes with context
+result, err := processor.ExtractWithContext(ctx context.Context, htmlBytes []byte) (*Result, error)
+
+// From file with context
+result, err := processor.ExtractFromFileWithContext(ctx context.Context, filePath string) (*Result, error)
+
+// Plain text with context
+text, err := processor.ExtractTextWithContext(ctx context.Context, htmlBytes []byte) (string, error)
+text, err := processor.ExtractTextFromFileWithContext(ctx context.Context, filePath string) (string, error)
+```
+
+#### Output Format Methods
+
+```go
+// Markdown output
+markdown, err := processor.ExtractToMarkdown(htmlBytes []byte) (string, error)
+markdown, err := processor.ExtractToMarkdownFromFile(filePath string) (string, error)
+
+// JSON output
+jsonBytes, err := processor.ExtractToJSON(htmlBytes []byte) ([]byte, error)
+jsonBytes, err := processor.ExtractToJSONFromFile(filePath string) ([]byte, error)
+
+// Context-aware variants
+markdown, err := processor.ExtractToMarkdownWithContext(ctx, htmlBytes) (string, error)
+markdown, err := processor.ExtractToMarkdownFromFileWithContext(ctx, filePath) (string, error)
+jsonBytes, err := processor.ExtractToJSONWithContext(ctx, htmlBytes) ([]byte, error)
+jsonBytes, err := processor.ExtractToJSONFromFileWithContext(ctx, filePath) ([]byte, error)
+```
+
+#### Batch Processing
+
+```go
+// Process multiple byte slices concurrently
+br := processor.ExtractBatch(htmlContents [][]byte) *BatchResult
+
+// Process multiple files concurrently
+br := processor.ExtractBatchFiles(filePaths []string) *BatchResult
+
+// Context-aware variants
+br := processor.ExtractBatchWithContext(ctx, htmlContents [][]byte) *BatchResult
+br := processor.ExtractBatchFilesWithContext(ctx, filePaths []string) *BatchResult
+```
+
+#### Link Extraction
+
+```go
+// Extract all links as LinkResource
+links, err := processor.ExtractAllLinks(htmlBytes []byte) ([]LinkResource, error)
+links, err := processor.ExtractAllLinksFromFile(filePath string) ([]LinkResource, error)
+
+// Context-aware variants
+links, err := processor.ExtractAllLinksWithContext(ctx, htmlBytes) ([]LinkResource, error)
+links, err := processor.ExtractAllLinksFromFileWithContext(ctx, filePath) ([]LinkResource, error)
+```
+
+#### Statistics & Cache
+
 ```go
 // Get processing statistics
 stats := processor.GetStatistics()
-fmt.Printf("Total Processed: %d\n", stats.TotalProcessed)
-fmt.Printf("Cache Hits: %d\n", stats.CacheHits)
-fmt.Printf("Cache Misses: %d\n", stats.CacheMisses)
-fmt.Printf("Average Time: %v\n", stats.AverageProcessTime)
+// stats.TotalProcessed, stats.CacheHits, stats.CacheMisses,
+// stats.ErrorCount, stats.AverageProcessTime
 
 // Clear cache
 processor.ClearCache()
+
+// Reset statistics
+processor.ResetStatistics()
+
+// Get audit log entries
+entries := processor.GetAuditLog()
+processor.ClearAuditLog()
 
 // Always close when done
 defer processor.Close()
 ```
 
-### Configuration Options
-```go
-// Create processor with custom configuration
-config := html.Config{
-    MaxInputSize:       50 * 1024 * 1024,  // 50MB max input
-    ProcessingTimeout:  30 * time.Second,   // 30s timeout
-    MaxCacheEntries:    1000,               // Cache 1000 results
-    CacheTTL:           time.Hour,          // 1 hour TTL
-    WorkerPoolSize:     4,                  // 4 parallel workers
-    EnableSanitization: true,               // Sanitize HTML
-    MaxDepth:           100,                // Max nesting depth
-}
-processor, err := html.New(config)
+### Package-Level Convenience Functions
 
-// Or use defaults
-processor, err := html.New()
-	if err != nil {
-		log.Fatal(err)
-	}
+All `Processor` methods have package-level convenience functions that use a pooled processor. They accept an optional `cfg ...Config` parameter:
+
+```go
+// Content extraction
+result, err := html.Extract(htmlBytes []byte, cfg ...Config) (*Result, error)
+result, err := html.ExtractFromFile(filePath string, cfg ...Config) (*Result, error)
+text, err := html.ExtractText(htmlBytes []byte, cfg ...Config) (string, error)
+
+// Context-aware
+result, err := html.ExtractWithContext(ctx, htmlBytes, cfg) (*Result, error)
+
+// Output formats
+markdown, err := html.ExtractToMarkdown(htmlBytes, cfg) (string, error)
+jsonBytes, err := html.ExtractToJSON(htmlBytes, cfg) ([]byte, error)
+
+// Batch
+br := html.ExtractBatch(htmlContents [][]byte, cfg ...Config) *BatchResult
+br := html.ExtractBatchFiles(filePaths []string, cfg ...Config) *BatchResult
+
+// Links
+links, err := html.ExtractAllLinks(htmlBytes, cfg) ([]LinkResource, error)
 ```
 
-## Key Benefits
+### BatchResult
 
-- ✅ **Zero migration cost** - Just change import path
-- ✅ **100% compatible** - All APIs work identically
-- ✅ **Plus enhanced features** - Advanced content extraction
-- ✅ **Single dependency** - Only depends on `golang.org/x/net/html`
-- ✅ **Fully tested** - All compatibility verified
-- ✅ **Production-ready** - Thread-safe, secure, performant
+Batch methods return a `*BatchResult` (not individual results):
 
-## Result Structure
+```go
+type BatchResult struct {
+    Results    []*Result // Extraction results (nil for failed items)
+    Errors     []error   // Per-item errors
+    Success    int       // Count of successful extractions
+    Failed     int       // Count of failed extractions
+    Cancelled  int       // Count of items skipped due to context cancellation
+}
+```
 
-The `Result` type provides comprehensive extraction data:
+Usage:
+
+```go
+br := processor.ExtractBatch(htmlContents)
+if br.Failed > 0 {
+    for i, err := range br.Errors {
+        if err != nil {
+            log.Printf("Item %d failed: %v", i, err)
+        }
+    }
+}
+for i, result := range br.Results {
+    if result != nil {
+        fmt.Printf("Item %d: %s\n", i, result.Title)
+    }
+}
+```
+
+## Result Types
+
+### Result
 
 ```go
 type Result struct {
@@ -389,174 +299,291 @@ type Result struct {
     WordCount      int           // Word count
     ReadingTime    time.Duration // Estimated reading time (200 WPM)
 }
+```
 
+### ImageInfo
+
+```go
 type ImageInfo struct {
-    URL          string  // Image URL
-    Alt          string  // Alt text
-    Title        string  // Title attribute
-    Width        string  // Width attribute
-    Height       string  // Height attribute
-    IsDecorative bool    // True if alt text is empty
-    Position     int     // Position in text (for inline formatting)
-}
-
-type LinkInfo struct {
-    URL        string  // Link URL
-    Text       string  // Anchor text
-    Title      string  // Title attribute
-    IsExternal bool    // True if external domain
-    IsNoFollow bool    // True if rel="nofollow"
-}
-
-type VideoInfo struct {
-    URL      string  // Video URL (native, YouTube, Vimeo, direct)
-    Type     string  // MIME type or "embed"
-    Poster   string  // Poster image URL
-    Width    string  // Width attribute
-    Height   string  // Height attribute
-    Duration string  // Duration attribute
-}
-
-type AudioInfo struct {
-    URL      string  // Audio URL
-    Type     string  // MIME type
-    Duration string  // Duration attribute
+    URL          string // Image URL
+    Alt          string // Alt text
+    Title        string // Title attribute
+    Width        string // Width attribute
+    Height       string // Height attribute
+    IsDecorative bool   // True if alt text is empty
+    Position     int    // Position in text (for inline formatting)
 }
 ```
 
-## FAQ
+### LinkInfo
 
-### Q: Will my existing code break?
-**A:** No. All `golang.org/x/net/html` APIs work identically.
-
-### Q: Do I need to use the enhanced features?
-**A:** No. They're optional. Standard parsing works as before.
-
-### Q: What's the performance impact?
-**A:** Zero for standard parsing. Enhanced features are opt-in via `Processor`.
-
-### Q: Are all HTML entities supported?
-**A:** Yes. All 2,231 HTML entities from `golang.org/x/net/html` are supported.
-
-### Q: Is it thread-safe?
-**A:** Yes. Both standard parsing and enhanced extraction are thread-safe. The `Processor` can be safely used by multiple goroutines concurrently.
-
-### Q: What about dependencies?
-**A:** Single dependency: `golang.org/x/net/html` (same as before).
-
-### Q: How does caching work?
-**A:** Content-addressable caching using SHA256 keys. Cache entries expire based on TTL (default: 1 hour) and are evicted using LRU when the cache is full (default: 1000 entries).
-
-## Performance Considerations
-
-### Standard Parsing
-Using standard `html.Parse()`, `html.Render()`, etc. has **zero performance overhead** compared to `golang.org/x/net/html` - they are direct re-exports.
-
-### Enhanced Extraction
-The `Processor` adds intelligent features with minimal overhead:
-
-- **First extraction**: Parses and analyzes content (~1-5ms for typical pages)
-- **Cached extractions**: Near-instant retrieval from cache (~0.1ms)
-- **Batch processing**: Parallel workers maximize throughput
-- **Memory efficient**: Lazy cleanup, no background goroutines
-
-**Caching benefits:**
 ```go
-processor, err := html.New()
-	if err != nil {
-		log.Fatal(err)
-	}
-defer processor.Close()
+type LinkInfo struct {
+    URL        string // Link URL
+    Text       string // Anchor text
+    Title      string // Title attribute
+    IsExternal bool   // True if external domain
+    IsNoFollow bool   // True if rel="nofollow"
+    Position   int    // Position in text (for inline formatting)
+}
+```
 
-// First call: ~2ms (parse + analyze)
-result1, _ := processor.ExtractWithDefaults(htmlContent)
+### VideoInfo
 
-// Second call: ~0.1ms (cache hit)
-result2, _ := processor.ExtractWithDefaults(htmlContent)
+```go
+type VideoInfo struct {
+    URL      string // Video URL (native, YouTube, Vimeo, direct)
+    Type     string // MIME type or "embed"
+    Poster   string // Poster image URL
+    Width    string // Width attribute
+    Height   string // Height attribute
+    Duration string // Duration attribute
+}
+```
 
-stats := processor.GetStatistics()
-fmt.Printf("Cache hit rate: %.1f%%\n", 
-    float64(stats.CacheHits)/float64(stats.TotalProcessed)*100)
+### AudioInfo
+
+```go
+type AudioInfo struct {
+    URL      string // Audio URL
+    Type     string // MIME type
+    Duration string // Duration attribute
+}
+```
+
+### LinkResource
+
+```go
+type LinkResource struct {
+    URL   string // Resource URL
+    Title string // Display title
+    Type  string // Resource type: "link", "image", "video", "audio", "css", "js", "icon"
+}
+```
+
+### Statistics
+
+```go
+type Statistics struct {
+    TotalProcessed     int64
+    CacheHits          int64
+    CacheMisses        int64
+    ErrorCount         int64
+    AverageProcessTime time.Duration
+}
+```
+
+## Interfaces
+
+The library provides interfaces for mocking and testing:
+
+```go
+// Full interface (all extraction, batch, link, and output methods)
+var e html.Extractor = processor
+
+// Statistics and cache management
+var sp html.StatsProvider = processor
+```
+
+`Extractor` includes all content extraction, text extraction, formatted output (Markdown/JSON), batch processing, and link extraction methods. `StatsProvider` covers statistics retrieval, cache clearing, and statistics reset.
+
+## Error Handling
+
+The library uses sentinel errors compatible with `errors.Is()`:
+
+```go
+result, err := processor.Extract(htmlBytes)
+if err != nil {
+    if errors.Is(err, html.ErrInputTooLarge) {
+        // Input exceeds MaxInputSize
+    } else if errors.Is(err, html.ErrMaxDepthExceeded) {
+        // HTML nesting exceeds MaxDepth
+    } else if errors.Is(err, html.ErrProcessingTimeout) {
+        // Processing exceeded ProcessingTimeout
+    } else if errors.Is(err, html.ErrInvalidHTML) {
+        // HTML parsing failed
+    } else if errors.Is(err, html.ErrProcessorClosed) {
+        // Processor was closed
+    } else if errors.Is(err, html.ErrFileNotFound) {
+        // File not found
+    } else if errors.Is(err, html.ErrInvalidConfig) {
+        // Configuration validation failed
+    } else if errors.Is(err, html.ErrInvalidFilePath) {
+        // File path validation failed
+    } else if errors.Is(err, html.ErrInternalPanic) {
+        // Internal panic recovered (indicates a bug)
+    } else if errors.Is(err, html.ErrMultipleConfigs) {
+        // More than one Config provided to package-level function
+    }
+}
+```
+
+## Custom Scorer
+
+You can provide a custom content scorer to control article extraction:
+
+```go
+type MyScorer struct{}
+
+func (s MyScorer) Score(node html.ContentNode) int {
+    // Return a relevance score for the node
+    return 0
+}
+
+func (s MyScorer) ShouldRemove(node html.ContentNode) bool {
+    // Return true to remove the node from content
+    return false
+}
+
+cfg := html.DefaultConfig()
+cfg.Scorer = MyScorer{}
+processor, err := html.New(cfg)
 ```
 
 ## Best Practices
 
 ### 1. Reuse Processor Instances
+
 ```go
-// ✅ Good: Create once, reuse many times
+// Good: Create once, reuse many times
 processor, err := html.New()
-	if err != nil {
-		log.Fatal(err)
-	}
+if err != nil {
+    log.Fatal(err)
+}
 defer processor.Close()
 
-for _, content := range htmlContents {
-    result, _ := processor.ExtractWithDefaults(content)
-    // Process result...
+for _, content := range htmlDocs {
+    result, err := processor.Extract(content)
+    // ... handle result
 }
 
-// ❌ Bad: Creating new processor per request
-for _, content := range htmlContents {
-    processor, err := html.New()
-	if err != nil {
-		log.Fatal(err)
-	}
-    result, _ := processor.ExtractWithDefaults(content)
+// Bad: Creating new processor per request
+for _, content := range htmlDocs {
+    processor, _ := html.New()
+    result, _ := processor.Extract(content)
     processor.Close()
 }
 ```
 
 ### 2. Always Close Processor
-```go
-// ✅ Good: Use defer to ensure cleanup
-processor, err := html.New()
-	if err != nil {
-		log.Fatal(err)
-	}
-defer processor.Close()
 
-// ❌ Bad: Forgetting to close
+```go
 processor, err := html.New()
-	if err != nil {
-		log.Fatal(err)
-	}
-result, _ := processor.ExtractWithDefaults(content)
-// Processor never closed - cache not cleaned up
+if err != nil {
+    log.Fatal(err)
+}
+defer processor.Close() // Releases cache and background goroutines
 ```
 
 ### 3. Use Batch Processing for Multiple Documents
-```go
-// ✅ Good: Parallel processing with worker pool
-results, _ := processor.ExtractBatch(htmlContents, config)
 
-// ❌ Bad: Sequential processing
-for _, content := range htmlContents {
-    result, _ := processor.Extract(content, config)
+```go
+// Good: Parallel processing with worker pool
+br := processor.ExtractBatch(htmlDocs)
+
+// Bad: Sequential processing
+for _, content := range htmlDocs {
+    result, _ := processor.Extract(content)
 }
 ```
 
 ### 4. Configure Limits Appropriately
-```go
-// ✅ Good: Set limits based on your use case
-config := html.Config{
-    MaxInputSize:    10 * 1024 * 1024,  // 10MB for blog posts
-    MaxCacheEntries: 500,                // Cache 500 recent pages
-    WorkerPoolSize:  8,                  // 8 workers for batch processing
-}
 
-// ❌ Bad: Using unlimited or excessive values
-config := html.Config{
-    MaxInputSize:    1024 * 1024 * 1024, // 1GB - too large
-    MaxCacheEntries: 1000000,            // 1M entries - excessive memory
-}
+```go
+// Good: Set limits based on your use case
+cfg := html.DefaultConfig()
+cfg.MaxInputSize = 10 * 1024 * 1024 // 10MB for blog posts
+cfg.MaxCacheEntries = 500            // Cache 500 recent pages
+cfg.WorkerPoolSize = 8               // 8 workers for batch processing
+
+// Bad: Using unlimited or excessive values
+cfg.MaxInputSize = 1024 * 1024 * 1024 // 1GB - too large
+cfg.MaxCacheEntries = 1000000          // 1M entries - excessive memory
 ```
 
-## Support
+### 5. Use Package-Level Functions for One-Off Extractions
 
-- **Documentation**: See `docs/` directory and [README.md](../README.md)
-- **Examples**: See `examples/` directory
-- **Tests**: Run `go test -v ./...`
-- **Issues**: Report on GitHub
+```go
+// Good: Package-level function uses pooled processor
+result, err := html.Extract(htmlBytes)
+
+// Good: With custom config
+cfg := html.TextOnlyConfig()
+text, err := html.ExtractText(htmlBytes, cfg)
+```
+
+## Performance
+
+### Single Extraction
+
+- First extraction parses and analyzes content (~1-5ms for typical pages)
+- Cached extractions retrieved near-instantly from cache (~0.1ms)
+- Memory efficient with `sync.Pool` for builders and buffers
+
+### Batch Processing
+
+- Parallel workers maximize throughput (configurable `WorkerPoolSize`)
+- Worker pool semaphore prevents resource exhaustion
+
+### Caching
+
+Content-addressable caching using xxHash-style hashing. Cache entries expire based on TTL and are evicted using LRU when full.
+
+```go
+processor, err := html.New()
+if err != nil {
+    log.Fatal(err)
+}
+defer processor.Close()
+
+// First call: parse + analyze
+result1, _ := processor.Extract(htmlBytes)
+
+// Second call: cache hit
+result2, _ := processor.Extract(htmlBytes)
+
+stats := processor.GetStatistics()
+fmt.Printf("Cache hit rate: %.1f%%\n",
+    float64(stats.CacheHits)/float64(stats.TotalProcessed)*100)
+```
+
+## Dependencies
+
+- `golang.org/x/net/html` - HTML5 parser (official Go supplementary library)
+- `golang.org/x/text` - Character encoding detection and conversion
+
+## Examples
+
+See the `examples/` directory for complete examples:
+
+- `01_quick_start.go` - Basic usage
+- `02_content_extraction.go` - Content extraction features
+- `03_links_media.go` - Link and media extraction
+- `04_performance.go` - Performance optimization
+- `05_http_integration.go` - HTTP server integration
+- `06_advanced_usage.go` - Advanced features
+- `07_error_handling.go` - Error handling patterns
+- `08_real_world.go` - Real-world scenarios
+
+## FAQ
+
+### Q: Can I use this as a drop-in replacement for golang.org/x/net/html?
+**A:** No. This library uses `golang.org/x/net/html` internally but does not re-export its types or functions. It is an independent content extraction library.
+
+### Q: What input types do extraction methods accept?
+**A:** `Processor.Extract()` and `ExtractBatch()` accept `[]byte` (not `string`). This allows for efficient encoding detection directly from raw bytes. Use `ExtractFromFile()` for file paths.
+
+### Q: Do I need to pass config to each extraction call?
+**A:** No. Configuration is set once at `New(cfg ...Config)` and applies to all subsequent calls on that processor. Package-level convenience functions accept optional `cfg ...Config` for one-off customization.
+
+### Q: Is it thread-safe?
+**A:** Yes. A single `Processor` can be safely used by multiple goroutines concurrently.
+
+### Q: What about dependencies?
+**A:** Two dependencies: `golang.org/x/net/html` (HTML parsing) and `golang.org/x/text` (encoding detection).
+
+### Q: How does caching work?
+**A:** Content-addressable caching using xxHash-style hashing. Cache entries expire based on TTL (default: 1 hour) and are evicted using LRU when the cache is full (default: 2000 entries).
 
 ## License
 

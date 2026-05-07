@@ -25,17 +25,107 @@ type BatchResult struct {
 // extractFunc is a function type for extracting content from a single input.
 type extractFunc func() (*Result, error)
 
+// maxBatchSize limits the number of items in a single batch operation to prevent OOM.
+// Callers passing more items than this limit receive a BatchResult with an error.
+const maxBatchSize = 10000
+
+// uniformErrorBatch creates a BatchResult where every item has the same error.
+// The Errors slice length matches n, preserving index correspondence with Results.
+func uniformErrorBatch(n int, err error) *BatchResult {
+	errs := make([]error, n)
+	for i := range errs {
+		errs[i] = err
+	}
+	return &BatchResult{
+		Results: make([]*Result, n),
+		Errors:  errs,
+		Failed:  n,
+	}
+}
+
+// ============================================================================
+// Package-level Batch Convenience Functions
+// ============================================================================
+
+// ExtractBatch extracts content from multiple HTML byte slices concurrently.
+// This is a convenience function that uses a pooled Processor for efficiency.
+// The concurrency level is controlled by the WorkerPoolSize configuration (default: 4).
+//
+// An optional Config can be provided to customize extraction behavior.
+// If no config is provided, DefaultConfig() is used.
+func ExtractBatch(htmlContents [][]byte, cfg ...Config) *BatchResult {
+	c, pooled, err := resolveConfig(cfg...)
+	if err != nil {
+		return uniformErrorBatch(len(htmlContents), err)
+	}
+	return withProcessorBatch(pooled, c, len(htmlContents), func(p *Processor) *BatchResult {
+		return p.ExtractBatch(htmlContents)
+	})
+}
+
+// ExtractBatchWithContext extracts content from multiple HTML byte slices concurrently with context support.
+// This is a convenience function that uses a pooled Processor for efficiency.
+// If the context is cancelled, pending extractions are skipped and the BatchResult.Cancelled count is incremented.
+//
+// An optional Config can be provided to customize extraction behavior.
+// If no config is provided, DefaultConfig() is used.
+func ExtractBatchWithContext(ctx context.Context, htmlContents [][]byte, cfg ...Config) *BatchResult {
+	c, pooled, err := resolveConfig(cfg...)
+	if err != nil {
+		return uniformErrorBatch(len(htmlContents), err)
+	}
+	return withProcessorBatch(pooled, c, len(htmlContents), func(p *Processor) *BatchResult {
+		return p.ExtractBatchWithContext(ctx, htmlContents)
+	})
+}
+
+// ExtractBatchFiles extracts content from multiple HTML files concurrently.
+// This is a convenience function that uses a pooled Processor for efficiency.
+// The concurrency level is controlled by the WorkerPoolSize configuration (default: 4).
+//
+// An optional Config can be provided to customize extraction behavior.
+// If no config is provided, DefaultConfig() is used.
+func ExtractBatchFiles(filePaths []string, cfg ...Config) *BatchResult {
+	c, pooled, err := resolveConfig(cfg...)
+	if err != nil {
+		return uniformErrorBatch(len(filePaths), err)
+	}
+	return withProcessorBatch(pooled, c, len(filePaths), func(p *Processor) *BatchResult {
+		return p.ExtractBatchFiles(filePaths)
+	})
+}
+
+// ExtractBatchFilesWithContext extracts content from multiple HTML files concurrently with context support.
+// This is a convenience function that uses a pooled Processor for efficiency.
+// If the context is cancelled, pending extractions are skipped and the BatchResult.Cancelled count is incremented.
+//
+// An optional Config can be provided to customize extraction behavior.
+// If no config is provided, DefaultConfig() is used.
+func ExtractBatchFilesWithContext(ctx context.Context, filePaths []string, cfg ...Config) *BatchResult {
+	c, pooled, err := resolveConfig(cfg...)
+	if err != nil {
+		return uniformErrorBatch(len(filePaths), err)
+	}
+	return withProcessorBatch(pooled, c, len(filePaths), func(p *Processor) *BatchResult {
+		return p.ExtractBatchFilesWithContext(ctx, filePaths)
+	})
+}
+
 // ExtractBatch extracts content from multiple HTML byte slices concurrently.
 // The concurrency level is controlled by the WorkerPoolSize configuration (default: 4).
 // Each extraction is performed independently with automatic encoding detection.
-// Returns a slice of results and a combined error if any extractions failed.
-func (p *Processor) ExtractBatch(htmlContents [][]byte) ([]*Result, error) {
+func (p *Processor) ExtractBatch(htmlContents [][]byte) *BatchResult {
 	if p == nil || p.closed.Load() {
-		return nil, ErrProcessorClosed
+		return p.closedBatchResult(len(htmlContents))
+	}
+
+	if len(htmlContents) > maxBatchSize {
+		return uniformErrorBatch(len(htmlContents),
+			fmt.Errorf("html: batch size %d exceeds maximum %d", len(htmlContents), maxBatchSize))
 	}
 
 	if len(htmlContents) == 0 {
-		return []*Result{}, nil
+		return &BatchResult{Results: []*Result{}, Errors: []error{}}
 	}
 
 	extractors := make([]extractFunc, len(htmlContents))
@@ -43,7 +133,7 @@ func (p *Processor) ExtractBatch(htmlContents [][]byte) ([]*Result, error) {
 		extractors[i] = p.extractorForBytes(content)
 	}
 
-	return p.runBatch(extractors, nil)
+	return p.runBatch(extractors)
 }
 
 // ExtractBatchWithContext extracts content from multiple HTML byte slices concurrently with context support.
@@ -53,6 +143,11 @@ func (p *Processor) ExtractBatch(htmlContents [][]byte) ([]*Result, error) {
 func (p *Processor) ExtractBatchWithContext(ctx context.Context, htmlContents [][]byte) *BatchResult {
 	if p == nil || p.closed.Load() {
 		return p.closedBatchResult(len(htmlContents))
+	}
+
+	if len(htmlContents) > maxBatchSize {
+		return uniformErrorBatch(len(htmlContents),
+			fmt.Errorf("html: batch size %d exceeds maximum %d", len(htmlContents), maxBatchSize))
 	}
 
 	if len(htmlContents) == 0 {
@@ -70,14 +165,18 @@ func (p *Processor) ExtractBatchWithContext(ctx context.Context, htmlContents []
 // ExtractBatchFiles extracts content from multiple HTML files concurrently.
 // The concurrency level is controlled by the WorkerPoolSize configuration (default: 4).
 // Each extraction is performed independently with automatic encoding detection.
-// Returns a slice of results and a combined error if any extractions failed.
-func (p *Processor) ExtractBatchFiles(filePaths []string) ([]*Result, error) {
+func (p *Processor) ExtractBatchFiles(filePaths []string) *BatchResult {
 	if p == nil || p.closed.Load() {
-		return nil, ErrProcessorClosed
+		return p.closedBatchResult(len(filePaths))
+	}
+
+	if len(filePaths) > maxBatchSize {
+		return uniformErrorBatch(len(filePaths),
+			fmt.Errorf("html: batch size %d exceeds maximum %d", len(filePaths), maxBatchSize))
 	}
 
 	if len(filePaths) == 0 {
-		return []*Result{}, nil
+		return &BatchResult{Results: []*Result{}, Errors: []error{}}
 	}
 
 	extractors := make([]extractFunc, len(filePaths))
@@ -85,7 +184,7 @@ func (p *Processor) ExtractBatchFiles(filePaths []string) ([]*Result, error) {
 		extractors[i] = p.extractorForFile(path)
 	}
 
-	return p.runBatch(extractors, filePaths)
+	return p.runBatch(extractors)
 }
 
 // ExtractBatchFilesWithContext extracts content from multiple HTML files concurrently with context support.
@@ -95,6 +194,11 @@ func (p *Processor) ExtractBatchFiles(filePaths []string) ([]*Result, error) {
 func (p *Processor) ExtractBatchFilesWithContext(ctx context.Context, filePaths []string) *BatchResult {
 	if p == nil || p.closed.Load() {
 		return p.closedBatchResult(len(filePaths))
+	}
+
+	if len(filePaths) > maxBatchSize {
+		return uniformErrorBatch(len(filePaths),
+			fmt.Errorf("html: batch size %d exceeds maximum %d", len(filePaths), maxBatchSize))
 	}
 
 	if len(filePaths) == 0 {
@@ -112,30 +216,29 @@ func (p *Processor) ExtractBatchFilesWithContext(ctx context.Context, filePaths 
 // extractorForBytes creates an extractFunc for byte slice input.
 func (p *Processor) extractorForBytes(htmlBytes []byte) extractFunc {
 	return func() (*Result, error) {
-		return p.extractInternal(htmlBytes)
+		return p.Extract(htmlBytes)
 	}
 }
 
 // extractorForFile creates an extractFunc for file path input.
 func (p *Processor) extractorForFile(filePath string) extractFunc {
 	return func() (*Result, error) {
-		data, err := p.validateAndReadFile(filePath)
-		if err != nil {
-			return nil, err
-		}
-		return p.extractInternal(data)
+		return p.ExtractFromFile(filePath)
 	}
 }
 
-// runBatch executes a batch of extractions concurrently without context.
-func (p *Processor) runBatch(extractors []extractFunc, names []string) ([]*Result, error) {
-	results := make([]*Result, len(extractors))
-	errs := make([]error, len(extractors))
+// runBatch executes a batch of extractions concurrently.
+func (p *Processor) runBatch(extractors []extractFunc) *BatchResult {
+	br := &BatchResult{
+		Results: make([]*Result, len(extractors)),
+		Errors:  make([]error, len(extractors)),
+	}
+
+	var mu sync.Mutex
 	sem := make(chan struct{}, p.config.WorkerPoolSize)
 	var wg sync.WaitGroup
 
 	for i, extractor := range extractors {
-		// Acquire semaphore BEFORE creating goroutine to limit concurrent goroutines
 		sem <- struct{}{}
 
 		wg.Add(1)
@@ -143,17 +246,29 @@ func (p *Processor) runBatch(extractors []extractFunc, names []string) ([]*Resul
 			defer func() {
 				<-sem
 				if r := recover(); r != nil {
-					errs[idx] = fmt.Errorf("panic during extraction: %v", r)
+					mu.Lock()
+					br.Errors[idx] = fmt.Errorf("%w: %v", ErrInternalPanic, r)
+					br.Failed++
+					mu.Unlock()
 				}
 				wg.Done()
 			}()
 
-			results[idx], errs[idx] = extract()
+			result, err := extract()
+			mu.Lock()
+			defer mu.Unlock()
+			if err != nil {
+				br.Errors[idx] = err
+				br.Failed++
+			} else {
+				br.Results[idx] = result
+				br.Success++
+			}
 		}(i, extractor)
 	}
 
 	wg.Wait()
-	return collectResults(results, errs, names)
+	return br
 }
 
 // runBatchWithContext executes a batch of extractions concurrently with context support.
@@ -179,29 +294,30 @@ func (p *Processor) runBatchWithContext(ctx context.Context, extractors []extrac
 		default:
 		}
 
+		// Acquire semaphore before spawning goroutine to bound total goroutines
+		// to WorkerPoolSize rather than spawning len(extractors) at once.
+		select {
+		case <-ctx.Done():
+			mu.Lock()
+			br.Cancelled++
+			br.Errors[i] = ctx.Err()
+			mu.Unlock()
+			continue
+		case sem <- struct{}{}:
+		}
+
 		wg.Add(1)
 		go func(idx int, extract extractFunc) {
 			defer func() {
+				<-sem
 				if r := recover(); r != nil {
 					mu.Lock()
-					br.Errors[idx] = fmt.Errorf("panic during extraction: %v", r)
+					br.Errors[idx] = fmt.Errorf("%w: %v", ErrInternalPanic, r)
 					br.Failed++
 					mu.Unlock()
 				}
 				wg.Done()
 			}()
-
-			// Check context before acquiring semaphore
-			select {
-			case <-ctx.Done():
-				mu.Lock()
-				br.Cancelled++
-				br.Errors[idx] = ctx.Err()
-				mu.Unlock()
-				return
-			case sem <- struct{}{}:
-				defer func() { <-sem }()
-			}
 
 			// Check context before processing
 			select {
@@ -243,33 +359,4 @@ func (p *Processor) closedBatchResult(count int) *BatchResult {
 		br.Errors[i] = ErrProcessorClosed
 	}
 	return br
-}
-
-// extractInternal performs the actual extraction using the processor's config.
-// This method is used by batch processing to avoid the overhead of full Extract.
-func (p *Processor) extractInternal(htmlBytes []byte) (*Result, error) {
-	// Validate processor state and input size
-	if err := p.validateInput(htmlBytes); err != nil {
-		return nil, err
-	}
-
-	startTime := now()
-
-	utf8String, err := p.detectEncoding(htmlBytes)
-	if err != nil {
-		return nil, err
-	}
-
-	result, err := p.processContent(utf8String)
-	if err != nil {
-		p.stats.errorCount.Add(1)
-		return nil, err
-	}
-
-	// Update statistics
-	processingTime := since(startTime)
-	p.stats.totalProcessTime.Add(int64(processingTime))
-	p.stats.totalProcessed.Add(1)
-
-	return result, nil
 }

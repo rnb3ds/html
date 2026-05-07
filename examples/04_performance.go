@@ -14,7 +14,8 @@ import (
 // This example demonstrates performance optimization patterns.
 // Learn how to tune the library for batch processing and high-throughput scenarios.
 func main() {
-	fmt.Println("=== Performance Optimization ===\n")
+	fmt.Println("=== Performance Optimization ===")
+	fmt.Println()
 
 	// ============================================================
 	// 1. Processor Reuse (Critical for Performance)
@@ -24,13 +25,14 @@ func main() {
 
 	// BAD: Creating processor for each extraction
 	fmt.Println("BAD: Creating new processor each time:")
+	const benchDoc = `<html><body><article><h1>Go Performance Guide</h1><p>This article covers performance optimization techniques for Go applications, including profiling, benchmarking, and memory management strategies.</p><p>Understanding how the Go scheduler works is essential for writing efficient concurrent programs that make the most of available CPU resources.</p><p>Memory allocation patterns significantly impact GC pressure. Prefer stack-allocated values and sync.Pool for heap-heavy workloads.</p></article></body></html>`
 	start := time.Now()
-	for i := 0; i < 10; i++ {
+	for i := 0; i < 2000; i++ {
 		p, _ := html.New()
-		p.Extract([]byte("<html><body><p>Test</p></body></html>"))
+		p.Extract([]byte(benchDoc))
 		p.Close()
 	}
-	fmt.Printf("  10 extractions: %v\n", time.Since(start))
+	fmt.Printf("  2000 extractions: %v\n", time.Since(start))
 
 	// GOOD: Reusing processor
 	fmt.Println("GOOD: Reusing processor:")
@@ -38,10 +40,10 @@ func main() {
 	defer processor.Close()
 
 	start = time.Now()
-	for i := 0; i < 10; i++ {
-		processor.Extract([]byte("<html><body><p>Test</p></body></html>"))
+	for i := 0; i < 2000; i++ {
+		processor.Extract([]byte(benchDoc))
 	}
-	fmt.Printf("  10 extractions: %v\n\n", time.Since(start))
+	fmt.Printf("  2000 extractions: %v\n\n", time.Since(start))
 
 	// ============================================================
 	// 2. Caching Benefits
@@ -49,20 +51,25 @@ func main() {
 	fmt.Println("2. Caching Benefits")
 	fmt.Println("-------------------")
 
-	sampleHTML := `<article><h1>Test Article</h1><p>This is content for caching demonstration.</p></article>`
-
-	// First extraction - cache miss
+	// Cold cache: 100 unique documents (all cache misses)
 	start = time.Now()
-	processor.Extract([]byte(sampleHTML))
+	for i := 0; i < 100; i++ {
+		doc := []byte(fmt.Sprintf(`<html><body><article><h1>Cache Test %d</h1><p>This is a longer article used for caching demonstration. It contains multiple paragraphs to produce measurable extraction times on modern hardware. The cache stores results by content hash, so extracting the same document twice returns the cached result instantly.</p><p>Cache hits reduce both CPU time and memory allocations, which is especially valuable in web services processing repeated content.</p></article></body></html>`, i))
+		processor.Extract(doc)
+	}
 	missTime := time.Since(start)
 
-	// Second extraction - cache hit (same content)
+	// Warm cache: same document repeated (all cache hits)
+	warmDoc := []byte(`<html><body><article><h1>Cache Warm</h1><p>This is a longer article used for caching demonstration. It contains multiple paragraphs to produce measurable extraction times on modern hardware. The cache stores results by content hash, so extracting the same document twice returns the cached result instantly.</p><p>Cache hits reduce both CPU time and memory allocations, which is especially valuable in web services processing repeated content.</p></article></body></html>`)
+	processor.Extract(warmDoc) // populate cache
 	start = time.Now()
-	processor.Extract([]byte(sampleHTML))
+	for i := 0; i < 10000; i++ {
+		processor.Extract(warmDoc)
+	}
 	hitTime := time.Since(start)
 
-	fmt.Printf("Cache miss: %v\n", missTime)
-	fmt.Printf("Cache hit:  %v\n", hitTime)
+	fmt.Printf("100 unique docs (all misses):   %v\n", missTime)
+	fmt.Printf("10000 same docs  (all hits):  %v\n", hitTime)
 	if missTime > 0 && hitTime > 0 && missTime > hitTime {
 		fmt.Printf("Speedup:    %.1fx\n\n", float64(missTime)/float64(hitTime))
 	} else {
@@ -98,18 +105,11 @@ func main() {
 	defer batchProcessor.Close()
 
 	start = time.Now()
-	results, _ := batchProcessor.ExtractBatch(docs)
+	batchResult := batchProcessor.ExtractBatch(docs)
 	batchTime := time.Since(start)
 	fmt.Printf("  100 docs: %v (%.2f docs/sec)\n\n", batchTime, float64(100)/batchTime.Seconds())
 
-	// Count successful
-	success := 0
-	for _, r := range results {
-		if r != nil {
-			success++
-		}
-	}
-	fmt.Printf("  Success: %d/%d\n\n", success, len(results))
+	fmt.Printf("  Success: %d/%d\n\n", batchResult.Success, len(batchResult.Results))
 
 	// ============================================================
 	// 4. Batch with Context (Cancellation)
@@ -120,15 +120,15 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	batchResult := batchProcessor.ExtractBatchWithContext(ctx, docs)
+	ctxResult := batchProcessor.ExtractBatchWithContext(ctx, docs)
 	fmt.Printf("Success: %d, Failed: %d, Cancelled: %d\n",
-		batchResult.Success, batchResult.Failed, batchResult.Cancelled)
+		ctxResult.Success, ctxResult.Failed, ctxResult.Cancelled)
 
 	// Show first 5 results
 	fmt.Println("First 5 results:")
-	for i := 0; i < 5 && i < len(batchResult.Results); i++ {
-		if batchResult.Results[i] != nil {
-			fmt.Printf("  [%d] %s\n", i+1, batchResult.Results[i].Title)
+	for i := 0; i < 5 && i < len(ctxResult.Results); i++ {
+		if ctxResult.Results[i] != nil {
+			fmt.Printf("  [%d] %s\n", i+1, ctxResult.Results[i].Title)
 		}
 	}
 	fmt.Println()
@@ -223,17 +223,17 @@ func main() {
 	fmt.Println("\n=== Performance Recommendations ===")
 	fmt.Println()
 	fmt.Println("Use Case: Single extraction")
-	fmt.Println("  • Use html.Extract() or html.ExtractText() - no processor needed")
+	fmt.Println("  - Use html.Extract() or html.ExtractText() - no processor needed")
 	fmt.Println()
 	fmt.Println("Use Case: Multiple documents (repeated)")
-	fmt.Println("  • Create one Processor, reuse it")
-	fmt.Println("  • Cache provides significant speedup for repeated content")
+	fmt.Println("  - Create one Processor, reuse it")
+	fmt.Println("  - Cache provides significant speedup for repeated content")
 	fmt.Println()
 	fmt.Println("Use Case: Batch processing (10+ docs)")
-	fmt.Println("  • Use ExtractBatch() for parallel processing")
-	fmt.Println("  • Set WorkerPoolSize to match CPU cores")
+	fmt.Println("  - Use ExtractBatch() for parallel processing")
+	fmt.Println("  - Set WorkerPoolSize to match CPU cores")
 	fmt.Println()
 	fmt.Println("Use Case: Web server")
-	fmt.Println("  • Share one Processor across goroutines")
-	fmt.Println("  • Thread-safe by design")
+	fmt.Println("  - Share one Processor across goroutines")
+	fmt.Println("  - Thread-safe by design")
 }

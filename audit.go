@@ -6,7 +6,9 @@ import (
 	"io"
 	"log"
 	"os"
+	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/cybergodev/html/internal"
@@ -193,6 +195,11 @@ func (c *auditCollector) Record(entry AuditEntry) {
 	// Remove raw values if not configured to include them
 	if !c.config.IncludeRawValues {
 		entry.RawValue = ""
+	}
+
+	// Sanitize raw values to prevent log injection in downstream HTML renderers
+	if entry.RawValue != "" {
+		entry.RawValue = sanitizeRawValue(entry.RawValue)
 	}
 
 	c.mu.Lock()
@@ -405,31 +412,37 @@ func (s *LoggerAuditSink) Close() error {
 
 // ChannelAuditSink sends audit entries to a channel.
 // Useful for integrating with external logging systems.
+// Use DroppedCount() to check if any entries were discarded due to a full buffer.
 type ChannelAuditSink struct {
-	ch     chan AuditEntry
-	done   chan struct{}
-	closed sync.Once
+	ch       chan AuditEntry
+	closeMu  sync.RWMutex
+	isClosed bool
+	dropped  atomic.Int64
 }
 
 // NewChannelAuditSink creates a new sink that sends entries to a channel.
 // The channel must be consumed by the caller to prevent blocking.
 func NewChannelAuditSink(bufferSize int) *ChannelAuditSink {
 	return &ChannelAuditSink{
-		ch:   make(chan AuditEntry, bufferSize),
-		done: make(chan struct{}),
+		ch: make(chan AuditEntry, bufferSize),
 	}
 }
 
 // Write sends an audit entry to the channel.
-// If the channel is full, the entry is dropped to prevent blocking.
+// If the channel is full, the entry is dropped and the drop counter is incremented.
 func (s *ChannelAuditSink) Write(entry AuditEntry) {
 	if s == nil {
+		return
+	}
+	s.closeMu.RLock()
+	defer s.closeMu.RUnlock()
+	if s.isClosed {
 		return
 	}
 	select {
 	case s.ch <- entry:
 	default:
-		// Channel full, drop the entry
+		s.dropped.Add(1)
 	}
 }
 
@@ -438,16 +451,28 @@ func (s *ChannelAuditSink) Channel() <-chan AuditEntry {
 	return s.ch
 }
 
+// DroppedCount returns the number of audit entries that were discarded
+// because the channel buffer was full.
+func (s *ChannelAuditSink) DroppedCount() int64 {
+	if s == nil {
+		return 0
+	}
+	return s.dropped.Load()
+}
+
 // Close closes the channel.
 // Safe to call multiple times - only the first call will close the channel.
 func (s *ChannelAuditSink) Close() error {
 	if s == nil {
 		return nil
 	}
-	s.closed.Do(func() {
-		close(s.done)
-		close(s.ch)
-	})
+	s.closeMu.Lock()
+	defer s.closeMu.Unlock()
+	if s.isClosed {
+		return nil
+	}
+	s.isClosed = true
+	close(s.ch)
 	return nil
 }
 
@@ -473,8 +498,10 @@ func (s *WriterAuditSink) Write(entry AuditEntry) {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.writer.Write(data)
-	s.writer.Write([]byte("\n"))
+	if _, err := s.writer.Write(data); err != nil {
+		return
+	}
+	_, _ = s.writer.Write([]byte("\n")) // best-effort newline after successful data write
 }
 
 // Close is a no-op for the writer sink.
@@ -585,6 +612,17 @@ func (s *LevelFilteredSink) meetsLevel(level AuditLevel) bool {
 		AuditLevelCritical: 2,
 	}
 	return levels[level] >= levels[s.minLevel]
+}
+
+// sanitizeRawValue escapes HTML-special characters in audit raw values
+// to prevent XSS when logs are rendered in HTML contexts (browsers, SIEM dashboards).
+func sanitizeRawValue(s string) string {
+	s = strings.ReplaceAll(s, "&", "&amp;")
+	s = strings.ReplaceAll(s, "<", "&lt;")
+	s = strings.ReplaceAll(s, ">", "&gt;")
+	s = strings.ReplaceAll(s, `"`, "&quot;")
+	s = strings.ReplaceAll(s, "'", "&#39;")
+	return s
 }
 
 // auditRecorderAdapter adapts AuditCollector to internal.AuditRecorder interface.

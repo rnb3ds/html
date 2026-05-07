@@ -126,9 +126,9 @@ func extractTableAsMarkdown(tableData [][]CellData, tb *TrackedBuilder, maxCols 
 		renderMarkdownRow(tb, tableData[0], newToOldCol, includedColAligns, includedColMaxWidths, numIncludedCols)
 
 		// Add alignment separator after header row (required by Markdown)
-		tb.WriteString("| ")
-		tb.WriteString(strings.Join(includedColAligns, " | "))
-		tb.WriteString(" |\n")
+		_, _ = tb.WriteString("| ")
+		_, _ = tb.WriteString(strings.Join(includedColAligns, " | "))
+		_, _ = tb.WriteString(" |\n")
 
 		// Render remaining rows
 		for i := 1; i < len(tableData); i++ {
@@ -308,11 +308,36 @@ func filterIntArray(arr []int, indices []int) []int {
 	return result
 }
 
+// paddingLookup provides pre-computed padding strings for small values
+// to avoid repeated strings.Repeat allocations in table rendering.
+var paddingLookup = [32]string{
+	"", " ", "  ", "   ", "    ", "     ", "      ", "       ",
+	"        ", "         ", "          ", "           ", "            ",
+	"             ", "              ", "               ", "                ",
+	"                 ", "                  ", "                   ",
+	"                    ", "                     ", "                      ",
+	"                       ", "                        ", "                         ",
+	"                          ", "                           ", "                            ",
+	"                             ", "                              ", "                               ",
+}
+
+// writePadding writes n spaces to the builder using a lookup table for small values.
+func writePadding(tb *TrackedBuilder, n int) {
+	if n <= 0 {
+		return
+	}
+	if n < len(paddingLookup) {
+		_, _ = tb.WriteString(paddingLookup[n])
+		return
+	}
+	_, _ = tb.WriteString(strings.Repeat(" ", n))
+}
+
 // renderMarkdownRow renders a single table row in Markdown format.
 func renderMarkdownRow(tb *TrackedBuilder, row []CellData, newToOldCol []int,
 	colAligns []string, colMaxWidths []int, numCols int) {
 
-	tb.WriteString("| ")
+	_, _ = tb.WriteString("| ")
 	for newJ, oldJ := range newToOldCol {
 		cellText := " "
 		if oldJ < len(row) {
@@ -321,46 +346,47 @@ func renderMarkdownRow(tb *TrackedBuilder, row []CellData, newToOldCol []int,
 
 		maxWidth := colMaxWidths[newJ]
 		textLen := len(cellText)
+		pad := maxWidth - textLen
 
 		// Apply alignment-based padding
 		switch colAligns[newJ] {
 		case ":---": // left
-			tb.WriteString(cellText)
-			tb.WriteString(strings.Repeat(" ", maxWidth-textLen))
+			_, _ = tb.WriteString(cellText)
+			writePadding(tb, pad)
 		case "---:": // right
-			tb.WriteString(strings.Repeat(" ", maxWidth-textLen))
-			tb.WriteString(cellText)
+			writePadding(tb, pad)
+			_, _ = tb.WriteString(cellText)
 		case ":--:": // center
-			leftPad := (maxWidth - textLen) / 2
-			rightPad := maxWidth - textLen - leftPad
-			tb.WriteString(strings.Repeat(" ", leftPad))
-			tb.WriteString(cellText)
-			tb.WriteString(strings.Repeat(" ", rightPad))
+			leftPad := pad / 2
+			rightPad := pad - leftPad
+			writePadding(tb, leftPad)
+			_, _ = tb.WriteString(cellText)
+			writePadding(tb, rightPad)
 		default: // left (default)
-			tb.WriteString(cellText)
-			tb.WriteString(strings.Repeat(" ", maxWidth-textLen))
+			_, _ = tb.WriteString(cellText)
+			writePadding(tb, pad)
 		}
 
 		if newJ < numCols-1 {
-			tb.WriteString(" | ")
+			_, _ = tb.WriteString(" | ")
 		}
 	}
-	tb.WriteString(" |\n")
+	_, _ = tb.WriteString(" |\n")
 }
 
 // extractTableAsHTML outputs table in HTML format with proper attributes.
 func extractTableAsHTML(tableData [][]CellData, tb *TrackedBuilder) {
-	tb.WriteString("<table>\n")
+	_, _ = tb.WriteString("<table>\n")
 
 	for _, row := range tableData {
-		tb.WriteString("  <tr>\n")
+		_, _ = tb.WriteString("  <tr>\n")
 		for _, cell := range row {
 			renderHTMLCell(tb, cell)
 		}
-		tb.WriteString("  </tr>\n")
+		_, _ = tb.WriteString("  </tr>\n")
 	}
 
-	tb.WriteString("</table>")
+	_, _ = tb.WriteString("</table>")
 }
 
 // renderHTMLCell renders a single table cell in HTML format.
@@ -370,37 +396,37 @@ func renderHTMLCell(tb *TrackedBuilder, cell CellData) {
 	if cell.IsHeader {
 		tag = "th"
 	}
-	tb.WriteString("    <")
-	tb.WriteString(tag)
+	_, _ = tb.WriteString("    <")
+	_, _ = tb.WriteString(tag)
 
 	// Add style attribute
 	style := buildCellStyle(cell)
 	if style != "" {
-		tb.WriteString(` style="`)
-		tb.WriteString(style)
-		tb.WriteString(`"`)
+		_, _ = tb.WriteString(` style="`)
+		_, _ = tb.WriteString(style)
+		_, _ = tb.WriteString(`"`)
 	}
 
 	// Add colspan attribute
 	if cell.OriginalColspan > 1 && !cell.IsExpanded {
-		tb.WriteString(` colspan="`)
-		tb.WriteString(strconv.Itoa(cell.OriginalColspan))
-		tb.WriteString(`"`)
+		_, _ = tb.WriteString(` colspan="`)
+		_, _ = tb.WriteString(strconv.Itoa(cell.OriginalColspan))
+		_, _ = tb.WriteString(`"`)
 	}
 
 	// Add rowspan attribute
 	if cell.Rowspan > 1 {
-		tb.WriteString(` rowspan="`)
-		tb.WriteString(strconv.Itoa(cell.Rowspan))
-		tb.WriteString(`"`)
+		_, _ = tb.WriteString(` rowspan="`)
+		_, _ = tb.WriteString(strconv.Itoa(cell.Rowspan))
+		_, _ = tb.WriteString(`"`)
 	}
 
 	// Write cell content
-	tb.WriteString(">")
-	tb.WriteString(cell.Text)
-	tb.WriteString("</")
-	tb.WriteString(tag)
-	tb.WriteString(">\n")
+	_, _ = tb.WriteString(">")
+	_, _ = tb.WriteString(cell.Text)
+	_, _ = tb.WriteString("</")
+	_, _ = tb.WriteString(tag)
+	_, _ = tb.WriteString(">\n")
 }
 
 // buildCellStyle constructs the style attribute value for a table cell.

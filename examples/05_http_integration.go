@@ -18,7 +18,8 @@ import (
 // This example demonstrates HTTP integration patterns.
 // Learn how to fetch web pages and extract content efficiently.
 func main() {
-	fmt.Println("=== HTTP Integration ===\n")
+	fmt.Println("=== HTTP Integration ===")
+	fmt.Println()
 
 	// Create mock server
 	server := createMockServer()
@@ -90,8 +91,8 @@ func main() {
 	} else {
 		defer resp.Body.Close()
 		fmt.Printf("\nResponse Status: %s\n", resp.Status)
-		body, _ := io.ReadAll(resp.Body)
-		result, _ := html.Extract(body)
+		body, _ := io.ReadAll(resp.Body) // best-effort: mock server always returns valid body
+		result, _ := html.Extract(body)  // best-effort: demo context
 		fmt.Printf("Extracted: %s (%d words)\n", result.Title, result.WordCount)
 	}
 
@@ -144,7 +145,6 @@ func fetchURL(url string) ([]byte, error) {
 func processURLsConcurrently(processor *html.Processor, urls []string) []URLResult {
 	var wg sync.WaitGroup
 	results := make([]URLResult, len(urls))
-	var mu sync.Mutex
 
 	for i, url := range urls {
 		wg.Add(1)
@@ -153,23 +153,17 @@ func processURLsConcurrently(processor *html.Processor, urls []string) []URLResu
 
 			content, err := fetchURL(u)
 			if err != nil {
-				mu.Lock()
 				results[idx] = URLResult{URL: u, Error: err}
-				mu.Unlock()
 				return
 			}
 
 			result, err := processor.Extract(content)
 			if err != nil {
-				mu.Lock()
 				results[idx] = URLResult{URL: u, Error: err}
-				mu.Unlock()
 				return
 			}
 
-			mu.Lock()
 			results[idx] = URLResult{URL: u, Result: result}
-			mu.Unlock()
 		}(i, url)
 	}
 

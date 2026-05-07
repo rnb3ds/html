@@ -66,23 +66,23 @@ func TestExtractBatch(t *testing.T) {
 				defer p.Close()
 			}
 
-			results, err := p.ExtractBatch(tt.docs)
+			br := p.ExtractBatch(tt.docs)
 			if tt.wantErr {
-				if err == nil {
+				if br.Failed == 0 {
 					t.Error("Expected error")
 				}
-				if !errors.Is(err, html.ErrProcessorClosed) {
-					t.Errorf("Expected ErrProcessorClosed, got: %v", err)
+				if !errors.Is(br.Errors[0], html.ErrProcessorClosed) {
+					t.Errorf("Expected ErrProcessorClosed, got: %v", br.Errors[0])
 				}
 				return
 			}
 
-			if err != nil {
-				t.Fatalf("ExtractBatch() failed: %v", err)
+			if br.Failed > 0 {
+				t.Fatalf("ExtractBatch() failed: %v", br.Errors[0])
 			}
 
-			if len(results) != tt.wantLen {
-				t.Errorf("Expected %d results, got %d", tt.wantLen, len(results))
+			if len(br.Results) != tt.wantLen {
+				t.Errorf("Expected %d results, got %d", tt.wantLen, len(br.Results))
 			}
 		})
 	}
@@ -98,15 +98,15 @@ func TestExtractBatchWithConfig(t *testing.T) {
 
 	docs := [][]byte{[]byte(`<html><body><p>Content</p><img src="test.jpg"/></body></html>`)}
 
-	results, err := p.ExtractBatch(docs)
-	if err != nil {
-		t.Fatalf("ExtractBatch() with config failed: %v", err)
+	br := p.ExtractBatch(docs)
+	if br.Failed > 0 {
+		t.Fatalf("ExtractBatch() with config failed: %v", br.Errors[0])
 	}
 
-	if len(results) != 1 {
-		t.Errorf("Expected 1 result, got %d", len(results))
+	if len(br.Results) != 1 {
+		t.Errorf("Expected 1 result, got %d", len(br.Results))
 	}
-	if len(results[0].Images) != 0 {
+	if len(br.Results[0].Images) != 0 {
 		t.Errorf("Expected no images with PreserveImages=false")
 	}
 }
@@ -205,32 +205,32 @@ func TestExtractBatchFiles(t *testing.T) {
 		files := createTempHTMLFiles(t, tmpDir, 3)
 
 		p := testutil.NewTestProcessor(t)
-		results, err := p.ExtractBatchFiles(files)
-		if err != nil {
-			t.Fatalf("ExtractBatchFiles() failed: %v", err)
+		br := p.ExtractBatchFiles(files)
+		if br.Failed > 0 {
+			t.Fatalf("ExtractBatchFiles() failed: %v", br.Errors[0])
 		}
 
-		if len(results) != len(files) {
-			t.Errorf("Expected %d results, got %d", len(files), len(results))
+		if len(br.Results) != len(files) {
+			t.Errorf("Expected %d results, got %d", len(files), len(br.Results))
 		}
 	})
 
 	t.Run("batch with non-existent file", func(t *testing.T) {
 		p := testutil.NewTestProcessor(t)
-		_, err := p.ExtractBatchFiles([]string{"non-existent-file.html"})
-		if err == nil {
+		br := p.ExtractBatchFiles([]string{"non-existent-file.html"})
+		if br.Failed == 0 {
 			t.Error("Expected error for non-existent file")
 		}
 	})
 
 	t.Run("empty file list", func(t *testing.T) {
 		p := testutil.NewTestProcessor(t)
-		results, err := p.ExtractBatchFiles(nil)
-		if err != nil {
-			t.Fatalf("ExtractBatchFiles(nil) failed: %v", err)
+		br := p.ExtractBatchFiles(nil)
+		if br.Failed > 0 {
+			t.Fatalf("ExtractBatchFiles(nil) failed: %v", br.Errors[0])
 		}
-		if len(results) != 0 {
-			t.Errorf("Expected 0 results for nil input, got %d", len(results))
+		if len(br.Results) != 0 {
+			t.Errorf("Expected 0 results for nil input, got %d", len(br.Results))
 		}
 	})
 
@@ -238,8 +238,8 @@ func TestExtractBatchFiles(t *testing.T) {
 		p, _ := html.New()
 		p.Close()
 
-		_, err := p.ExtractBatchFiles([]string{"test.html"})
-		if err == nil {
+		br := p.ExtractBatchFiles([]string{"test.html"})
+		if br.Failed == 0 {
 			t.Error("Expected error on closed processor")
 		}
 	})
@@ -317,8 +317,11 @@ func TestConcurrentBatchOperations(t *testing.T) {
 	docs := [][]byte{[]byte(`<html><body><p>Content</p></body></html>`)}
 
 	errs := testutil.RunConcurrent(10, func(int) error {
-		_, err := p.ExtractBatch(docs)
-		return err
+		br := p.ExtractBatch(docs)
+		if br.Failed > 0 {
+			return br.Errors[0]
+		}
+		return nil
 	})
 
 	for i, err := range errs {
@@ -339,17 +342,17 @@ func TestBatchWithLargeInput(t *testing.T) {
 	p := testutil.NewTestProcessor(t)
 	docs := createNDocs(100)
 
-	results, err := p.ExtractBatch(docs)
-	if err != nil {
-		t.Fatalf("ExtractBatch() with large input failed: %v", err)
+	br := p.ExtractBatch(docs)
+	if br.Failed > 0 {
+		t.Fatalf("ExtractBatch() with large input failed: %v", br.Errors[0])
 	}
 
-	if len(results) != 100 {
-		t.Errorf("Expected 100 results, got %d", len(results))
+	if len(br.Results) != 100 {
+		t.Errorf("Expected 100 results, got %d", len(br.Results))
 	}
 
 	successCount := 0
-	for _, result := range results {
+	for _, result := range br.Results {
 		if result != nil {
 			successCount++
 		}

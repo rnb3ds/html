@@ -37,9 +37,9 @@ func TestGoroutineLeakInBatchProcessing(t *testing.T) {
 
 	// Run batch extraction multiple times
 	for i := 0; i < 10; i++ {
-		_, err := processor.ExtractBatch(contents)
-		if err != nil {
-			t.Fatalf("Batch extraction failed: %v", err)
+		br := processor.ExtractBatch(contents)
+		if br.Failed > 0 {
+			t.Fatalf("Batch extraction failed: %v", br.Errors[0])
 		}
 	}
 
@@ -540,6 +540,6 @@ func BenchmarkBatchProcessingMemory(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, _ = processor.ExtractBatch(contents)
+		_ = processor.ExtractBatch(contents)
 	}
 }

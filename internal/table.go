@@ -90,7 +90,8 @@ func getCellAlign(n *html.Node) table.CellAlignment {
 	// Single pass through attributes - collect style and check align
 	for _, attr := range n.Attr {
 		attrKey := strings.ToLower(attr.Key)
-		if attrKey == "align" {
+		switch attrKey {
+		case "align":
 			alignVal := strings.ToLower(strings.TrimSpace(attr.Val))
 			switch alignVal {
 			case "left":
@@ -102,7 +103,7 @@ func getCellAlign(n *html.Node) table.CellAlignment {
 			case "justify":
 				return table.AlignJustify
 			}
-		} else if attrKey == "style" {
+		case "style":
 			styleAttr = attr.Val
 		}
 	}

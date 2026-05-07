@@ -687,12 +687,12 @@ func TestConcurrentBatchProcessing(t *testing.T) {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
-			results, err := p.ExtractBatch(docs)
-			if err != nil {
+			br := p.ExtractBatch(docs)
+			if br.Failed > 0 {
 				errorCount.Add(1)
 				return
 			}
-			if len(results) != len(docs) {
+			if len(br.Results) != len(docs) {
 				errorCount.Add(1)
 			}
 		}(i)

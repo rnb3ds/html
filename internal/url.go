@@ -1,4 +1,4 @@
-// Package internal provides URL parsing and resolution utilities.
+// url.go provides URL parsing and resolution utilities.
 package internal
 
 import "strings"

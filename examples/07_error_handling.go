@@ -13,7 +13,8 @@ import (
 
 // This example demonstrates error handling patterns.
 func main() {
-	fmt.Println("=== Error Handling ===\n")
+	fmt.Println("=== Error Handling ===")
+	fmt.Println()
 
 	// ============================================================
 	// 1. Basic Error Checking
@@ -35,8 +36,10 @@ func main() {
 	fmt.Println("\n2. Sentinel Errors")
 	fmt.Println("-----------------")
 
-	// Empty input returns empty result, not error
-	processor, _ := html.New()
+	processor, err := html.New()
+	if err != nil {
+		log.Fatalf("Failed to create processor: %v", err)
+	}
 	defer processor.Close()
 
 	_, err = processor.Extract([]byte(""))
@@ -57,9 +60,14 @@ func main() {
 	fmt.Println("  • html.ErrFileNotFound     - File does not exist")
 	fmt.Println("  • html.ErrInvalidFilePath  - Path validation failed")
 
-	// Example: Check for specific error
-	largeInput := strings.Repeat("<div>", 1000000)
-	_, err = processor.Extract([]byte(largeInput))
+	// Example: Create processor with small limit to trigger ErrInputTooLarge
+	smallCfg := html.DefaultConfig()
+	smallCfg.MaxInputSize = 1024 // 1 KB limit
+	smallProcessor, _ := html.New(smallCfg)
+	defer smallProcessor.Close()
+
+	largeInput := strings.Repeat("<div>", 500) // ~2.5 KB, exceeds 1 KB limit
+	_, err = smallProcessor.Extract([]byte(largeInput))
 	if errors.Is(err, html.ErrInputTooLarge) {
 		fmt.Println("\n✓ Use errors.Is() to check for specific error types")
 	}
@@ -113,7 +121,10 @@ func main() {
 	fmt.Println("\n5. Batch Processing Errors")
 	fmt.Println("---------------------------")
 
-	processor2, _ := html.New()
+	processor2, err := html.New()
+	if err != nil {
+		log.Fatalf("Failed to create processor: %v", err)
+	}
 	defer processor2.Close()
 
 	docs := [][]byte{
@@ -122,13 +133,11 @@ func main() {
 		[]byte("<html><body><p>Doc 3 - Valid</p></body></html>"),
 	}
 
-	results, err := processor2.ExtractBatch(docs)
-	if err != nil {
-		fmt.Printf("Batch error: %v\n", err)
-	}
+	batchResult := processor2.ExtractBatch(docs)
 
-	fmt.Printf("Batch results: %d total\n", len(results))
-	for i, r := range results {
+	fmt.Printf("Batch results: %d total, %d success, %d failed\n",
+		len(batchResult.Results), batchResult.Success, batchResult.Failed)
+	for i, r := range batchResult.Results {
 		if r != nil {
 			fmt.Printf("  Doc %d: %s (%d words)\n", i+1, r.Title, r.WordCount)
 		} else {

@@ -1,5 +1,4 @@
-// Package table provides HTML table extraction and rendering functionality.
-// This file contains the Renderer interface for pluggable table output formats.
+// renderer.go contains the Renderer interface for pluggable table output formats.
 package table
 
 import (
@@ -37,6 +36,13 @@ func (r *RendererRegistry) register(format string, renderer Renderer) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.renderers[strings.ToLower(format)] = renderer
+}
+
+// Get returns the renderer for the given format, or nil if not found.
+func (r *RendererRegistry) get(format string) Renderer {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.renderers[strings.ToLower(format)]
 }
 
 // MarkdownRenderer renders tables in Markdown format.

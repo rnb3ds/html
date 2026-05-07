@@ -4,7 +4,6 @@ package main
 
 import (
 	"fmt"
-	"strings"
 	"unicode/utf8"
 
 	"github.com/cybergodev/html"
@@ -13,7 +12,8 @@ import (
 // This example demonstrates real-world use cases.
 // Perfect for understanding practical patterns.
 func main() {
-	fmt.Println("=== Real-World Use Cases ===\n")
+	fmt.Println("=== Real-World Use Cases ===")
+	fmt.Println()
 
 	processor, _ := html.New()
 	defer processor.Close()
@@ -70,7 +70,8 @@ func main() {
 	fmt.Printf("Title: %s\n", result.Title)
 	fmt.Printf("Content length: %d chars\n", len(result.Text))
 	fmt.Println("  ✓ Ignored hidden content")
-	fmt.Println("  ✓ Extracted main content from tables\n")
+	fmt.Println("  ✓ Extracted main content from tables")
+	fmt.Println()
 
 	// ============================================================
 	// Use Case 3: RSS Feed Item Processing
@@ -123,7 +124,8 @@ func main() {
 	fmt.Printf("Title: %s\n", result.Title)
 	fmt.Printf("Content length: %d chars\n", len(result.Text))
 	fmt.Println("  ✓ Removed sidebar navigation")
-	fmt.Println("  ✓ Preserved code blocks\n")
+	fmt.Println("  ✓ Preserved code blocks")
+	fmt.Println()
 
 	// ============================================================
 	// Use Case 5: Batch Content Extraction
@@ -138,9 +140,10 @@ func main() {
 		[]byte(`<html><head><title>Page 3</title></head><body><article><h1>Third</h1><p>Content 3</p></article></body></html>`),
 	}
 
-	results, _ := processor.ExtractBatch(pages)
-	fmt.Printf("Processed %d pages:\n", len(results))
-	for i, r := range results {
+	batchResult := processor.ExtractBatch(pages)
+	fmt.Printf("Processed %d pages (%d success, %d failed):\n",
+		len(batchResult.Results), batchResult.Success, batchResult.Failed)
+	for i, r := range batchResult.Results {
 		if r != nil {
 			fmt.Printf("  [%d] %s (%d words)\n", i+1, r.Title, r.WordCount)
 		}
@@ -168,20 +171,11 @@ func main() {
 	links, _ := processor.ExtractAllLinks([]byte(pageWithLinks))
 	fmt.Printf("Found %d links:\n", len(links))
 
-	// Group by type
-	internalLinks := 0
-	externalLinks := 0
-	for _, link := range links {
-		if link.Type == "link" {
-			if strings.Contains(link.URL, "example.com") || !strings.HasPrefix(link.URL, "http") {
-				internalLinks++
-			} else {
-				externalLinks++
-			}
-		}
+	// Group by type using GroupLinksByType
+	grouped := html.GroupLinksByType(links)
+	for linkType, group := range grouped {
+		fmt.Printf("  %s: %d\n", linkType, len(group))
 	}
-	fmt.Printf("  Internal: %d\n", internalLinks)
-	fmt.Printf("  External: %d\n", externalLinks)
 	fmt.Println()
 
 	// ============================================================

@@ -3,17 +3,18 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
 	"log"
 	"strings"
-	"time"
 
 	"github.com/cybergodev/html"
 )
 
 // This example demonstrates advanced features: custom scorers, audit logging, and security configuration.
 func main() {
-	fmt.Println("=== Advanced Features ===\n")
+	fmt.Println("=== Advanced Features ===")
+	fmt.Println()
 
 	// ============================================================
 	// 1. Custom Scorer Implementation
@@ -46,15 +47,14 @@ func main() {
 	fmt.Println("2. Audit System (Security Logging)")
 	fmt.Println("-----------------------------------")
 
-	// Create channel sink for audit entries
-	channelSink := html.NewChannelAuditSink(100)
-
-	// Configure processor with audit
+	// Configure processor with audit (entries stored internally)
 	auditCfg := html.DefaultConfig()
 	auditCfg.Audit = html.HighSecurityAuditConfig()
-	auditCfg.Audit.Sink = channelSink
 	auditCfg.Audit.Enabled = true
-	auditProcessor, _ := html.New(auditCfg)
+	auditProcessor, err := html.New(auditCfg)
+	if err != nil {
+		log.Fatal(err)
+	}
 	defer auditProcessor.Close()
 
 	// Process potentially dangerous HTML
@@ -70,10 +70,7 @@ func main() {
 
 	auditProcessor.Extract([]byte(dangerousHTML))
 
-	// Wait for async writes
-	time.Sleep(100 * time.Millisecond)
-
-	// Read audit entries
+	// Read audit entries (GetAuditLog reads from internal storage, no wait needed)
 	auditLog := auditProcessor.GetAuditLog()
 	fmt.Printf("Audit entries recorded: %d\n", len(auditLog))
 
@@ -84,16 +81,32 @@ func main() {
 	// ============================================================
 	// 3. Audit Sinks (Output Destinations)
 	// ============================================================
-	fmt.Println("\n3. Audit Sinks")
-	fmt.Println("--------------")
+	fmt.Println("\n3. Audit Sinks (Custom Output)")
+	fmt.Println("------------------------------")
 
-	fmt.Println("Built-in audit sinks:")
-	fmt.Println("  • LoggerAuditSink   - Writes to standard logger")
-	fmt.Println("  • ChannelAuditSink  - Sends to Go channel")
-	fmt.Println("  • WriterAuditSink   - Writes to io.Writer")
-	fmt.Println("  • MultiSink         - Combines multiple sinks")
-	fmt.Println("  • FilteredSink      - Filters by custom criteria")
-	fmt.Println("  • LevelFilteredSink - Filters by severity level")
+	// Demo: WriterAuditSink writing to a buffer
+	var auditBuf bytes.Buffer
+	sinkCfg := html.DefaultConfig()
+	sinkCfg.Audit = html.DefaultAuditConfig()
+	sinkCfg.Audit.Enabled = true
+	sinkCfg.Audit.LogBlockedTags = true
+	sinkCfg.Audit.LogBlockedAttrs = true
+	sinkCfg.Audit.Sink = html.NewWriterAuditSink(&auditBuf)
+
+	sinkProcessor, _ := html.New(sinkCfg)
+
+	sinkProcessor.Extract([]byte(dangerousHTML))
+	sinkProcessor.Close() // flush pending audit writes to sink
+	fmt.Printf("WriterAuditSink captured %d bytes of JSON audit logs\n", auditBuf.Len())
+
+	fmt.Println("\nOther built-in sinks (set via AuditConfig.Sink):")
+	fmt.Println("  - LoggerAuditSink   - Writes to standard logger")
+	fmt.Println("  - ChannelAuditSink  - Sends to Go channel (for async processing)")
+	fmt.Println("  - MultiSink         - Combines multiple sinks")
+	fmt.Println("  - FilteredSink      - Filters by custom criteria")
+	fmt.Println("  - LevelFilteredSink - Filters by severity level")
+	fmt.Println()
+	fmt.Println("Or use GetAuditLog() to read entries from internal storage.")
 
 	// ============================================================
 	// 4. Security Configuration
@@ -110,7 +123,10 @@ func main() {
 	fmt.Printf("  ProcessingTimeout: %v\n", secureConfig.ProcessingTimeout)
 	fmt.Printf("  Audit.Enabled: %v\n", secureConfig.Audit.Enabled)
 
-	secureProcessor, _ := html.New(secureConfig)
+	secureProcessor, err := html.New(secureConfig)
+	if err != nil {
+		log.Fatal(err)
+	}
 	defer secureProcessor.Close()
 
 	// This will have stricter limits
@@ -126,7 +142,7 @@ func main() {
 	fmt.Println("  result, err := processor.ExtractFromFile(\"article.html\")")
 
 	fmt.Println("\nBatch files:")
-	fmt.Println("  results, err := processor.ExtractBatchFiles([]string{\"a.html\", \"b.html\"})")
+	fmt.Println("  result := processor.ExtractBatchFiles([]string{\"a.html\", \"b.html\"})")
 
 	fmt.Println("\nWith context and timeout:")
 	fmt.Println("  ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)")
@@ -136,14 +152,13 @@ func main() {
 	// ============================================================
 	// 6. Type Aliases for HTML Processing
 	// ============================================================
-	fmt.Println("\n6. Type Aliases")
-	fmt.Println("---------------")
-	fmt.Println("The package provides type aliases from golang.org/x/net/html:")
-	fmt.Println("  • html.Node        - DOM node")
-	fmt.Println("  • html.NodeType    - Node type (ElementNode, TextNode, etc.)")
-	fmt.Println("  • html.Attribute   - Node attribute")
+	fmt.Println("\n6. Types for Custom Scorers")
+	fmt.Println("---------------------------")
+	fmt.Println("The package provides types for implementing custom Scorers:")
+	fmt.Println("  • html.ContentNode - Interface for node access (Type, Data, AttrValue, etc.)")
+	fmt.Println("  • html.NodeAttr    - Attribute key-value pair")
 	fmt.Println()
-	fmt.Println("These are useful when implementing custom Scorers.")
+	fmt.Println("No need to import golang.org/x/net/html directly.")
 
 	// ============================================================
 	// Summary
@@ -154,7 +169,7 @@ func main() {
 	fmt.Println("3. Audit Sinks: Multiple output destinations for audit logs")
 	fmt.Println("4. Security Configs: Use HighSecurityConfig() for sensitive data processing")
 	fmt.Println("5. File Operations: Single file, batch, and context-aware processing")
-	fmt.Println("6. Type Aliases: Direct access to golang.org/x/net/html types")
+	fmt.Println("6. Types for Scorers: ContentNode and NodeAttr for custom implementations")
 }
 
 // ArticleScorer is a custom scorer that prioritizes article content.

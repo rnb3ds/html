@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/cybergodev/html/internal"
 	stdxhtml "golang.org/x/net/html"
@@ -13,196 +14,160 @@ import (
 // The method automatically detects the character encoding (Windows-1252, UTF-8, GBK, Shift_JIS, etc.)
 // from the HTML bytes and converts it to UTF-8 before extracting links,
 // ensuring that link titles and text are properly decoded.
-func (p *Processor) ExtractAllLinks(htmlBytes []byte) (links []LinkResource, err error) {
-	// Defense-in-depth: recover from unexpected panics
-	defer func() {
-		if r := recover(); r != nil {
-			err = fmt.Errorf("%w: %v", ErrInternalPanic, r)
+func (p *Processor) ExtractAllLinks(htmlBytes []byte) ([]LinkResource, error) {
+	return recoverLinks(func() ([]LinkResource, error) {
+		// Validate input
+		if len(htmlBytes) == 0 {
+			return []LinkResource{}, nil
 		}
-	}()
 
-	// Validate input
-	if len(htmlBytes) == 0 {
-		return []LinkResource{}, nil
-	}
+		// Validate processor state and input size
+		if err := p.validateInput(htmlBytes); err != nil {
+			return nil, err
+		}
 
-	// Validate processor state and input size
-	if err := p.validateInput(htmlBytes); err != nil {
-		return nil, err
-	}
+		startTime := time.Now()
 
-	startTime := now()
+		// Detect encoding and convert to UTF-8 using configured encoding
+		utf8String, err := p.detectEncoding(htmlBytes)
+		if err != nil {
+			return nil, err
+		}
 
-	// Detect encoding and convert to UTF-8 (use auto-detection for links)
-	utf8String, _, convErr := internal.DetectAndConvertToUTF8String(htmlBytes, "")
-	if convErr != nil {
-		p.stats.errorCount.Add(1)
-		return nil, fmt.Errorf("encoding detection failed: %w", convErr)
-	}
+		// Process with timeout if configured
+		var links []LinkResource
+		if p.config.ProcessingTimeout > 0 {
+			links, err = p.extractLinksWithTimeout(utf8String)
+		} else {
+			links, err = p.extractAllLinksFromContent(utf8String)
+		}
 
-	// Process with timeout if configured
-	if p.config.ProcessingTimeout > 0 {
-		links, err = p.extractLinksWithTimeout(utf8String)
-	} else {
-		links, err = p.extractAllLinksFromContent(utf8String)
-	}
+		if err != nil {
+			p.stats.errorCount.Add(1)
+			return nil, err
+		}
 
-	if err != nil {
-		p.stats.errorCount.Add(1)
-		return nil, err
-	}
+		processingTime := time.Since(startTime)
+		p.stats.totalProcessTime.Add(int64(processingTime))
+		p.stats.totalProcessed.Add(1)
 
-	processingTime := since(startTime)
-	p.stats.totalProcessTime.Add(int64(processingTime))
-	p.stats.totalProcessed.Add(1)
-
-	return links, nil
+		return links, nil
+	})
 }
 
 // ExtractAllLinksFromFile extracts all links from an HTML file with automatic encoding detection.
 // The method automatically detects the character encoding (Windows-1252, UTF-8, GBK, Shift_JIS, etc.)
 // from the HTML file and converts it to UTF-8 before extracting links.
 // Use this when you have a file path instead of raw bytes.
-func (p *Processor) ExtractAllLinksFromFile(filePath string) (links []LinkResource, err error) {
-	// Defense-in-depth: recover from unexpected panics
-	defer func() {
-		if r := recover(); r != nil {
-			err = fmt.Errorf("%w: %v", ErrInternalPanic, r)
+func (p *Processor) ExtractAllLinksFromFile(filePath string) ([]LinkResource, error) {
+	return recoverLinks(func() ([]LinkResource, error) {
+		if p == nil {
+			return nil, ErrProcessorClosed
 		}
-	}()
+		if p.closed.Load() {
+			return nil, ErrProcessorClosed
+		}
 
-	if p == nil {
-		return nil, ErrProcessorClosed
-	}
-	if p.closed.Load() {
-		return nil, ErrProcessorClosed
-	}
+		data, err := p.validateAndReadFile(filePath)
+		if err != nil {
+			return nil, err
+		}
 
-	data, err := p.validateAndReadFile(filePath)
-	if err != nil {
-		return nil, err
-	}
-
-	return p.ExtractAllLinks(data)
+		return p.ExtractAllLinks(data)
+	})
 }
 
 // ExtractAllLinksWithContext extracts all links from HTML bytes with context support for cancellation.
 // This method provides cooperative cancellation, allowing long-running extractions to be
 // interrupted when the context is cancelled.
-func (p *Processor) ExtractAllLinksWithContext(ctx context.Context, htmlBytes []byte) (links []LinkResource, err error) {
-	// Defense-in-depth: recover from unexpected panics
-	defer func() {
-		if r := recover(); r != nil {
-			err = fmt.Errorf("%w: %v", ErrInternalPanic, r)
-		}
-	}()
-
-	// Early cancellation check
-	select {
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	default:
-	}
-
-	// Validate input
-	if len(htmlBytes) == 0 {
-		return []LinkResource{}, nil
-	}
-
-	// Validate processor state and input size
-	if err := p.validateInput(htmlBytes); err != nil {
-		return nil, err
-	}
-
-	startTime := now()
-
-	// Check cancellation before encoding detection
-	select {
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	default:
-	}
-
-	// Detect encoding and convert to UTF-8
-	utf8String, _, convErr := internal.DetectAndConvertToUTF8String(htmlBytes, "")
-	if convErr != nil {
-		p.stats.errorCount.Add(1)
-		return nil, fmt.Errorf("encoding detection failed: %w", convErr)
-	}
-
-	// Check cancellation before processing
-	select {
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	default:
-	}
-
-	// Process with timeout if configured
-	if p.config.ProcessingTimeout > 0 {
-		ctxWithTimeout, cancel := context.WithTimeout(ctx, p.config.ProcessingTimeout)
-		defer cancel()
-
-		done := make(chan struct{})
-		var procErr error
-		go func() {
-			defer close(done)
-			links, procErr = p.extractAllLinksFromContent(utf8String)
-		}()
-
+func (p *Processor) ExtractAllLinksWithContext(ctx context.Context, htmlBytes []byte) ([]LinkResource, error) {
+	return recoverLinks(func() ([]LinkResource, error) {
+		// Early cancellation check
 		select {
-		case <-ctxWithTimeout.Done():
-			if ctxWithTimeout.Err() == context.DeadlineExceeded {
-				return nil, ErrProcessingTimeout
-			}
-			return nil, ctxWithTimeout.Err()
-		case <-done:
-			err = procErr
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		default:
 		}
-	} else {
-		links, err = p.extractAllLinksFromContent(utf8String)
-	}
 
-	if err != nil {
-		p.stats.errorCount.Add(1)
-		return nil, err
-	}
+		// Validate input
+		if len(htmlBytes) == 0 {
+			return []LinkResource{}, nil
+		}
 
-	processingTime := since(startTime)
-	p.stats.totalProcessTime.Add(int64(processingTime))
-	p.stats.totalProcessed.Add(1)
+		// Validate processor state and input size
+		if err := p.validateInput(htmlBytes); err != nil {
+			return nil, err
+		}
 
-	return links, nil
+		startTime := time.Now()
+
+		// Check cancellation before encoding detection
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		default:
+		}
+
+		// Detect encoding using configured encoding setting
+		utf8String, err := p.detectEncoding(htmlBytes)
+		if err != nil {
+			return nil, err
+		}
+
+		// Check cancellation before processing
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		default:
+		}
+
+		// Process with timeout if configured, using withTimeout for goroutine tracking
+		var links []LinkResource
+		if p.config.ProcessingTimeout > 0 {
+			links, err = withTimeout(p.config.ProcessingTimeout, func() ([]LinkResource, error) {
+				return p.extractAllLinksFromContent(utf8String)
+			})
+		} else {
+			links, err = p.extractAllLinksFromContent(utf8String)
+		}
+
+		if err != nil {
+			p.stats.errorCount.Add(1)
+			return nil, err
+		}
+
+		processingTime := time.Since(startTime)
+		p.stats.totalProcessTime.Add(int64(processingTime))
+		p.stats.totalProcessed.Add(1)
+
+		return links, nil
+	})
 }
 
 // ExtractAllLinksFromFileWithContext extracts all links from an HTML file with context support.
-func (p *Processor) ExtractAllLinksFromFileWithContext(ctx context.Context, filePath string) (links []LinkResource, err error) {
-	// Defense-in-depth: recover from unexpected panics
-	defer func() {
-		if r := recover(); r != nil {
-			err = fmt.Errorf("%w: %v", ErrInternalPanic, r)
+func (p *Processor) ExtractAllLinksFromFileWithContext(ctx context.Context, filePath string) ([]LinkResource, error) {
+	return recoverLinks(func() ([]LinkResource, error) {
+		// Early cancellation check
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		default:
 		}
-	}()
 
-	// Early cancellation check
-	select {
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	default:
-	}
+		if p == nil {
+			return nil, ErrProcessorClosed
+		}
+		if p.closed.Load() {
+			return nil, ErrProcessorClosed
+		}
 
-	if p == nil {
-		return nil, ErrProcessorClosed
-	}
-	if p.closed.Load() {
-		return nil, ErrProcessorClosed
-	}
+		data, err := p.validateAndReadFile(filePath)
+		if err != nil {
+			return nil, err
+		}
 
-	data, err := p.validateAndReadFile(filePath)
-	if err != nil {
-		return nil, err
-	}
-
-	return p.ExtractAllLinksWithContext(ctx, data)
+		return p.ExtractAllLinksWithContext(ctx, data)
+	})
 }
 
 // ============================================================================
@@ -212,37 +177,74 @@ func (p *Processor) ExtractAllLinksFromFileWithContext(ctx context.Context, file
 // ExtractAllLinks extracts all links from HTML bytes with automatic encoding detection.
 // This is a convenience function that uses a pooled Processor for efficiency.
 //
+// It automatically detects the character encoding (Windows-1252, UTF-8, GBK, Shift_JIS, etc.)
+// from the HTML bytes and converts it to UTF-8 before extracting links,
+// ensuring that link titles and text are properly decoded.
+//
 // An optional Config can be provided to customize link extraction behavior.
 // If no config is provided, DefaultConfig() is used.
 func ExtractAllLinks(htmlBytes []byte, cfg ...Config) ([]LinkResource, error) {
-	c, err := resolveConfig(cfg...)
+	c, pooled, err := resolveConfig(cfg...)
 	if err != nil {
 		return nil, err
 	}
-	processor, err := getProcessorWithConfig(c)
-	if err != nil {
-		return nil, err
-	}
-	defer putProcessorWithConfig(processor, c)
-	return processor.ExtractAllLinks(htmlBytes)
+	return withProcessor(pooled, c, func(p *Processor) ([]LinkResource, error) {
+		return p.ExtractAllLinks(htmlBytes)
+	})
 }
 
 // ExtractAllLinksFromFile extracts all links from an HTML file with automatic encoding detection.
 // This is a convenience function that uses a pooled Processor for efficiency.
 //
+// It automatically detects the character encoding (Windows-1252, UTF-8, GBK, Shift_JIS, etc.)
+// from the HTML file and converts it to UTF-8 before extracting links.
+//
 // An optional Config can be provided to customize link extraction behavior.
 // If no config is provided, DefaultConfig() is used.
 func ExtractAllLinksFromFile(filePath string, cfg ...Config) ([]LinkResource, error) {
-	c, err := resolveConfig(cfg...)
+	c, pooled, err := resolveConfig(cfg...)
 	if err != nil {
 		return nil, err
 	}
-	processor, err := getProcessorWithConfig(c)
+	return withProcessor(pooled, c, func(p *Processor) ([]LinkResource, error) {
+		return p.ExtractAllLinksFromFile(filePath)
+	})
+}
+
+// ExtractAllLinksWithContext extracts all links from HTML bytes with context support for cancellation.
+// This is a convenience function that uses a pooled Processor for efficiency.
+//
+// It automatically detects the character encoding (Windows-1252, UTF-8, GBK, Shift_JIS, etc.)
+// from the HTML bytes and converts it to UTF-8 before extracting links.
+//
+// An optional Config can be provided to customize link extraction behavior.
+// If no config is provided, DefaultConfig() is used.
+func ExtractAllLinksWithContext(ctx context.Context, htmlBytes []byte, cfg ...Config) ([]LinkResource, error) {
+	c, pooled, err := resolveConfig(cfg...)
 	if err != nil {
 		return nil, err
 	}
-	defer putProcessorWithConfig(processor, c)
-	return processor.ExtractAllLinksFromFile(filePath)
+	return withProcessor(pooled, c, func(p *Processor) ([]LinkResource, error) {
+		return p.ExtractAllLinksWithContext(ctx, htmlBytes)
+	})
+}
+
+// ExtractAllLinksFromFileWithContext extracts all links from an HTML file with context support for cancellation.
+// This is a convenience function that uses a pooled Processor for efficiency.
+//
+// It automatically detects the character encoding (Windows-1252, UTF-8, GBK, Shift_JIS, etc.)
+// from the HTML file and converts it to UTF-8 before extracting links.
+//
+// An optional Config can be provided to customize link extraction behavior.
+// If no config is provided, DefaultConfig() is used.
+func ExtractAllLinksFromFileWithContext(ctx context.Context, filePath string, cfg ...Config) ([]LinkResource, error) {
+	c, pooled, err := resolveConfig(cfg...)
+	if err != nil {
+		return nil, err
+	}
+	return withProcessor(pooled, c, func(p *Processor) ([]LinkResource, error) {
+		return p.ExtractAllLinksFromFileWithContext(ctx, filePath)
+	})
 }
 
 func (p *Processor) extractLinksWithTimeout(htmlContent string) ([]LinkResource, error) {
@@ -287,7 +289,7 @@ func (p *Processor) detectBaseURL(doc *stdxhtml.Node) string {
 	if baseNode := internal.FindElementByTag(doc, "base"); baseNode != nil {
 		for _, attr := range baseNode.Attr {
 			if attr.Key == "href" && attr.Val != "" {
-				return p.normalizeBaseURL(attr.Val)
+				return internal.NormalizeBaseURL(attr.Val)
 			}
 		}
 	}
@@ -303,9 +305,10 @@ func (p *Processor) detectBaseURL(doc *stdxhtml.Node) string {
 			if canonicalURL == "" {
 				var property, content string
 				for _, attr := range n.Attr {
-					if attr.Key == "property" {
+					switch attr.Key {
+					case "property":
 						property = attr.Val
-					} else if attr.Key == "content" {
+					case "content":
 						content = attr.Val
 					}
 				}
@@ -317,9 +320,10 @@ func (p *Processor) detectBaseURL(doc *stdxhtml.Node) string {
 			if canonicalLink == "" {
 				var rel, href string
 				for _, attr := range n.Attr {
-					if attr.Key == "rel" {
+					switch attr.Key {
+					case "rel":
 						rel = attr.Val
-					} else if attr.Key == "href" {
+					case "href":
 						href = attr.Val
 					}
 				}
@@ -331,7 +335,7 @@ func (p *Processor) detectBaseURL(doc *stdxhtml.Node) string {
 			if firstAbsoluteURL == "" {
 				for _, attr := range n.Attr {
 					if (attr.Key == "href" || attr.Key == "src") && internal.IsExternalURL(attr.Val) {
-						if base := p.extractBaseFromURL(attr.Val); base != "" {
+						if base := internal.ExtractBaseFromURL(attr.Val); base != "" {
 							firstAbsoluteURL = base
 							break
 						}
@@ -343,28 +347,12 @@ func (p *Processor) detectBaseURL(doc *stdxhtml.Node) string {
 	})
 
 	if canonicalURL != "" {
-		return p.normalizeBaseURL(canonicalURL)
+		return internal.NormalizeBaseURL(canonicalURL)
 	}
 	if canonicalLink != "" {
-		return p.normalizeBaseURL(canonicalLink)
+		return internal.NormalizeBaseURL(canonicalLink)
 	}
 	return firstAbsoluteURL
-}
-
-func (p *Processor) normalizeBaseURL(baseURL string) string {
-	return internal.NormalizeBaseURL(baseURL)
-}
-
-func (p *Processor) extractBaseFromURL(url string) string {
-	return internal.ExtractBaseFromURL(url)
-}
-
-func (p *Processor) isDifferentDomain(baseURL, targetURL string) bool {
-	return internal.IsDifferentDomain(baseURL, targetURL)
-}
-
-func (p *Processor) resolveURL(baseURL, relativeURL string) string {
-	return internal.ResolveURL(baseURL, relativeURL)
 }
 
 func (p *Processor) extractLinksFromDocument(doc *stdxhtml.Node, baseURL string, linkMap map[string]LinkResource) {
@@ -428,12 +416,12 @@ func (p *Processor) extractContentLinks(n *stdxhtml.Node, baseURL string, linkMa
 
 	resolvedURL := href
 	if p.config.ResolveRelativeURLs && baseURL != "" {
-		resolvedURL = p.resolveURL(baseURL, href)
+		resolvedURL = internal.ResolveURL(baseURL, href)
 	}
 
 	isExternal := isExternalOriginal
 	if !isExternalOriginal && baseURL != "" {
-		isExternal = p.isDifferentDomain(baseURL, resolvedURL)
+		isExternal = internal.IsDifferentDomain(baseURL, resolvedURL)
 	}
 
 	if isExternal && !p.config.IncludeExternalLinks {
@@ -478,7 +466,7 @@ func (p *Processor) extractImageLinks(n *stdxhtml.Node, baseURL string, linkMap 
 
 	resolvedURL := src
 	if baseURL != "" {
-		resolvedURL = p.resolveURL(baseURL, src)
+		resolvedURL = internal.ResolveURL(baseURL, src)
 	}
 
 	displayName := title
@@ -503,9 +491,10 @@ func (p *Processor) extractImageLinks(n *stdxhtml.Node, baseURL string, linkMap 
 func (p *Processor) extractMediaLink(n *stdxhtml.Node, baseURL string, linkMap map[string]LinkResource, mediaType string) {
 	var src, title string
 	for _, attr := range n.Attr {
-		if attr.Key == "src" {
+		switch attr.Key {
+		case "src":
 			src = attr.Val
-		} else if attr.Key == "title" {
+		case "title":
 			title = attr.Val
 		}
 	}
@@ -516,7 +505,7 @@ func (p *Processor) extractMediaLink(n *stdxhtml.Node, baseURL string, linkMap m
 
 	resolvedURL := src
 	if baseURL != "" {
-		resolvedURL = p.resolveURL(baseURL, src)
+		resolvedURL = internal.ResolveURL(baseURL, src)
 	}
 
 	displayName := title
@@ -525,7 +514,11 @@ func (p *Processor) extractMediaLink(n *stdxhtml.Node, baseURL string, linkMap m
 			displayName = resolvedURL[lastSlash+1:]
 		}
 		if displayName == "" {
-			displayName = strings.ToUpper(mediaType[:1]) + mediaType[1:]
+			if mediaType != "" {
+				displayName = strings.ToUpper(mediaType[:1]) + mediaType[1:]
+			} else {
+				displayName = "Media"
+			}
 		}
 	}
 
@@ -553,7 +546,7 @@ func (p *Processor) extractSourceLinks(n *stdxhtml.Node, baseURL string, linkMap
 
 	resolvedURL := src
 	if baseURL != "" {
-		resolvedURL = p.resolveURL(baseURL, src)
+		resolvedURL = internal.ResolveURL(baseURL, src)
 	}
 
 	resourceType := "media"
@@ -663,7 +656,7 @@ func (p *Processor) extractLinkTagLinks(n *stdxhtml.Node, baseURL string, linkMa
 
 	resolvedURL := href
 	if baseURL != "" {
-		resolvedURL = p.resolveURL(baseURL, href)
+		resolvedURL = internal.ResolveURL(baseURL, href)
 	}
 
 	if title == "" {
@@ -697,7 +690,7 @@ func (p *Processor) extractScriptLinks(n *stdxhtml.Node, baseURL string, linkMap
 
 	resolvedURL := src
 	if baseURL != "" {
-		resolvedURL = p.resolveURL(baseURL, src)
+		resolvedURL = internal.ResolveURL(baseURL, src)
 	}
 
 	title := ""
@@ -737,7 +730,7 @@ func (p *Processor) extractEmbedLinks(n *stdxhtml.Node, baseURL string, linkMap 
 
 	resolvedURL := src
 	if baseURL != "" {
-		resolvedURL = p.resolveURL(baseURL, src)
+		resolvedURL = internal.ResolveURL(baseURL, src)
 	}
 
 	if title == "" {
@@ -758,4 +751,22 @@ func (p *Processor) extractEmbedLinks(n *stdxhtml.Node, baseURL string, linkMap 
 		Title: title,
 		Type:  "video",
 	}
+}
+
+// GroupLinksByType groups links by their type.
+// This is a convenience function for organizing extracted links.
+func GroupLinksByType(links []LinkResource) map[string][]LinkResource {
+	if len(links) == 0 {
+		return make(map[string][]LinkResource)
+	}
+
+	grouped := make(map[string][]LinkResource, 8)
+	for _, link := range links {
+		if link.Type != "" {
+			grouped[link.Type] = append(grouped[link.Type], link)
+		} else {
+			grouped["unknown"] = append(grouped["unknown"], link)
+		}
+	}
+	return grouped
 }

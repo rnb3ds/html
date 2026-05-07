@@ -8,7 +8,7 @@ import (
 
 // ScoreContentNode calculates a relevance score for content extraction.
 // Higher scores indicate more likely main content. Negative scores suggest non-content elements.
-// This function delegates to the default Scorer implementation.
+// Exported for testing only.
 func ScoreContentNode(node *html.Node) int {
 	return getDefaultScorer().Score(node)
 }
@@ -20,7 +20,7 @@ func ShouldRemoveElement(n *html.Node) bool {
 }
 
 // ScoreAttributes calculates a score based on element attributes.
-// This function delegates to the default Scorer implementation.
+// Exported for testing only.
 func ScoreAttributes(n *html.Node) int {
 	return getDefaultScorer().ScoreAttributes(n)
 }
@@ -130,7 +130,7 @@ func MatchesPattern(value string, patterns map[string]bool) bool {
 }
 
 // CalculateContentDensity calculates text-to-tag ratio.
-// This is the exported version that uses the internal calculateDensityFromMetrics.
+// Exported for testing only.
 func CalculateContentDensity(n *html.Node) float64 {
 	if n == nil {
 		return 0
@@ -140,6 +140,7 @@ func CalculateContentDensity(n *html.Node) float64 {
 }
 
 // CountTags counts all element nodes in the subtree.
+// Exported for testing only.
 func CountTags(n *html.Node) int {
 	count := 0
 	WalkNodes(n, func(node *html.Node) bool {
@@ -152,6 +153,7 @@ func CountTags(n *html.Node) int {
 }
 
 // CountChildElements counts child elements of specific tag type.
+// Exported for testing only.
 func CountChildElements(n *html.Node, tag string) int {
 	count := 0
 	WalkNodes(n, func(node *html.Node) bool {

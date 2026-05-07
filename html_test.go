@@ -105,43 +105,8 @@ func TestProcessorLifecycle(t *testing.T) {
 		}
 	})
 
-	t.Run("Extract after close fails", func(t *testing.T) {
-		p, _ := html.New()
-		p.Close()
-		_, err := p.Extract([]byte("<html><body>Test</body></html>"))
-		if err != html.ErrProcessorClosed {
-			t.Errorf("Extract() should fail with ErrProcessorClosed, got: %v", err)
-		}
-	})
+	}
 
-	t.Run("ExtractAllLinks after close fails", func(t *testing.T) {
-		p, _ := html.New()
-		p.Close()
-		_, err := p.ExtractAllLinks([]byte("<html><body><a href='/test'>Link</a></body></html>"))
-		if err != html.ErrProcessorClosed {
-			t.Errorf("ExtractAllLinks() should fail with ErrProcessorClosed, got: %v", err)
-		}
-	})
-
-	t.Run("ExtractBatch after close fails", func(t *testing.T) {
-		p, _ := html.New()
-		p.Close()
-		contents := [][]byte{[]byte("<html><body>Test</body></html>")}
-		_, err := p.ExtractBatch(contents)
-		if err != html.ErrProcessorClosed {
-			t.Errorf("ExtractBatch() should fail with ErrProcessorClosed, got: %v", err)
-		}
-	})
-
-	t.Run("ExtractFromFile after close fails", func(t *testing.T) {
-		p, _ := html.New()
-		p.Close()
-		_, err := p.ExtractFromFile("test.html")
-		if err != html.ErrProcessorClosed {
-			t.Errorf("ExtractFromFile() should fail with ErrProcessorClosed, got: %v", err)
-		}
-	})
-}
 
 func TestConfiguration(t *testing.T) {
 	t.Parallel()
@@ -504,14 +469,14 @@ func TestBatchProcessing(t *testing.T) {
 			[]byte(`<html><body><article><h1>A3</h1><p>C3</p></article></body></html>`),
 		}
 
-		results, err := p.ExtractBatch(inputs)
-		if err != nil {
-			t.Fatalf("ExtractBatch() failed: %v", err)
+		br := p.ExtractBatch(inputs)
+		if br.Failed > 0 {
+			t.Fatalf("ExtractBatch() failed: %v", br.Errors[0])
 		}
-		if len(results) != 3 {
-			t.Errorf("Got %d results, want 3", len(results))
+		if len(br.Results) != 3 {
+			t.Errorf("Got %d results, want 3", len(br.Results))
 		}
-		for i, r := range results {
+		for i, r := range br.Results {
 			expected := fmt.Sprintf("A%d", i+1)
 			if r.Title != expected {
 				t.Errorf("Result[%d].Title = %q, want %q", i, r.Title, expected)
@@ -520,12 +485,12 @@ func TestBatchProcessing(t *testing.T) {
 	})
 
 	t.Run("empty batch", func(t *testing.T) {
-		results, err := p.ExtractBatch([][]byte{})
-		if err != nil {
-			t.Fatalf("ExtractBatch() failed: %v", err)
+		br := p.ExtractBatch([][]byte{})
+		if br.Failed > 0 {
+			t.Fatalf("ExtractBatch() failed: %v", br.Errors[0])
 		}
-		if len(results) != 0 {
-			t.Errorf("Got %d results, want 0", len(results))
+		if len(br.Results) != 0 {
+			t.Errorf("Got %d results, want 0", len(br.Results))
 		}
 	})
 
@@ -542,14 +507,14 @@ func TestBatchProcessing(t *testing.T) {
 			[]byte(`<html><body><p>Another valid</p></body></html>`),
 		}
 
-		results, err := p.ExtractBatch(inputs)
-		if err == nil {
+		br := p.ExtractBatch(inputs)
+		if br.Failed == 0 {
 			t.Fatal("ExtractBatch() should return error for partial failures")
 		}
-		if len(results) != 3 {
-			t.Errorf("Got %d results, want 3", len(results))
+		if len(br.Results) != 3 {
+			t.Errorf("Got %d results, want 3", len(br.Results))
 		}
-		if results[0] == nil || results[2] == nil {
+		if br.Results[0] == nil || br.Results[2] == nil {
 			t.Error("Valid results should not be nil")
 		}
 	})
@@ -568,12 +533,12 @@ func TestBatchProcessing(t *testing.T) {
 			}
 		}
 
-		results, err := p.ExtractBatchFiles(files)
-		if err != nil {
-			t.Fatalf("ExtractBatchFiles() failed: %v", err)
+		br := p.ExtractBatchFiles(files)
+		if br.Failed > 0 {
+			t.Fatalf("ExtractBatchFiles() failed: %v", br.Errors[0])
 		}
-		if len(results) != 2 {
-			t.Errorf("Got %d results, want 2", len(results))
+		if len(br.Results) != 2 {
+			t.Errorf("Got %d results, want 2", len(br.Results))
 		}
 	})
 }

@@ -1,5 +1,4 @@
-// Package internal provides implementation details for the cybergodev/html library.
-// This file contains the Scorer interface and default implementation for content scoring.
+// scorer.go contains the Scorer interface and default implementation for content scoring.
 package internal
 
 import (
@@ -98,12 +97,21 @@ type patternScore struct {
 }
 
 // NewDefaultScorer creates a new DefaultScorer with the default configuration.
+// For repeated use, prefer SharedDefaultScorer() to avoid repeated allocation.
 func NewDefaultScorer() *DefaultScorer {
 	config := DefaultScoringConfig()
 	return &DefaultScorer{
 		config:          config,
 		patternPrefixes: buildPatternPrefixIndex(config),
 	}
+}
+
+// SharedDefaultScorer returns a shared singleton DefaultScorer.
+// Use this instead of NewDefaultScorer() when the default configuration is acceptable
+// to avoid repeated allocation of scoring maps and pattern indexes.
+// The returned scorer is read-only and safe for concurrent use.
+func SharedDefaultScorer() *DefaultScorer {
+	return getDefaultScorer()
 }
 
 // buildPatternPrefixIndex creates a prefix-based index for fast pattern matching.
@@ -361,9 +369,6 @@ var (
 // getDefaultScorer returns a shared DefaultScorer instance.
 // This is an optimization for cases where multiple processors use the default
 // scorer, reducing memory allocation by sharing a single instance.
-//
-// Note: This function is currently unused but reserved for future optimization.
-// It may be used when implementing processor pooling or shared scorer instances.
 func getDefaultScorer() *DefaultScorer {
 	defaultScorerOnce.Do(func() {
 		defaultScorer = NewDefaultScorer()

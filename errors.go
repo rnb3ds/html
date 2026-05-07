@@ -1,8 +1,10 @@
 package html
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 )
 
 // Sentinel errors for the `cybergodev/html` package.
@@ -159,44 +161,27 @@ func (e *FileError) sanitizeErrorMessage() error {
 	// sensitive filesystem paths.
 
 	// Check for known error patterns and return sanitized versions
-	lowerErr := stringsToLower(errStr)
-	if stringsContains(lowerErr, "path traversal") {
+	lowerErr := strings.ToLower(errStr)
+	if strings.Contains(lowerErr, "path traversal") {
 		return fmt.Errorf("path traversal detected")
 	}
-	if stringsContains(lowerErr, "not found") {
+	if strings.Contains(lowerErr, "not found") {
 		return fmt.Errorf("file not found")
 	}
-	if stringsContains(lowerErr, "permission denied") {
+	if strings.Contains(lowerErr, "permission denied") {
 		return fmt.Errorf("permission denied")
 	}
-	if stringsContains(lowerErr, "access denied") {
+	if strings.Contains(lowerErr, "access denied") {
 		return fmt.Errorf("access denied")
 	}
 
 	// Check if the error message contains what looks like a file path
 	// and sanitize it to prevent information disclosure
-	if stringsContains(errStr, "/") || stringsContains(errStr, "\\") {
-		// Return a generic message that preserves the error type
-		// but removes the path
+	if strings.Contains(errStr, "/") || strings.Contains(errStr, "\\") {
 		return fmt.Errorf("file operation failed")
 	}
 
 	return e.FileErr
-}
-
-// stringsToLower is a helper to avoid importing strings package.
-// Uses the existing compat.go implementation if available.
-func stringsToLower(s string) string {
-	// Simple ASCII lowercase conversion
-	b := make([]byte, len(s))
-	for i := range s {
-		c := s[i]
-		if c >= 'A' && c <= 'Z' {
-			c += 32
-		}
-		b[i] = c
-	}
-	return string(b)
 }
 
 // Unwrap returns the appropriate sentinel error for errors.Is() support.
@@ -204,7 +189,29 @@ func (e *FileError) Unwrap() error {
 	if errors.Is(e.FileErr, ErrFileNotFound) {
 		return ErrFileNotFound
 	}
+	if e.FileErr != nil {
+		return e.FileErr
+	}
 	return ErrInvalidFilePath
+}
+
+// MarshalJSON implements custom JSON marshaling for FileError.
+// The Path field is sanitized via SafePath() to prevent filesystem path
+// disclosure when errors are serialized to JSON for API responses.
+func (e *FileError) MarshalJSON() ([]byte, error) {
+	msg := ""
+	if sanitized := e.sanitizeErrorMessage(); sanitized != nil {
+		msg = sanitized.Error()
+	}
+	return json.Marshal(&struct {
+		Op      string `json:"op"`
+		Path    string `json:"path"`
+		Message string `json:"message"`
+	}{
+		Op:      e.Op,
+		Path:    e.SafePath(),
+		Message: msg,
+	})
 }
 
 // newFileError creates a new FileError with the provided details.

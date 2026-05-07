@@ -77,14 +77,14 @@ func (tb *TrackedBuilder) WriteString(s string) (int, error) {
 
 // EnsureNewline ensures the builder ends with a newline.
 func EnsureNewline(tb *TrackedBuilder) {
-	if tb.Builder.Len() > 0 && tb.LastChar != '\n' {
-		tb.WriteByte('\n')
+	if tb.Len() > 0 && tb.LastChar != '\n' {
+		_ = tb.WriteByte('\n')
 	}
 }
 
 // EnsureSpacing ensures the builder ends with the specified character if not already ending with space or newline.
 func EnsureSpacing(tb *TrackedBuilder, char byte) {
-	if tb.Builder.Len() > 0 && tb.LastChar != ' ' && tb.LastChar != '\n' {
-		tb.WriteByte(char)
+	if tb.Len() > 0 && tb.LastChar != ' ' && tb.LastChar != '\n' {
+		_ = tb.WriteByte(char)
 	}
 }

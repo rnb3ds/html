@@ -13,7 +13,7 @@ func (p *Processor) extractVideos(node *stdxhtml.Node, htmlContent string) []Vid
 
 	// First, extract from the HTML content directly for iframe/embed/object tags
 	// These may be removed by sanitization, so we parse them from raw HTML first
-	if len(htmlContent) > 0 && len(htmlContent) <= maxHTMLForRegex*10 {
+	if len(htmlContent) > 0 && len(htmlContent) <= maxHTMLForRegex {
 		// Parse iframe tags
 		iframeMatches := p.extractTagAttributes(htmlContent, "iframe", "src")
 		for _, url := range iframeMatches {
@@ -331,67 +331,76 @@ func findTagIgnoreCase(html, lowerTag string) int {
 // extractAttributeValue extracts a single attribute value from a tag string.
 // It handles quoted (single and double) and unquoted attribute values.
 func extractAttributeValue(tagContent, attrName string) string {
-	lowerTag := strings.ToLower(tagContent)
-	lowerAttr := strings.ToLower(attrName) + "="
+	search := attrName + "="
+	searchLen := len(search)
+	tagLen := len(tagContent)
 
-	// Find the attribute
-	attrIdx := strings.Index(lowerTag, lowerAttr)
-	if attrIdx == -1 {
-		return ""
-	}
-
-	// Verify we're matching a complete attribute name (not a substring)
-	if attrIdx > 0 {
-		prevChar := lowerTag[attrIdx-1]
-		// Attribute should start at beginning or after whitespace
-		if prevChar != ' ' && prevChar != '\t' && prevChar != '\n' && prevChar != '\r' {
-			return ""
-		}
-	}
-
-	valueStart := attrIdx + len(attrName) + 1
-
-	// Skip whitespace after '='
-	for valueStart < len(tagContent) {
-		c := tagContent[valueStart]
-		if c != ' ' && c != '\t' {
-			break
-		}
-		valueStart++
-	}
-
-	if valueStart >= len(tagContent) {
-		return ""
-	}
-
-	// Extract quoted or unquoted value
-	var value string
-	var quote byte
-
-	switch tagContent[valueStart] {
-	case '"', '\'':
-		// Quoted value
-		quote = tagContent[valueStart]
-		valueStart++
-		valueEnd := strings.IndexByte(tagContent[valueStart:], quote)
-		if valueEnd == -1 {
-			// Unclosed quote, return rest of tag content
-			value = tagContent[valueStart:]
-		} else {
-			value = tagContent[valueStart : valueStart+valueEnd]
-		}
-	default:
-		// Unquoted value - extract until whitespace or '>'
-		valueEnd := valueStart
-		for valueEnd < len(tagContent) {
-			c := tagContent[valueEnd]
-			if c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '>' {
+	// Case-insensitive search for the attribute
+	pos := 0
+	for pos <= tagLen-searchLen {
+		match := true
+		for j := 0; j < searchLen; j++ {
+			c := tagContent[pos+j]
+			sc := search[j]
+			if c >= 'A' && c <= 'Z' {
+				c += 32
+			}
+			if c != sc {
+				match = false
 				break
 			}
-			valueEnd++
 		}
-		value = tagContent[valueStart:valueEnd]
+		if !match {
+			pos++
+			continue
+		}
+
+		// Verify we're matching a complete attribute name (not a substring)
+		if pos > 0 {
+			prevChar := tagContent[pos-1]
+			if prevChar != ' ' && prevChar != '\t' && prevChar != '\n' && prevChar != '\r' {
+				pos++
+				continue
+			}
+		}
+
+		valueStart := pos + searchLen
+
+		// Skip whitespace after '='
+		for valueStart < tagLen {
+			c := tagContent[valueStart]
+			if c != ' ' && c != '\t' {
+				break
+			}
+			valueStart++
+		}
+
+		if valueStart >= tagLen {
+			return ""
+		}
+
+		// Extract quoted or unquoted value
+		switch tagContent[valueStart] {
+		case '"', '\'':
+			quote := tagContent[valueStart]
+			valueStart++
+			valueEnd := strings.IndexByte(tagContent[valueStart:], quote)
+			if valueEnd == -1 {
+				return strings.TrimSpace(tagContent[valueStart:])
+			}
+			return strings.TrimSpace(tagContent[valueStart : valueStart+valueEnd])
+		default:
+			valueEnd := valueStart
+			for valueEnd < tagLen {
+				c := tagContent[valueEnd]
+				if c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '>' {
+					break
+				}
+				valueEnd++
+			}
+			return strings.TrimSpace(tagContent[valueStart:valueEnd])
+		}
 	}
 
-	return strings.TrimSpace(value)
+	return ""
 }

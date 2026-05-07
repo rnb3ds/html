@@ -132,9 +132,9 @@ func BenchmarkExtractBatch(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, err := p.ExtractBatch(htmlContents)
-		if err != nil {
-			b.Fatalf("ExtractBatch() failed: %v", err)
+		br := p.ExtractBatch(htmlContents)
+		if br.Failed > 0 {
+			b.Fatalf("ExtractBatch() failed: %v", br.Errors[0])
 		}
 	}
 }
@@ -151,7 +151,6 @@ func BenchmarkNew(b *testing.B) {
 		p.Close()
 	}
 }
-
 
 func BenchmarkConcurrentExtract(b *testing.B) {
 	p, _ := html.New()

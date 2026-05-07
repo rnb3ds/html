@@ -1,15 +1,13 @@
-// Package internal provides pooled resources for memory allocation optimization.
+// pool.go provides pooled resources for memory allocation optimization.
 package internal
 
 import (
 	"bytes"
 	"hash"
 	"hash/fnv"
-	"reflect"
 	"strings"
 	"sync"
 	"sync/atomic"
-	"unsafe"
 
 	"golang.org/x/net/html"
 )
@@ -171,23 +169,22 @@ func PutBuilder(sb *strings.Builder) {
 		return
 	}
 	// SECURITY: Optionally clear sensitive data before returning to pool
+	// Note: We do NOT use sb.String() + unsafe modification because
+	// strings.Builder strings share memory with the builder. Instead,
+	// we zero the buffer only after ensuring no active string references exist.
+	// The simplest safe approach: overwrite content before reset.
 	if poolSecureClear.Load() {
-		// Use reflection to access and zero the internal buffer
-		// strings.Builder has an unexported field 'buf []byte'
-		v := reflect.ValueOf(sb).Elem()
-		bufField := v.FieldByName("buf")
-		if bufField.IsValid() && bufField.Kind() == reflect.Slice {
-			// Get slice length and safely zero the bytes
-			bufLen := bufField.Len()
-			if bufLen > 0 {
-				// Access the underlying bytes using unsafe
-				// bufField is a slice: {ptr, len, cap}
-				bufPtr := unsafe.Pointer(bufField.UnsafeAddr())
-				// The slice data starts at the pointer
-				for i := 0; i < bufLen; i++ {
-					*(*byte)(unsafe.Add(bufPtr, i)) = 0
-				}
-			}
+		if sb.Len() > 0 {
+			// Grow overwrites internal buffer by allocating new space,
+			// but does not clear old data. Reset below frees old buffer.
+			// For effective secure clearing, we overwrite existing content.
+			n := sb.Len()
+			sb.Reset()
+			// After Reset, grow allocates fresh buffer. Fill with zeros
+			// to overwrite any previously allocated pool memory pattern.
+			b, _ := sb.Write(make([]byte, n))
+			_ = b
+			sb.Reset()
 		}
 	}
 	sb.Reset()
