@@ -4,6 +4,7 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"unicode/utf8"
 
 	"github.com/cybergodev/html"
@@ -11,11 +12,17 @@ import (
 
 // This example demonstrates real-world use cases.
 // Perfect for understanding practical patterns.
+//
+// NOTE: For brevity, extraction errors are elided in most use cases below;
+// see 07_error_handling.go for proper error-handling patterns.
 func main() {
 	fmt.Println("=== Real-World Use Cases ===")
 	fmt.Println()
 
-	processor, _ := html.New()
+	processor, err := html.New()
+	if err != nil {
+		log.Fatal(err)
+	}
 	defer processor.Close()
 
 	// ============================================================

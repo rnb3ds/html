@@ -56,6 +56,7 @@ package main
 
 import (
     "fmt"
+    "log"
     "github.com/cybergodev/html"
 )
 
@@ -71,10 +72,10 @@ func main() {
 
     text, err := html.ExtractText(htmlBytes)
     if err != nil {
-        panic(err)
+        log.Fatal(err)
     }
     fmt.Println(text)
-    // 输出: "你好世界\n这里是内容..."
+    // 输出: "你好世界\n\n这里是内容..."
 }
 ```
 
@@ -109,7 +110,7 @@ func main() {
     // 提取所有内容（含元数据）
     result, _ := html.Extract(htmlBytes)
     fmt.Println(result.Title)     // "标题"
-    fmt.Println(result.Text)      // "内容在这里..."
+    fmt.Println(result.Text)      // "标题\n\n内容在这里..."
     fmt.Println(result.WordCount) // 2
 
     // 提取所有资源链接
@@ -556,6 +557,7 @@ type Config struct {
     // === 安全 ===
     EnableSanitization bool        // HTML 净化（默认：true）
     MaxDepth           int         // 最大 HTML 嵌套深度（默认：500）
+    AllowedBaseDir     string      // 限制文件读取到此目录（默认：空 = 不限制）
     Audit              AuditConfig // 安全审计日志
 
     // === 内容提取 ===
@@ -606,7 +608,7 @@ type Config struct {
 ## 🔒 安全特性
 
 ### HTML 净化
-- **危险标签移除**：`<script>`、`<style>`、`<noscript>`、`<iframe>`、`<embed>`、`<object>`、`<form>`、`<input>`、`<button>`
+- **危险标签移除**：`<script>`、`<style>`、`<noscript>`、`<iframe>`、`<embed>`、`<object>`、`<form>`、`<input>`、`<button>`、`<svg>`、`<math>`
 - **事件处理器移除**：所有 `on*` 属性（onclick、onerror、onload 等）
 - **危险协议阻止**：`javascript:`、`vbscript:`、`data:`（安全媒体类型除外）
 - **XSS 防护**：全面的净化以防止跨站脚本攻击
@@ -616,6 +618,7 @@ type Config struct {
 - **深度限制**：`MaxDepth` 防止深度嵌套 HTML 导致栈溢出
 - **超时保护**：`ProcessingTimeout` 防止格式错误输入导致挂起
 - **路径遍历防护**：`ExtractFromFile` 验证文件路径
+- **基目录锁定**：`AllowedBaseDir` 将文件读取限制在受信任的目录内
 
 ### Data URL 安全
 - **允许**：`data:image/*`、`data:font/*`、`data:application/pdf`
@@ -700,6 +703,12 @@ processor, _ := html.New(config)
 | [06_advanced_usage.go](examples/06_advanced_usage.go) | 自定义评分器、审计日志、安全配置 |
 | [07_error_handling.go](examples/07_error_handling.go) | 错误处理模式 |
 | [08_real_world.go](examples/08_real_world.go) | 实际应用案例 |
+
+每个示例都是受 `examples` 构建标签保护的独立 `main` 程序，因此不会包含在 `go build ./...` 中，也不会影响库的构建。直接指定文件名即可运行任意示例：
+
+```bash
+go run examples/01_quick_start.go
+```
 
 ---
 

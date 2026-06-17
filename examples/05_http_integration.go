@@ -25,7 +25,10 @@ func main() {
 	server := createMockServer()
 	defer server.Close()
 
-	processor, _ := html.New()
+	processor, err := html.New()
+	if err != nil {
+		log.Fatal(err)
+	}
 	defer processor.Close()
 
 	// ============================================================

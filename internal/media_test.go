@@ -1,6 +1,9 @@
 package internal
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 // TestIsVideoURL tests video URL detection
 func TestIsVideoURL(t *testing.T) {
@@ -300,5 +303,57 @@ func BenchmarkDetectAudioType(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		DetectAudioType(url)
+	}
+}
+
+// TestHasMediaReference tests the allocation-free media-reference pre-filter that
+// gates the expensive regex/raw-HTML media scans. It must never return false for
+// content that the regex/tag scan could match (no false negatives), and must return
+// false for ordinary text so the scans are skipped on the common no-media path.
+func TestHasMediaReference(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		content string
+		want    bool
+	}{
+		// Negatives: ordinary content that must not trigger the media scans.
+		{name: "empty", content: "", want: false},
+		{name: "plain text", content: "no media here, just words", want: false},
+		{name: "non-media extensions", content: `<a href="page.html">x</a> <img src="a.jpg">`, want: false},
+		{name: "dots but no media ext", content: "version 1.2.3 and 3.14159", want: false},
+
+		// Positives: media file extensions (case-insensitive).
+		{name: "mp4 extension", content: `<video src="https://x.com/v.mp4">`, want: true},
+		{name: "uppercase MP3", content: "see HTTPS://X.COM/A.MP3 here", want: true},
+		{name: "webm", content: "clip.webm", want: true},
+		{name: "flac", content: "song.FLAC", want: true},
+		{name: "extension inside longer token", content: "blobv.mp4extra", want: true},
+
+		// Positives: embed-host patterns without a file extension.
+		{name: "youtube embed", content: `<iframe src="https://www.youtube.com/embed/abc"></iframe>`, want: true},
+		{name: "vimeo embed uppercase host", content: "WWW.PLAYER.VIMEO.COM/VIDEO/123", want: true},
+		{name: "bilibili", content: "player.bilibili.com/page", want: true},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := HasMediaReference(tt.content); got != tt.want {
+				t.Errorf("HasMediaReference(%q) = %v, want %v", tt.content, got, tt.want)
+			}
+		})
+	}
+}
+
+// BenchmarkHasMediaReference benchmarks the gate on a no-media document (the common
+// path) so the cost of the pre-filter itself stays visible and bounded.
+func BenchmarkHasMediaReference(b *testing.B) {
+	content := "<html><body><p>" + strings.Repeat("the quick brown fox jumps over the lazy dog. ", 2000) + "</p></body></html>"
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = HasMediaReference(content)
 	}
 }

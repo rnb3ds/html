@@ -286,14 +286,14 @@ func TestContentNodeAdapter(t *testing.T) {
 
 	t.Run("nil ContentNode is nil", func(t *testing.T) {
 		var nilNode html.ContentNode // nil interface
-		_ = nilNode // nil interface value, adapter methods are tested via nil nodes
+		_ = nilNode                  // nil interface value, adapter methods are tested via nil nodes
 	})
 }
 
 // recordingScorer is a test scorer that captures nodes for inspection.
 type recordingScorer struct {
-	onScore         func(html.ContentNode) int
-	onShouldRemove  func(html.ContentNode) bool
+	onScore        func(html.ContentNode) int
+	onShouldRemove func(html.ContentNode) bool
 }
 
 func (s *recordingScorer) Score(n html.ContentNode) int {
@@ -308,20 +308,6 @@ func (s *recordingScorer) ShouldRemove(n html.ContentNode) bool {
 		return s.onShouldRemove(n)
 	}
 	return false
-}
-
-// TestChannelAuditSinkDroppedCount tests DroppedCount which had 0% coverage.
-func TestChannelAuditSinkDroppedCount(t *testing.T) {
-	p, err := html.New()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer p.Close()
-
-	// Basic test: DroppedCount should start at 0
-	// More thorough testing is in audit_test.go
-	stats := p.GetStatistics()
-	_ = stats // just verify no panic
 }
 
 // TestProcessorDetectEncoding tests detectEncoding with encoding issues.

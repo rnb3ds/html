@@ -753,3 +753,37 @@ func TestIsValidDataURL(t *testing.T) {
 		})
 	}
 }
+
+// TestIndexASCIIFold pins the boundary behavior of the unexported indexASCIIFold
+// helper used by the case-insensitive tag stripper. The needle's first byte is
+// scanned in both cases, so a lower-case needle matches a mixed-case haystack
+// (the real callers always pass "<" + lower-case tag).
+func TestIndexASCIIFold(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		s      string
+		target string
+		want   int
+	}{
+		{"exact match", "hello world", "world", 6},
+		{"lowercase needle in uppercase haystack", "HELLO WORLD", "world", 6},
+		{"real use: opening script tag", "<SCRIPT>alert</SCRIPT>", "<script", 0},
+		{"tag later in content", "abc<Script>", "<script", 3},
+		{"first occurrence wins", "<script<script>", "<script", 0},
+		{"no match", "nothing here", "world", -1},
+		{"target longer than haystack", "abc", "abcd", -1},
+		{"empty target returns 0", "anything", "", 0},
+		{"empty haystack empty target", "", "", 0},
+		{"empty haystack non-empty target", "", "a", -1},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := indexASCIIFold(tt.s, tt.target); got != tt.want {
+				t.Errorf("indexASCIIFold(%q, %q) = %d, want %d", tt.s, tt.target, got, tt.want)
+			}
+		})
+	}
+}

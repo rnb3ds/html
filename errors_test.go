@@ -4,7 +4,9 @@ package html
 // This file tests all error types, their constructors, and errors.Is() support.
 
 import (
+	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -346,6 +348,80 @@ func TestErrInternalPanic(t *testing.T) {
 		msg := ErrInternalPanic.Error()
 		if !strings.Contains(msg, "panic") {
 			t.Errorf("ErrInternalPanic message should contain 'panic': %s", msg)
+		}
+	})
+}
+
+// TestFileErrorMarshalJSON covers FileError.MarshalJSON (previously 0% coverage)
+// and asserts the security-relevant behavior: when a FileError is serialized to
+// JSON (e.g. for an API response), only the basename of Path is exposed and the
+// underlying error message is sanitized of path detail.
+func TestFileErrorMarshalJSON(t *testing.T) {
+	t.Parallel()
+
+	type jsonForm struct {
+		Op      string `json:"op"`
+		Path    string `json:"path"`
+		Message string `json:"message"`
+	}
+
+	t.Run("path is reduced to basename", func(t *testing.T) {
+		err := newFileError("ExtractFromFile", "/var/secrets/../../etc/passwd", errors.New("open failed"))
+		data, mErr := json.Marshal(err)
+		if mErr != nil {
+			t.Fatalf("MarshalJSON returned error: %v", mErr)
+		}
+
+		var got jsonForm
+		if err := json.Unmarshal(data, &got); err != nil {
+			t.Fatalf("output is not valid JSON: %v\nraw: %s", err, data)
+		}
+		if got.Op != "ExtractFromFile" {
+			t.Errorf("op = %q, want %q", got.Op, "ExtractFromFile")
+		}
+		// SECURITY: only the basename may be exposed; the directory chain and
+		// traversal segments must never reach the serialized form.
+		if got.Path != "passwd" {
+			t.Errorf("path = %q, want basename %q", got.Path, "passwd")
+		}
+		raw := string(data)
+		if strings.Contains(raw, "/var/secrets") || strings.Contains(raw, "..") {
+			t.Errorf("serialized JSON leaked sensitive path components: %s", raw)
+		}
+	})
+
+	t.Run("path-traversal message is sanitized", func(t *testing.T) {
+		err := newFileError("ReadFile", "/safe/dir/file.txt", fmt.Errorf("path traversal detected near /root/.ssh"))
+		data, _ := json.Marshal(err)
+		var got jsonForm
+		if err := json.Unmarshal(data, &got); err != nil {
+			t.Fatalf("invalid JSON: %v", err)
+		}
+		if got.Message != "path traversal detected" {
+			t.Errorf("message = %q, want %q", got.Message, "path traversal detected")
+		}
+		if strings.Contains(got.Message, "/root") {
+			t.Errorf("message leaked filesystem path: %q", got.Message)
+		}
+	})
+
+	t.Run("nil underlying error yields empty message", func(t *testing.T) {
+		err := newFileError("ReadFile", "file.txt", nil)
+		data, _ := json.Marshal(err)
+		var got jsonForm
+		_ = json.Unmarshal(data, &got)
+		if got.Message != "" {
+			t.Errorf("message = %q, want empty when FileErr is nil", got.Message)
+		}
+	})
+
+	t.Run("empty path serializes as empty", func(t *testing.T) {
+		err := newFileError("ReadFile", "", errors.New("not found"))
+		data, _ := json.Marshal(err)
+		var got jsonForm
+		_ = json.Unmarshal(data, &got)
+		if got.Path != "" {
+			t.Errorf("path = %q, want empty", got.Path)
 		}
 	})
 }

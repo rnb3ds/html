@@ -72,8 +72,10 @@ cfg := html.Config{
     ProcessingTimeout: 30 * time.Second, // 30s timeout (default)
 
     // Security
-    EnableSanitization: true, // Sanitize HTML (default: true)
-    MaxDepth:           500,  // Max nesting depth (default)
+    EnableSanitization: true,   // Sanitize HTML (default: true)
+    MaxDepth:           500,    // Max nesting depth (default)
+    AllowedBaseDir:     "",     // Restrict file ops to this dir; empty = no restriction (default). Use with ExtractFromFile on untrusted paths
+    Audit:              html.DefaultAuditConfig(), // Security audit logging (default: disabled; see Audit section in docs/SECURITY.md)
 
     // Content Extraction
     ExtractArticle: true, // Enable article detection (default: true)
@@ -232,23 +234,23 @@ All `Processor` methods have package-level convenience functions that use a pool
 
 ```go
 // Content extraction
-result, err := html.Extract(htmlBytes []byte, cfg ...Config) (*Result, error)
-result, err := html.ExtractFromFile(filePath string, cfg ...Config) (*Result, error)
-text, err := html.ExtractText(htmlBytes []byte, cfg ...Config) (string, error)
+result, err := html.Extract(htmlBytes, cfg ...Config) (*Result, error)
+result, err := html.ExtractFromFile(filePath, cfg ...Config) (*Result, error)
+text, err := html.ExtractText(htmlBytes, cfg ...Config) (string, error)
 
 // Context-aware
-result, err := html.ExtractWithContext(ctx, htmlBytes, cfg) (*Result, error)
+result, err := html.ExtractWithContext(ctx, htmlBytes, cfg ...Config) (*Result, error)
 
 // Output formats
-markdown, err := html.ExtractToMarkdown(htmlBytes, cfg) (string, error)
-jsonBytes, err := html.ExtractToJSON(htmlBytes, cfg) ([]byte, error)
+markdown, err := html.ExtractToMarkdown(htmlBytes, cfg ...Config) (string, error)
+jsonBytes, err := html.ExtractToJSON(htmlBytes, cfg ...Config) ([]byte, error)
 
 // Batch
-br := html.ExtractBatch(htmlContents [][]byte, cfg ...Config) *BatchResult
-br := html.ExtractBatchFiles(filePaths []string, cfg ...Config) *BatchResult
+br := html.ExtractBatch(htmlContents, cfg ...Config) *BatchResult
+br := html.ExtractBatchFiles(filePaths, cfg ...Config) *BatchResult
 
 // Links
-links, err := html.ExtractAllLinks(htmlBytes, cfg) ([]LinkResource, error)
+links, err := html.ExtractAllLinks(htmlBytes, cfg ...Config) ([]LinkResource, error)
 ```
 
 ### BatchResult

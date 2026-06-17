@@ -51,7 +51,17 @@ func containsASCIIFold(s, substr string) bool {
 // escapeMarkdownText escapes characters that could break Markdown link/image syntax.
 // Escapes ], [, and \ to prevent injection of arbitrary Markdown content.
 func escapeMarkdownText(s string) string {
-	return markdownEscapeReplacer.Replace(s)
+	// Fast path: strings.(*Replacer).Replace allocates a new string even when
+	// nothing matches, so scan first and skip the replacer entirely when the
+	// text contains none of the three escapable characters. Link and image
+	// text almost never contains them, so this avoids an allocation per call.
+	for i := 0; i < len(s); i++ {
+		switch s[i] {
+		case '\\', '[', ']':
+			return markdownEscapeReplacer.Replace(s)
+		}
+	}
+	return s
 }
 
 // Timeout goroutine management constants.
@@ -303,9 +313,13 @@ func (p *Processor) extractCoreWithContext(ctx context.Context, htmlBytes []byte
 	if p.config.MaxCacheEntries > 0 {
 		cacheKey = p.generateCacheKey(utf8String)
 		if cached := p.cache.Get(cacheKey); cached != nil {
-			p.stats.cacheHits.Add(1)
-			p.stats.totalProcessed.Add(1)
+			// Count a hit only when the cached value is actually usable.
+			// Incrementing the hit counter before the type assertion previously
+			// double-counted a stray entry as both a hit (here) and a miss
+			// (the fall-through below) when the assertion failed.
 			if cachedResult, ok := cached.(*Result); ok {
+				p.stats.cacheHits.Add(1)
+				p.stats.totalProcessed.Add(1)
 				return cloneResult(cachedResult), nil
 			}
 		}
@@ -346,9 +360,15 @@ func (p *Processor) extractCoreWithContext(ctx context.Context, htmlBytes []byte
 	p.stats.totalProcessTime.Add(int64(processingTime))
 	p.stats.totalProcessed.Add(1)
 
-	// Only cache if caching is enabled and we have a cache key
+	// Only cache if caching is enabled and we have a cache key.
 	if p.config.MaxCacheEntries > 0 && cacheKey != "" {
 		p.cache.Set(cacheKey, result)
+		// Return a clone so the caller owns an independent copy. The cached
+		// entry and the returned value must not alias: a caller that mutates
+		// its result would otherwise race with concurrent cache-hit reads
+		// (cloneResult) and silently corrupt the cache. This mirrors the clone
+		// taken on the cache-hit path, closing the same ownership contract.
+		return cloneResult(result), nil
 	}
 
 	return result, nil
@@ -382,15 +402,6 @@ func (p *Processor) processContentWithContext(ctx context.Context, htmlContent s
 		return nil, fmt.Errorf("%w: %w", ErrInvalidHTML, err)
 	}
 
-	// Sanitize DOM in-place (avoids render + re-parse overhead)
-	if p.config.EnableSanitization {
-		if p.audit != nil && p.config.Audit.Enabled {
-			internal.SanitizeDOM(doc, p.auditAdapter)
-		} else {
-			internal.SanitizeDOM(doc, internal.NoOpAuditRecorder{})
-		}
-	}
-
 	// Check context before depth validation
 	select {
 	case <-ctx.Done():
@@ -398,8 +409,25 @@ func (p *Processor) processContentWithContext(ctx context.Context, htmlContent s
 	default:
 	}
 
+	// Validate DOM depth BEFORE any recursive traversal. SanitizeDOM (and other
+	// downstream passes) recurse without an internal depth cap, so a
+	// pathologically deep document could exhaust the call stack before this
+	// iterative guard rejected it. Running the O(nodes) iterative depth check
+	// first bounds every later recursive pass to MaxDepth. Depth is measured on
+	// the raw parsed tree; sanitization only removes nodes, so this is at most
+	// marginally stricter than the previous sanitize-then-validate order.
 	if err := p.validateDepthTraversal(doc, 0); err != nil {
 		return nil, err
+	}
+
+	// Sanitize DOM in-place (avoids render + re-parse overhead). Runs only on a
+	// depth-validated tree, so its recursion is bounded by MaxDepth.
+	if p.config.EnableSanitization {
+		if p.audit != nil && p.config.Audit.Enabled {
+			internal.SanitizeDOM(doc, p.auditAdapter)
+		} else {
+			internal.SanitizeDOM(doc, internal.NoOpAuditRecorder{})
+		}
 	}
 
 	// Check context before document extraction
@@ -607,7 +635,8 @@ func (p *Processor) isBlankContent(content string) bool {
 
 // validateDepthTraversal validates DOM tree depth using an iterative approach
 // to avoid potential stack overflow on deeply nested documents.
-// This is more efficient than separately calling validateDepth and extractFromDocument.
+// It folds depth validation into a single traversal rather than scanning the
+// tree twice (once for depth, once for extraction).
 func (p *Processor) validateDepthTraversal(root *stdxhtml.Node, initialDepth int) error {
 	// Use iterative approach with explicit stack to avoid stack overflow
 	// on deeply nested documents (MaxDepth can be up to 500)
@@ -853,7 +882,7 @@ func (p *Processor) formatInlineLinks(textWithPlaceholders string, links []LinkI
 					// Find [/LINK]
 					textStart := j
 					endTag := "[/LINK]"
-				endSearch:
+					found := false
 					for j <= n-len(endTag) {
 						if textWithPlaceholders[j] == '[' && textWithPlaceholders[j:j+7] == endTag {
 							// Found the closing tag
@@ -891,13 +920,15 @@ func (p *Processor) formatInlineLinks(textWithPlaceholders string, links []LinkI
 								}
 							}
 							j += len(endTag)
-							break endSearch
+							found = true
+							break
 						}
 						j++
 					}
-					// If we didn't find [/LINK], just skip the opening tag
-					if j > n-len(endTag) && j == textStart {
-						// Didn't find closing tag, write as-is
+					if !found {
+						// No closing [/LINK] tag present: write the opening tag
+						// literally and resume scanning from textStart so that
+						// trailing content is preserved rather than dropped.
 						sb.WriteString(textWithPlaceholders[i:textStart])
 						j = textStart
 					}

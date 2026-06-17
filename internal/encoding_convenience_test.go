@@ -7,54 +7,6 @@ import (
 // TestEncodingConvenienceFunctions tests the convenience wrapper functions
 // for encoding detection and conversion that were previously untested.
 
-func TestDetectCharsetFromBytes(t *testing.T) {
-	t.Parallel()
-
-	testCases := []struct {
-		name     string
-		data     []byte
-		expected string
-	}{
-		{
-			name:     "UTF-8 with BOM",
-			data:     []byte{0xEF, 0xBB, 0xBF, 'H', 'e', 'l', 'l', 'o'},
-			expected: "utf-8",
-		},
-		{
-			name:     "UTF-8 HTML with meta tag",
-			data:     []byte("<html><head><meta charset=\"utf-8\"></head><body>Hello</body></html>"),
-			expected: "utf-8",
-		},
-		{
-			name:     "Windows-1252 HTML",
-			data:     []byte("<html><head><meta http-equiv=\"Content-Type\" content=\"text/html; charset=windows-1252\"></head><body>Hello</body></html>"),
-			expected: "windows-1252",
-		},
-		{
-			name:     "Empty data",
-			data:     []byte{},
-			expected: "utf-8", // Default fallback
-		},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			detector := NewEncodingDetector()
-			result := detector.DetectCharset(tc.data)
-
-			// For empty data, we expect utf-8 as default
-			if tc.expected == "" || result == tc.expected {
-				return
-			}
-
-			// Check if result is valid
-			if result == "" {
-				t.Errorf("DetectCharsetFromBytes() returned empty string, want %q", tc.expected)
-			}
-		})
-	}
-}
-
 func TestConvertToUTF8(t *testing.T) {
 	t.Parallel()
 

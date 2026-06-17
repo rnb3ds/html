@@ -126,7 +126,9 @@ cfg.EnableSanitization = true // Default: true
   - Simple, non-backtracking patterns used
 
 ```go
-// Regex only applied when safe
+// Illustrative — the real path additionally gates on len > 0 and a
+// HasMediaReference() pre-scan, so the regex only runs when a media
+// signature is actually present (see extractVideos in media.go).
 if len(htmlContent) <= maxHTMLForRegex {
     matches := videoRegex.FindAllString(htmlContent, maxRegexMatches)
 }
@@ -561,29 +563,65 @@ func FuzzExtract(f *testing.F) {
 
 ## Security Changelog
 
-### v1.0.7 (2026-02-01)
-- Enhanced table extraction with colspan and alignment support
-- Improved input validation for data URLs (100KB limit)
-- Enhanced sanitization with additional dangerous attributes
-- Test coverage increased to 85%+
+> This section highlights security-relevant changes per release. For the complete
+> change history (features, performance, bug fixes), see [CHANGES.md](../CHANGES.md).
+
+### v1.4.1 (2026-05-07)
+- `AllowedBaseDir` config field restricts file operations to paths under a specified directory
+- `truncateAuditURL` caps data URLs at 256 chars in audit logs, preventing disk exhaustion
+- `FileError.MarshalJSON` uses `SafePath()` to prevent raw filesystem path disclosure in JSON responses
+- Fixed `ChannelAuditSink` Write/Close race condition; cache hit returns a deep copy (`cloneResult`) to prevent data races
+
+### v1.4.0 (2026-04-29)
+- CSS sanitization stripping `expression()`, `behavior:`, `-moz-binding:`, `javascript:`, `vbscript:`
+- `escapeMarkdownText()` prevents Markdown injection via unescaped `]`, `[`, `\`
+- `sanitizeRawValue()` HTML-escapes audit `RawValue` fields to prevent XSS in downstream log renderers
+- Closed `isDangerousScheme` fullwidth-Unicode bypass via `normalizeFullwidthToASCII`
+- `maxBatchSize` (10,000) early rejection prevents OOM on extreme input
+
+### v1.3.2 (2026-03-23)
+- Defense-in-depth for fast-path vulnerabilities (S-06 to S-16)
+- Enhanced numeric entity validation prevents DoS via long strings
+- Improved cache key collision resistance (5-point sampling)
+- `maxWalkDepth` (50,000 nodes) prevents memory exhaustion attacks
+
+### v1.3.0 (2026-03-03)
+- Library confirmed fully thread-safe (100+ race detection iterations)
+- Cache key hash length increased 8 → 16 bytes (better collision resistance)
+- Goroutine leak in `withTimeout()` bounded by maximum concurrent-operation limit
+
+### v1.2.0 (2026-02-07)
+- Path traversal protection in `ExtractFromFile()` with stricter checks
+- CSS injection protection in style attributes
+- Enhanced URI protocol validation for dangerous schemes
+- ReDoS protection and null byte injection prevention in URLs/paths
+
+### v1.1.1 (2026-02-02)
+- URI validation reordered to block dangerous protocols first (`javascript:`, `vbscript:`, `file:`)
+- Closed leading/trailing whitespace bypass
+- Corrected data URL character validation (base64-encoded content)
+
+### v1.1.0 (2026-02-01)
+- Enhanced data URL validation; data URI size limit (100KB max)
+- Early input size validation (DoS prevention)
+- Improved DoS prevention and safe HTML entity handling
+- Table extraction with colspan and alignment support (opt-in via `TableFormat`)
 
 ### v1.0.6 (2026-01-19)
-- Fixed cache eviction logic to respect maxEntries
-- Enhanced URL validation for non-HTTP protocols
-- Improved documentation accuracy
+- HTML sanitization removes iframe/embed/object; media extracted before sanitization
+- `NormalizeBaseURL` skips non-HTTP protocols (`data:`, `javascript:`, `mailto:`)
 
 ### v1.0.5 (2026-01-14)
-- Enhanced data URL validation (safe ASCII only, blocks injection)
-- Early input size validation (moved to function entry)
-- Improved concurrent access patterns
+- Enhanced data URL validation (safe ASCII only, blocks injection characters)
+- Early input size validation (moved to function entry for DoS prevention)
 
 ### v1.0.4 (2026-01-12)
-- **CRITICAL**: Fixed thread-safety issues (concurrent map access)
-- Eliminated all data races detected by race detector
-- Added comprehensive concurrent stress tests
+- **CRITICAL**: Fixed thread-safety issues (concurrent map access); eliminated data races
+- Fixed XSS vulnerability in HTML output with proper escaping
+- Reduced `MaxInputSize` from 1GB to 50MB for DoS protection
 
 ### Initial Release (v1.0.0)
-- Input validation on all APIs
+- Input validation on all public APIs
 - Resource limits with configurable defaults
 - Content sanitization enabled by default
 - Thread-safe concurrent access

@@ -12,6 +12,9 @@ import (
 
 // This example demonstrates content extraction options and output formats.
 // Learn how to customize extraction and produce different output formats.
+//
+// NOTE: For brevity, extraction errors are elided in this example;
+// see 07_error_handling.go for proper error-handling patterns.
 func main() {
 	fmt.Println("=== Content Extraction & Output Formats ===")
 	fmt.Println()
@@ -45,13 +48,19 @@ func main() {
 	fmt.Println("DefaultConfig():  All media preserved")
 
 	// Text-only: simple preset
-	textOnlyProcessor, _ := html.New(html.TextOnlyConfig())
+	textOnlyProcessor, err := html.New(html.TextOnlyConfig())
+	if err != nil {
+		log.Fatal(err)
+	}
 	defer textOnlyProcessor.Close()
 	result, _ := textOnlyProcessor.Extract([]byte(sampleHTML))
 	fmt.Printf("TextOnlyConfig(): %d chars, %d images\n\n", len(result.Text), len(result.Images))
 
 	// Markdown: images as markdown
-	mdProcessor, _ := html.New(html.MarkdownConfig())
+	mdProcessor, err := html.New(html.MarkdownConfig())
+	if err != nil {
+		log.Fatal(err)
+	}
 	defer mdProcessor.Close()
 	mdResult, _ := mdProcessor.Extract([]byte(sampleHTML))
 	fmt.Printf("MarkdownConfig(): %d chars, images inline as markdown\n\n", len(mdResult.Text))
@@ -70,7 +79,10 @@ func main() {
 	cfg.PreserveAudios = false
 	cfg.InlineImageFormat = "markdown"
 
-	customProcessor, _ := html.New(cfg)
+	customProcessor, err := html.New(cfg)
+	if err != nil {
+		log.Fatal(err)
+	}
 	defer customProcessor.Close()
 	result, _ = customProcessor.Extract([]byte(sampleHTML))
 	fmt.Printf("Images: %d, Links: %d\n\n", len(result.Images), len(result.Links))
@@ -99,7 +111,10 @@ func main() {
 
 	// Markdown table (default)
 	fmt.Println("Markdown table (default):")
-	mdProcessor2, _ := html.New(html.MarkdownConfig())
+	mdProcessor2, err := html.New(html.MarkdownConfig())
+	if err != nil {
+		log.Fatal(err)
+	}
 	defer mdProcessor2.Close()
 	mdResult2, _ := mdProcessor2.Extract([]byte(sampleHTML))
 	if len(mdResult2.Text) > 150 {
@@ -114,7 +129,10 @@ func main() {
 	fmt.Println("5. JSON Output")
 	fmt.Println("--------------")
 
-	processor, _ := html.New()
+	processor, err := html.New()
+	if err != nil {
+		log.Fatal(err)
+	}
 	defer processor.Close()
 
 	jsonBytes, err := processor.ExtractToJSON([]byte(sampleHTML))

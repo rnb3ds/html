@@ -374,32 +374,24 @@ func TestGetCellWidth(t *testing.T) {
 	}
 }
 
-func TestCellAlignValues(t *testing.T) {
+func TestCellAlignmentConstantsUnique(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
-		align table.CellAlignment
-		name  string
-	}{
-		{table.AlignLeft, "left"},
-		{table.AlignCenter, "center"},
-		{table.AlignRight, "right"},
-		{table.AlignJustify, "justify"},
-		{table.AlignDefault, "default"},
+	// All exported CellAlignment constants must be distinct so table renderers
+	// can dispatch on the value unambiguously.
+	aligns := []table.CellAlignment{
+		table.AlignLeft,
+		table.AlignCenter,
+		table.AlignRight,
+		table.AlignJustify,
+		table.AlignDefault,
 	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			// Just verify the constants are different
-			aligns := []table.CellAlignment{table.AlignLeft, table.AlignCenter, table.AlignRight, table.AlignJustify, table.AlignDefault}
-			unique := make(map[table.CellAlignment]bool)
-			for _, a := range aligns {
-				unique[a] = true
-			}
-			if len(unique) != len(aligns) {
-				t.Error("CellAlignment constants should be unique")
-			}
-		})
+	seen := make(map[table.CellAlignment]bool, len(aligns))
+	for _, a := range aligns {
+		if seen[a] {
+			t.Errorf("CellAlignment value %d is not unique among constants", a)
+		}
+		seen[a] = true
 	}
 }
 

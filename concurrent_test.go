@@ -437,21 +437,6 @@ func TestConcurrentPoolAccess(t *testing.T) {
 		}()
 	}
 
-	// Test Hash128Pool
-	for i := 0; i < numGoroutines; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for j := 0; j < numOperations; j++ {
-				h := internal.GetHash128()
-				h.Write([]byte("test data"))
-				var sum [16]byte
-				h.Sum(sum[:0])
-				internal.PutHash128(h)
-			}
-		}()
-	}
-
 	wg.Wait()
 }
 

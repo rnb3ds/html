@@ -11,9 +11,17 @@ func (p *Processor) extractVideos(node *stdxhtml.Node, htmlContent string) []Vid
 	videos := make([]VideoInfo, 0, initialSliceCap)
 	seen := make(map[string]bool, initialMapCap)
 
+	// The raw-HTML scans below (iframe/embed/object attribute extraction and the
+	// video-URL regex) can only yield a result when the content references a media
+	// extension or a known embed host. Skip them entirely when it provably does not;
+	// the DOM walk below still finds <video>/<iframe>/<embed>/<object> elements.
+	canContainMedia := len(htmlContent) > 0 &&
+		len(htmlContent) <= maxHTMLForRegex &&
+		internal.HasMediaReference(htmlContent)
+
 	// First, extract from the HTML content directly for iframe/embed/object tags
 	// These may be removed by sanitization, so we parse them from raw HTML first
-	if len(htmlContent) > 0 && len(htmlContent) <= maxHTMLForRegex {
+	if canContainMedia {
 		// Parse iframe tags
 		iframeMatches := p.extractTagAttributes(htmlContent, "iframe", "src")
 		for _, url := range iframeMatches {
@@ -80,7 +88,7 @@ func (p *Processor) extractVideos(node *stdxhtml.Node, htmlContent string) []Vid
 	})
 
 	// Finally, use regex to find any video URLs in the HTML content
-	if len(htmlContent) <= maxHTMLForRegex {
+	if canContainMedia {
 		matches := videoRegex.FindAllString(htmlContent, maxRegexMatches)
 		for _, url := range matches {
 			if internal.IsValidURL(url) && !seen[url] {
@@ -179,7 +187,12 @@ func (p *Processor) extractAudios(node *stdxhtml.Node, htmlContent string) []Aud
 		return true
 	})
 
-	if len(htmlContent) <= maxHTMLForRegex {
+	// The audio-URL regex can only match when the content references a media
+	// extension; skip it when it provably does not. The DOM walk above still finds
+	// <audio>/<source> elements regardless of their URL extension.
+	if len(htmlContent) > 0 &&
+		len(htmlContent) <= maxHTMLForRegex &&
+		internal.HasMediaReference(htmlContent) {
 		matches := audioRegex.FindAllString(htmlContent, maxRegexMatches)
 		for _, url := range matches {
 			if internal.IsValidURL(url) && !seen[url] {

@@ -63,7 +63,10 @@ func main() {
 	// Example: Create processor with small limit to trigger ErrInputTooLarge
 	smallCfg := html.DefaultConfig()
 	smallCfg.MaxInputSize = 1024 // 1 KB limit
-	smallProcessor, _ := html.New(smallCfg)
+	smallProcessor, err := html.New(smallCfg)
+	if err != nil {
+		log.Fatal(err)
+	}
 	defer smallProcessor.Close()
 
 	largeInput := strings.Repeat("<div>", 500) // ~2.5 KB, exceeds 1 KB limit

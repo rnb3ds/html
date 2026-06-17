@@ -51,7 +51,11 @@ func putPooledProcessor(p *Processor) {
 	if p == nil {
 		return
 	}
-	p.closed.Store(false) // Reset for reuse in case Close was called
+	// Capture whether Close() stopped the cleanup goroutine during this use.
+	// Pooled processors are never closed on the normal path, so we only restart
+	// cleanup when it was actually stopped — otherwise every pooled call would
+	// needlessly stop and respawn the background cleanup goroutine.
+	wasClosed := p.closed.Swap(false)
 	p.ResetStatistics()
 	// Drain pending async sink writes before clearing entries and returning to pool.
 	// Without this, in-flight sink goroutines from the previous user can race with
@@ -61,10 +65,8 @@ func putPooledProcessor(p *Processor) {
 	}
 	p.ClearAuditLog()
 	p.ClearCache()
-	// Restart background cleanup if TTL-based caching is configured.
-	// Close() stops the cleanup goroutine; without restarting, expired entries
-	// accumulate indefinitely when the processor is reused from the pool.
-	if p.config.CacheTTL > 0 && p.config.CacheCleanup > 0 {
+	// Restart background cleanup only if Close() stopped it during this use.
+	if wasClosed && p.config.CacheTTL > 0 && p.config.CacheCleanup > 0 {
 		p.cache.RestartCleanup(p.config.CacheCleanup)
 	}
 	processorPool.Put(p)
