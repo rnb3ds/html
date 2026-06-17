@@ -151,81 +151,6 @@ func TestBufferPoolConcurrent(t *testing.T) {
 	wg.Wait()
 }
 
-// TestGetHash128 tests getting an FNV-128a hasher from the pool.
-func TestGetHash128(t *testing.T) {
-	t.Parallel()
-
-	h := GetHash128()
-	if h == nil {
-		t.Fatal("GetHash128() returned nil")
-	}
-
-	// Verify the hasher is usable
-	_, err := h.Write([]byte("test data"))
-	if err != nil {
-		t.Errorf("Write() failed: %v", err)
-	}
-
-	var sum [16]byte
-	result := h.Sum(sum[:0])
-	if len(result) != 16 {
-		t.Errorf("Expected 16 byte hash, got %d", len(result))
-	}
-}
-
-// TestPutHash128 tests returning a hasher to the pool.
-func TestPutHash128(t *testing.T) {
-	t.Parallel()
-
-	h := GetHash128()
-	h.Write([]byte("content"))
-
-	// Put the hasher back
-	PutHash128(h)
-
-	// Get another hasher - it should be reset
-	h2 := GetHash128()
-
-	// Write different content and verify it produces different hash
-	h2.Write([]byte("different"))
-	var sum1 [16]byte
-	result := h2.Sum(sum1[:0])
-
-	// The hash should be for "different", not "content"
-	// This verifies the hasher was reset
-	if len(result) != 16 {
-		t.Errorf("Expected 16 byte hash, got %d", len(result))
-	}
-
-	PutHash128(h2)
-}
-
-// TestHash128PoolConcurrent tests concurrent access to Hash128Pool.
-func TestHash128PoolConcurrent(t *testing.T) {
-	t.Parallel()
-
-	const numGoroutines = 100
-	const numOperations = 50
-
-	var wg sync.WaitGroup
-
-	for i := 0; i < numGoroutines; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for j := 0; j < numOperations; j++ {
-				h := GetHash128()
-				h.Write([]byte("test data"))
-				var sum [16]byte
-				h.Sum(sum[:0])
-				PutHash128(h)
-			}
-		}()
-	}
-
-	wg.Wait()
-}
-
 // TestGetTransformBuffer tests getting a transform buffer from the pool.
 func TestGetTransformBuffer(t *testing.T) {
 	t.Parallel()
@@ -332,50 +257,6 @@ func TestBufferPoolInitialCapacity(t *testing.T) {
 	}
 }
 
-// TestHashDeterminism verifies that the same input produces the same hash.
-func TestHashDeterminism(t *testing.T) {
-	t.Parallel()
-
-	input := []byte("test input for hash determinism")
-
-	h1 := GetHash128()
-	h1.Write(input)
-	var sum1 [16]byte
-	result1 := h1.Sum(sum1[:0])
-	PutHash128(h1)
-
-	h2 := GetHash128()
-	h2.Write(input)
-	var sum2 [16]byte
-	result2 := h2.Sum(sum2[:0])
-	PutHash128(h2)
-
-	if !bytes.Equal(result1, result2) {
-		t.Error("Same input should produce same hash")
-	}
-}
-
-// TestHashDifferentInputs verifies that different inputs produce different hashes.
-func TestHashDifferentInputs(t *testing.T) {
-	t.Parallel()
-
-	h1 := GetHash128()
-	h1.Write([]byte("input 1"))
-	var sum1 [16]byte
-	result1 := h1.Sum(sum1[:0])
-	PutHash128(h1)
-
-	h2 := GetHash128()
-	h2.Write([]byte("input 2"))
-	var sum2 [16]byte
-	result2 := h2.Sum(sum2[:0])
-	PutHash128(h2)
-
-	if bytes.Equal(result1, result2) {
-		t.Error("Different inputs should produce different hashes")
-	}
-}
-
 // BenchmarkGetBuilder benchmarks GetBuilder performance.
 func BenchmarkGetBuilder(b *testing.B) {
 	b.ResetTimer()
@@ -391,15 +272,6 @@ func BenchmarkGetBuffer(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		buf := GetBuffer()
 		PutBuffer(buf)
-	}
-}
-
-// BenchmarkGetHash128 benchmarks GetHash128 performance.
-func BenchmarkGetHash128(b *testing.B) {
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		h := GetHash128()
-		PutHash128(h)
 	}
 }
 
@@ -431,20 +303,6 @@ func BenchmarkBufferWithWork(b *testing.B) {
 		buf.Write([]byte("test byte content"))
 		_ = buf.Bytes()
 		PutBuffer(buf)
-	}
-}
-
-// BenchmarkHash128WithWork benchmarks hasher with actual work.
-func BenchmarkHash128WithWork(b *testing.B) {
-	data := []byte("test data for hashing")
-	var sum [16]byte
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		h := GetHash128()
-		h.Write(data)
-		h.Sum(sum[:0])
-		PutHash128(h)
 	}
 }
 
@@ -501,34 +359,6 @@ func TestGetBufferPoolCorruption(t *testing.T) {
 	PutBuffer(buf)
 }
 
-// TestGetHash128PoolCorruption tests that GetHash128 handles corrupted pool gracefully.
-func TestGetHash128PoolCorruption(t *testing.T) {
-	t.Parallel()
-
-	// Put a wrong type in the pool to simulate corruption
-	Hash128Pool.Put("not a hasher") //lint:ignore SA6002 intentionally using non-pointer to test pool corruption handling
-
-	// GetHash128 should still return a valid hasher (fallback to new)
-	h := GetHash128()
-	if h == nil {
-		t.Fatal("GetHash128() returned nil even with pool corruption")
-	}
-
-	// Verify the hasher is usable
-	_, err := h.Write([]byte("test data"))
-	if err != nil {
-		t.Errorf("Write() failed: %v", err)
-	}
-
-	var sum [16]byte
-	result := h.Sum(sum[:0])
-	if len(result) != 16 {
-		t.Errorf("Expected 16 byte hash, got %d", len(result))
-	}
-
-	PutHash128(h)
-}
-
 // TestGetTransformBufferPoolCorruption tests that GetTransformBuffer handles corrupted pool gracefully.
 func TestGetTransformBufferPoolCorruption(t *testing.T) {
 	t.Parallel()
@@ -556,7 +386,10 @@ func TestGetTransformBufferPoolCorruption(t *testing.T) {
 	PutTransformBuffer(bufPtr)
 }
 
-// TestPutBuilderSecureClear tests that poolSecureClear properly zeros builder buffer.
+// TestPutBuilderSecureClear tests that poolSecureClear drops the builder so its
+// buffer is never reused. Unlike the other pooled types, strings.Builder has no
+// mutable buffer accessor, so in-place zeroing is not possible; secure-clear
+// mode therefore drops the builder (no repooling) rather than scrubbing it.
 func TestPutBuilderSecureClear(t *testing.T) {
 	t.Parallel()
 
@@ -574,13 +407,13 @@ func TestPutBuilderSecureClear(t *testing.T) {
 		t.Fatalf("Expected '%s', got '%s'", sensitiveData, sb.String())
 	}
 
-	// Return to pool - should zero the buffer
+	// Return to pool - in secure-clear mode the builder is dropped, not repooled.
 	PutBuilder(sb)
 
-	// Note: We can't directly verify the buffer was zeroed since
-	// the builder has been reset and returned to pool.
-	// The security guarantee is that the memory is zeroed before reuse.
-	// This test primarily verifies the code path executes without panic.
+	// Note: strings.Builder exposes no mutable accessor for its buffer, so the
+	// buffer cannot be zeroed in place; the guarantee is instead that the
+	// dropped builder is never handed back out by GetBuilder. This test
+	// primarily verifies the code path executes without panic.
 }
 
 // TestPutBufferSecureClear tests that poolSecureClear properly zeros buffer.

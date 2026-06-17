@@ -56,6 +56,7 @@ package main
 
 import (
     "fmt"
+    "log"
     "github.com/cybergodev/html"
 )
 
@@ -71,10 +72,10 @@ func main() {
 
     text, err := html.ExtractText(htmlBytes)
     if err != nil {
-        panic(err)
+        log.Fatal(err)
     }
     fmt.Println(text)
-    // Output: "Hello World\nContent here..."
+    // Output: "Hello World\n\nContent here..."
 }
 ```
 
@@ -109,8 +110,8 @@ func main() {
     // Extract all content with metadata
     result, _ := html.Extract(htmlBytes)
     fmt.Println(result.Title)     // "Title"
-    fmt.Println(result.Text)      // "Content here..."
-    fmt.Println(result.WordCount) // 2
+    fmt.Println(result.Text)      // "Title\n\nContent here..."
+    fmt.Println(result.WordCount) // 3
 
     // Extract all resource links
     links, _ := html.ExtractAllLinks(htmlBytes)
@@ -556,6 +557,7 @@ type Config struct {
     // === Security ===
     EnableSanitization bool        // HTML sanitization (default: true)
     MaxDepth           int         // Max HTML nesting depth (default: 500)
+    AllowedBaseDir     string      // Restrict file reads to this directory (default: empty = unrestricted)
     Audit              AuditConfig // Security audit logging
 
     // === Content Extraction ===
@@ -606,7 +608,7 @@ type Config struct {
 ## 🔒 Security Features
 
 ### HTML Sanitization
-- **Dangerous Tag Removal**: `<script>`, `<style>`, `<noscript>`, `<iframe>`, `<embed>`, `<object>`, `<form>`, `<input>`, `<button>`
+- **Dangerous Tag Removal**: `<script>`, `<style>`, `<noscript>`, `<iframe>`, `<embed>`, `<object>`, `<form>`, `<input>`, `<button>`, `<svg>`, `<math>`
 - **Event Handler Removal**: All `on*` attributes (onclick, onerror, onload, etc.)
 - **Dangerous Protocol Blocking**: `javascript:`, `vbscript:`, `data:` (except safe media types)
 - **XSS Protection**: Comprehensive sanitization
@@ -616,6 +618,7 @@ type Config struct {
 - **Depth Limits**: `MaxDepth` prevents stack overflow from deeply nested HTML
 - **Timeout Protection**: `ProcessingTimeout` prevents hanging
 - **Path Traversal Protection**: `ExtractFromFile` validates file paths
+- **Base Directory Lock**: `AllowedBaseDir` confines file reads to a trusted directory
 
 ### Data URL Security
 - **Allowed**: `data:image/*`, `data:font/*`, `data:application/pdf`
@@ -700,6 +703,12 @@ For complete runnable examples, see the [examples/](examples) directory:
 | [06_advanced_usage.go](examples/06_advanced_usage.go) | Custom scorers, audit logging, security |
 | [07_error_handling.go](examples/07_error_handling.go) | Error handling patterns |
 | [08_real_world.go](examples/08_real_world.go) | Real-world use cases |
+
+Each example is a self-contained `main` program guarded by the `examples` build tag, so it is excluded from `go build ./...` and never interferes with the library build. Run any one by naming its file:
+
+```bash
+go run examples/01_quick_start.go
+```
 
 ---
 

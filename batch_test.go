@@ -190,9 +190,14 @@ func TestExtractBatchWithContextTimeout(t *testing.T) {
 	docs := createNDocs(50)
 	result := p.ExtractBatchWithContext(ctx, docs)
 
-	// With expired context, operations should be cancelled
-	if result.Cancelled == 0 && result.Success == 0 {
-		t.Logf("Cancelled: %d, Success: %d, Failed: %d", result.Cancelled, result.Success, result.Failed)
+	// Every document must be accounted for exactly once, even when the context
+	// is already expired: no panics, no dropped or double-counted work. Whether a
+	// given doc is cancelled or succeeds is timing-dependent, so only the total
+	// is a deterministic invariant.
+	total := result.Cancelled + result.Success + result.Failed
+	if total != len(docs) {
+		t.Errorf("accounting mismatch: Cancelled+Success+Failed = %d, want %d (cancelled=%d success=%d failed=%d)",
+			total, len(docs), result.Cancelled, result.Success, result.Failed)
 	}
 }
 

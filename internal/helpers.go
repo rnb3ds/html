@@ -424,9 +424,6 @@ func WalkNodesWithTruncation(node *html.Node, fn func(*html.Node) bool) (truncat
 
 	stack = append(stack, node)
 
-	// Pre-allocate children buffer for reuse across iterations.
-	childrenBuf := make([]*html.Node, 0, 16)
-
 	// SECURITY: Track visited count to detect potential infinite loops
 	// or extremely deep structures
 	visitedCount := 0
@@ -448,18 +445,17 @@ func WalkNodesWithTruncation(node *html.Node, fn func(*html.Node) bool) (truncat
 			continue
 		}
 
-		// Reset buffer for reuse
-		childrenBuf = childrenBuf[:0]
-
-		// Collect children
+		// Push children so the first child is processed next. The child list is a
+		// singly-linked list (FirstChild -> NextSibling), so append them in document
+		// order to the end of the stack, then reverse just that segment in place.
+		// This yields correct document order when popped without an intermediate
+		// buffer allocation.
+		segStart := len(stack)
 		for child := n.FirstChild; child != nil; child = child.NextSibling {
-			childrenBuf = append(childrenBuf, child)
+			stack = append(stack, child)
 		}
-
-		// Add children in reverse order for correct traversal order
-		// (first child processed first when popped from stack)
-		for i := len(childrenBuf) - 1; i >= 0; i-- {
-			stack = append(stack, childrenBuf[i])
+		for i, j := segStart, len(stack)-1; i < j; i, j = i+1, j-1 {
+			stack[i], stack[j] = stack[j], stack[i]
 		}
 	}
 

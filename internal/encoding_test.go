@@ -63,6 +63,11 @@ func TestDetectCharset(t *testing.T) {
 			data:     []byte{0x92, 0x93, 0x94}, // Invalid UTF-8 bytes
 			expected: "windows-1252",
 		},
+		{
+			name:     "Empty data defaults to utf-8",
+			data:     []byte{},
+			expected: "utf-8",
+		},
 	}
 
 	for _, tt := range tests {
@@ -91,6 +96,14 @@ func TestNormalizeCharset(t *testing.T) {
 		{"ISO-8859-1", "iso-8859-1"},
 		{"iso88591", "iso-8859-1"},
 		{"latin1", "iso-8859-1"},
+		// Regression for ISO-8859 family: canonical names must survive
+		// normalization so getEncoding can recognize them. Previously the
+		// "iso-" prefix was stripped, turning "iso-8859-2" into "8859-2".
+		{"ISO-8859-2", "iso-8859-2"},
+		{"iso-8859-5", "iso-8859-5"},
+		{"iso-8859-7", "iso-8859-7"},
+		{"iso-8859-15", "iso-8859-15"},
+		{"iso_8859-1", "iso-8859-1"},
 		{"SHIFT_JIS", "shift_jis"},
 		{"shift-jis", "shift_jis"},
 		{"sjis", "shift_jis"},
@@ -112,22 +125,86 @@ func TestNormalizeCharset(t *testing.T) {
 	}
 }
 
-func TestToUTF8_Windows1252(t *testing.T) {
+// TestGetEncoding_ISO8859Family is a regression test for the bug where the
+// "iso-" prefix was stripped during normalization, leaving canonical ISO-8859
+// names unrecognized. Every member of the supported ISO-8859 family must resolve
+// to a non-nil encoding through the public normalization + lookup path.
+func TestGetEncoding_ISO8859Family(t *testing.T) {
+	family := []string{
+		"iso-8859-1", "iso-8859-2", "iso-8859-3", "iso-8859-4", "iso-8859-5",
+		"iso-8859-6", "iso-8859-7", "iso-8859-8", "iso-8859-9", "iso-8859-10",
+		"iso-8859-13", "iso-8859-14", "iso-8859-15", "iso-8859-16",
+	}
+	for _, charset := range family {
+		normalized := normalizeCharset(charset)
+		enc := getEncoding(normalized)
+		if enc == nil {
+			t.Errorf("getEncoding(normalizeCharset(%q) = %q) = nil, want non-nil encoding",
+				charset, normalized)
+		}
+	}
+}
+
+// TestToUTF8_ISO8859_2 verifies end-to-end decoding of ISO-8859-2, which was
+// silently broken before the normalization fix (input was returned as raw bytes
+// because getEncoding returned nil).
+func TestToUTF8_ISO8859_2(t *testing.T) {
+	ed := NewEncodingDetector()
+	// 0xB3 in ISO-8859-2 is U+0142 ("ł"); in windows-1252 it is U+00B3 ("³").
+	// This byte therefore distinguishes a genuine ISO-8859-2 decode from the
+	// windows-1252 fallback and from the pre-fix raw-bytes no-op.
+	input := []byte{0x5A, 0xB3} // 'Z' + ISO-8859-2 0xB3
+	converted, err := ed.ToUTF8(input, "iso-8859-2")
+	if err != nil {
+		t.Fatalf("ToUTF8(iso-8859-2) error = %v", err)
+	}
+	want := "Zł" // "Zł"
+	if string(converted) != want {
+		t.Errorf("ToUTF8(iso-8859-2) = %q, want %q (decoding was a no-op before fix)",
+			string(converted), want)
+	}
+}
+
+func TestToUTF8(t *testing.T) {
 	ed := NewEncodingDetector()
 
-	// Test case: "Registrant's telephone number" with smart quotes
-	// In windows-1252: 0x92 = right single quotation mark ' (U+2019)
-	input := []byte("Registrant\x92s telephone number, including area code")
-
-	converted, err := ed.ToUTF8(input, "windows-1252")
-	if err != nil {
-		t.Fatalf("ToUTF8() error = %v", err)
+	tests := []struct {
+		name     string
+		input    []byte
+		charset  string
+		expected string
+	}{
+		{
+			name:    "windows-1252 smart quote",
+			input:   []byte("Registrant\x92s telephone number, including area code"),
+			charset: "windows-1252",
+			// 0x92 in windows-1252 is U+2019 (RIGHT SINGLE QUOTATION MARK), not U+0027.
+			expected: "Registrant\u2019s telephone number, including area code",
+		},
+		{
+			name:     "iso-8859-1 accented letter",
+			input:    []byte{0x43, 0x61, 0x66, 0xE9}, // "Caf\u00e9" in ISO-8859-1
+			charset:  "iso-8859-1",
+			expected: "Caf\u00e9", // "Caf\u00e9" in UTF-8
+		},
+		{
+			name:     "utf-8 passthrough",
+			input:    []byte("Hello \u4e16\u754c"),
+			charset:  "utf-8",
+			expected: "Hello \u4e16\u754c", // multibyte UTF-8 input is returned unchanged
+		},
 	}
 
-	// 0x92 in windows-1252 converts to U+2019 (RIGHT SINGLE QUOTATION MARK) not U+0027 (APOSTROPHE)
-	expected := "Registrant\u2019s telephone number, including area code"
-	if string(converted) != expected {
-		t.Errorf("ToUTF8(windows-1252) = %q, want %q", string(converted), expected)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			converted, err := ed.ToUTF8(tt.input, tt.charset)
+			if err != nil {
+				t.Fatalf("ToUTF8(%q) error = %v", tt.charset, err)
+			}
+			if string(converted) != tt.expected {
+				t.Errorf("ToUTF8(%q) = %q, want %q", tt.charset, string(converted), tt.expected)
+			}
+		})
 	}
 }
 
@@ -197,38 +274,6 @@ func TestToUTF8_CommonWindows1252Chars(t *testing.T) {
 					[]rune(tt.expected)[0])
 			}
 		})
-	}
-}
-
-func TestToUTF8_UTF8(t *testing.T) {
-	ed := NewEncodingDetector()
-
-	input := []byte("Hello 世界 🌍")
-	converted, err := ed.ToUTF8(input, "utf-8")
-
-	if err != nil {
-		t.Fatalf("ToUTF8() error = %v", err)
-	}
-
-	if !bytes.Equal(input, converted) {
-		t.Errorf("ToUTF8(utf-8) should return unchanged input, got %q", string(converted))
-	}
-}
-
-func TestToUTF8_ISO8859_1(t *testing.T) {
-	ed := NewEncodingDetector()
-
-	// Test ISO-8859-1: é is 0xE9 in ISO-8859-1, which encodes to U+00E9 in UTF-8
-	input := []byte{0x43, 0x61, 0x66, 0xE9} // "Café" in ISO-8859-1
-	converted, err := ed.ToUTF8(input, "iso-8859-1")
-
-	if err != nil {
-		t.Fatalf("ToUTF8() error = %v", err)
-	}
-
-	expected := "Caf\u00E9" // "Café" in UTF-8
-	if string(converted) != expected {
-		t.Errorf("ToUTF8(iso-8859-1) = %q, want %q", string(converted), expected)
 	}
 }
 

@@ -3,8 +3,6 @@ package internal
 
 import (
 	"bytes"
-	"hash"
-	"hash/fnv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -162,32 +160,25 @@ func GetBuilder() *strings.Builder {
 // The builder is reset before being returned to the pool.
 // It is safe to call PutBuilder with a nil pointer (no-op).
 //
-// SECURITY: When poolSecureClear is enabled, the builder's internal buffer
-// is zeroed before being returned to prevent data leakage.
+// SECURITY: When poolSecureClear is enabled, the builder is NOT returned to
+// the pool. Unlike bytes.Buffer, strings.Builder exposes no mutable accessor
+// for its internal []byte (String() shares immutable memory, and the Write*
+// methods only append), so the buffer cannot be zeroed in place without
+// coupling to its unexported, version-specific layout via reflect/unsafe.
+// Dropping the builder instead of repooling still honors the secure-clear
+// intent: the builder and its buffer are never reused, so no prior content can
+// leak into a later GetBuilder call. The cost is reduced pooling effectiveness,
+// which is the accepted trade-off for an opt-in paranoid mode.
 func PutBuilder(sb *strings.Builder) {
 	if sb == nil {
 		return
 	}
-	// SECURITY: Optionally clear sensitive data before returning to pool
-	// Note: We do NOT use sb.String() + unsafe modification because
-	// strings.Builder strings share memory with the builder. Instead,
-	// we zero the buffer only after ensuring no active string references exist.
-	// The simplest safe approach: overwrite content before reset.
-	if poolSecureClear.Load() {
-		if sb.Len() > 0 {
-			// Grow overwrites internal buffer by allocating new space,
-			// but does not clear old data. Reset below frees old buffer.
-			// For effective secure clearing, we overwrite existing content.
-			n := sb.Len()
-			sb.Reset()
-			// After Reset, grow allocates fresh buffer. Fill with zeros
-			// to overwrite any previously allocated pool memory pattern.
-			b, _ := sb.Write(make([]byte, n))
-			_ = b
-			sb.Reset()
-		}
-	}
 	sb.Reset()
+	if poolSecureClear.Load() {
+		// Do not return to the pool; let the GC reclaim the builder and its
+		// buffer so the sensitive content is not retained for reuse.
+		return
+	}
 	BuilderPool.Put(sb)
 }
 
@@ -236,53 +227,6 @@ func PutBuffer(buf *bytes.Buffer) {
 	}
 	buf.Reset()
 	BufferPool.Put(buf)
-}
-
-// Hash128Pool is a sync.Pool for FNV-128a hash instances.
-// Use this for cache key generation to avoid repeated allocations.
-//
-// Usage pattern:
-//
-//	h := internal.GetHash128()
-//	defer internal.PutHash128(h)
-//	h.Write(data)
-//	var buf [16]byte
-//	sum := h.Sum(buf[:0])
-var Hash128Pool = sync.Pool{
-	New: func() any {
-		return fnv.New128a()
-	},
-}
-
-// GetHash128 gets an FNV-128a hasher from the pool.
-// The returned hasher has been reset and is ready for use.
-// Call PutHash128 when done to return it to the pool.
-func GetHash128() hash.Hash {
-	v := Hash128Pool.Get()
-	h, ok := v.(hash.Hash)
-	if !ok {
-		// Log pool corruption if debugging is enabled
-		logPoolCorruption("Hash128Pool", "hash.Hash", v)
-		// Fallback: return a new hasher if pool is corrupted
-		h = fnv.New128a()
-	}
-	return h
-}
-
-// PutHash128 returns an FNV-128a hasher to the pool.
-// The hasher is reset before being returned to the pool.
-// It is safe to call PutHash128 with a nil pointer (no-op).
-//
-// SECURITY: When poolSecureClear is enabled, the hasher's internal state
-// is reset to prevent potential hash state leakage.
-func PutHash128(h hash.Hash) {
-	if h == nil {
-		return
-	}
-	// SECURITY: Reset is sufficient for hash objects as they don't retain
-	// previous hash data after reset
-	h.Reset()
-	Hash128Pool.Put(h)
 }
 
 // TransformBufferPool is a sync.Pool for byte slices used in encoding transformation.

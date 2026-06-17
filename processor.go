@@ -208,14 +208,8 @@ func New(cfg ...Config) (*Processor, error) {
 	}
 
 	// Pre-compute normalized format strings to avoid repeated strings.ToLower in hot path
-	p.imageFormat = strings.ToLower(strings.TrimSpace(c.InlineImageFormat))
-	if p.imageFormat == "" {
-		p.imageFormat = "none"
-	}
-	p.linkFormat = strings.ToLower(strings.TrimSpace(c.InlineLinkFormat))
-	if p.linkFormat == "" {
-		p.linkFormat = "none"
-	}
+	p.imageFormat = normalizeInlineFormat(c.InlineImageFormat)
+	p.linkFormat = normalizeInlineFormat(c.InlineLinkFormat)
 
 	// Cache audit adapter to avoid per-call allocation
 	p.auditAdapter = &auditRecorderAdapter{collector: p.audit}
@@ -234,6 +228,16 @@ func New(cfg ...Config) (*Processor, error) {
 	}
 
 	return p, nil
+}
+
+// normalizeInlineFormat lowercases, trims, and defaults an inline format string.
+// An empty value maps to "none", matching the default used by DefaultConfig and New.
+func normalizeInlineFormat(format string) string {
+	f := strings.ToLower(strings.TrimSpace(format))
+	if f == "" {
+		f = "none"
+	}
+	return f
 }
 
 // GetStatistics returns current processing statistics.

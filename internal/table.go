@@ -111,25 +111,22 @@ func getCellAlign(n *html.Node) table.CellAlignment {
 	// Check style attribute for text-align (only if found)
 	if styleAttr != "" {
 		style := strings.ToLower(styleAttr)
-		// Normalize spaces: remove extra spaces around colons
+		// Normalize spaces around colons: both "text-align : justify" and
+		// "text-align: justify" collapse to "text-align:justify", so only the
+		// colon-space-free forms below can ever match.
 		normalizedStyle := strings.ReplaceAll(style, " :", ":")
 		normalizedStyle = strings.ReplaceAll(normalizedStyle, ": ", ":")
-		// Check for text-align patterns with better boundary detection
-		// Order matters: check longer/more specific patterns first
-		if containsWord(normalizedStyle, "text-align:justify") ||
-			containsWord(normalizedStyle, "text-align: justify") {
+		// Check for text-align patterns with better boundary detection.
+		if containsWord(normalizedStyle, "text-align:justify") {
 			return table.AlignJustify
 		}
-		if containsWord(normalizedStyle, "text-align:right") ||
-			containsWord(normalizedStyle, "text-align: right") {
+		if containsWord(normalizedStyle, "text-align:right") {
 			return table.AlignRight
 		}
-		if containsWord(normalizedStyle, "text-align:center") ||
-			containsWord(normalizedStyle, "text-align: center") {
+		if containsWord(normalizedStyle, "text-align:center") {
 			return table.AlignCenter
 		}
-		if containsWord(normalizedStyle, "text-align:left") ||
-			containsWord(normalizedStyle, "text-align: left") {
+		if containsWord(normalizedStyle, "text-align:left") {
 			return table.AlignLeft
 		}
 	}

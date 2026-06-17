@@ -160,33 +160,54 @@ func sanitizeNodeWithAudit(n *html.Node, audit AuditRecorder) {
 
 		attrLen := len(n.Attr)
 		if attrLen > 0 {
-			filteredAttrs := make([]html.Attribute, 0, attrLen)
-			for _, attr := range n.Attr {
+			// Compact attributes in place. Most elements keep every attribute,
+			// so this avoids allocating a new slice on the common path; the slice
+			// is only resliced when something is actually removed or rewritten.
+			out := 0
+			modified := false
+			for i := 0; i < attrLen; i++ {
+				attr := n.Attr[i]
 				attrKey := strings.ToLower(attr.Key)
 				if len(attrKey) >= 2 && attrKey[0] == 'o' && attrKey[1] == 'n' {
 					audit.RecordBlockedAttr(attr.Key, attr.Val)
+					modified = true
 					continue
 				}
 				if dangerousAttributes[attrKey] {
 					audit.RecordBlockedAttr(attr.Key, attr.Val)
+					modified = true
 					continue
 				}
 				if attrKey == "style" {
 					sanitized := sanitizeStyleValue(attr.Val)
 					if sanitized == "" {
 						audit.RecordBlockedAttr(attr.Key, attr.Val)
+						modified = true
 						continue
 					}
-					attr.Val = sanitized
+					if sanitized != attr.Val {
+						attr.Val = sanitized
+						modified = true
+					}
 				}
 				if uriAttributes[attrKey] {
 					if !isSafeURIWithAudit(attr.Val, audit) {
+						modified = true
 						continue
 					}
 				}
-				filteredAttrs = append(filteredAttrs, attr)
+				n.Attr[out] = attr
+				out++
 			}
-			n.Attr = filteredAttrs
+			if modified {
+				// SECURITY: Zero out the dropped slots so stale attribute values
+				// (e.g. sanitized style or blocked URI payloads) are not retained
+				// in the backing array before reslicing.
+				for i := out; i < attrLen; i++ {
+					n.Attr[i] = html.Attribute{}
+				}
+				n.Attr = n.Attr[:out]
+			}
 		}
 	}
 
@@ -428,8 +449,9 @@ func isSafeURIWithAudit(uri string, audit AuditRecorder) bool {
 // normalizeURIForSecurity applies security-focused normalization to URIs.
 // This helps prevent Unicode-based bypass attacks.
 func normalizeURIForSecurity(uri string) string {
-	// Import norm package at top of file, but use it here
-	// Apply NFC normalization for consistent character representation
+	// Apply NFC normalization for consistent character representation so that
+	// lookalike Unicode variants (fullwidth, combining marks) cannot disguise
+	// dangerous schemes like javascript:.
 	return norm.NFC.String(uri)
 }
 

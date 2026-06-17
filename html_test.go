@@ -105,8 +105,7 @@ func TestProcessorLifecycle(t *testing.T) {
 		}
 	})
 
-	}
-
+}
 
 func TestConfiguration(t *testing.T) {
 	t.Parallel()
@@ -2708,6 +2707,38 @@ func TestLinkFormatting(t *testing.T) {
 		// Link text should be escaped
 		if !strings.Contains(result.Text, `>Link with &#34;quotes&#34;</a>`) {
 			t.Errorf("Link text should have escaped quotes, got: %s", result.Text)
+		}
+	})
+
+	t.Run("unclosed link placeholder preserves trailing text", func(t *testing.T) {
+		// A literal, unpaired "[LINK:n]" token in the source text must not
+		// cause all following content to be dropped during link formatting.
+		htmlContent := `<html><body><article>
+<p>Intro text here.</p>
+<a href="https://go.dev">Go</a>
+<p>See [LINK:5] for notes. Trailing content must remain.</p>
+</article></body></html>`
+
+		cfg := html.DefaultConfig()
+		cfg.InlineLinkFormat = "markdown"
+		p, _ := html.New(cfg)
+		defer p.Close()
+		result, err := p.Extract([]byte(htmlContent))
+		if err != nil {
+			t.Fatalf("Extract() failed: %v", err)
+		}
+
+		// The real link should still be formatted.
+		if !strings.Contains(result.Text, "[Go](https://go.dev)") {
+			t.Errorf("Should contain formatted real link, got: %s", result.Text)
+		}
+		// The unclosed literal placeholder must be preserved verbatim...
+		if !strings.Contains(result.Text, "[LINK:5]") {
+			t.Errorf("Should preserve unclosed placeholder literally, got: %s", result.Text)
+		}
+		// ...and the trailing content after it must not be dropped.
+		if !strings.Contains(result.Text, "Trailing content must remain.") {
+			t.Errorf("Trailing text was dropped by unclosed placeholder, got: %s", result.Text)
 		}
 	})
 }

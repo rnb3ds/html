@@ -59,13 +59,25 @@ func TestPanicRecovery_ProcessorMethods(t *testing.T) {
 		fn   func(p *html.Processor) error
 	}{
 		{"Extract", func(p *html.Processor) error { _, err := p.Extract([]byte(testHTML)); return err }},
-		{"ExtractWithContext", func(p *html.Processor) error { _, err := p.ExtractWithContext(context.Background(), []byte(testHTML)); return err }},
+		{"ExtractWithContext", func(p *html.Processor) error {
+			_, err := p.ExtractWithContext(context.Background(), []byte(testHTML))
+			return err
+		}},
 		{"ExtractFromFile", func(p *html.Processor) error { _, err := p.ExtractFromFile(tmpFile); return err }},
-		{"ExtractFromFileWithContext", func(p *html.Processor) error { _, err := p.ExtractFromFileWithContext(context.Background(), tmpFile); return err }},
+		{"ExtractFromFileWithContext", func(p *html.Processor) error {
+			_, err := p.ExtractFromFileWithContext(context.Background(), tmpFile)
+			return err
+		}},
 		{"ExtractText", func(p *html.Processor) error { _, err := p.ExtractText([]byte(testHTML)); return err }},
-		{"ExtractTextWithContext", func(p *html.Processor) error { _, err := p.ExtractTextWithContext(context.Background(), []byte(testHTML)); return err }},
+		{"ExtractTextWithContext", func(p *html.Processor) error {
+			_, err := p.ExtractTextWithContext(context.Background(), []byte(testHTML))
+			return err
+		}},
 		{"ExtractToMarkdown", func(p *html.Processor) error { _, err := p.ExtractToMarkdown([]byte(testHTML)); return err }},
-		{"ExtractToMarkdownWithContext", func(p *html.Processor) error { _, err := p.ExtractToMarkdownWithContext(context.Background(), []byte(testHTML)); return err }},
+		{"ExtractToMarkdownWithContext", func(p *html.Processor) error {
+			_, err := p.ExtractToMarkdownWithContext(context.Background(), []byte(testHTML))
+			return err
+		}},
 		{"ExtractToJSON", func(p *html.Processor) error { _, err := p.ExtractToJSON([]byte(testHTML)); return err }},
 		{"ExtractToJSONFromFile", func(p *html.Processor) error {
 			_, err := p.ExtractToJSONFromFile(tmpFile)
@@ -102,7 +114,10 @@ func TestPanicRecovery_PackageFunctions(t *testing.T) {
 		fn   func() error
 	}{
 		{"Extract", func() error { _, err := html.Extract([]byte(testHTML), cfg); return err }},
-		{"ExtractWithContext", func() error { _, err := html.ExtractWithContext(context.Background(), []byte(testHTML), cfg); return err }},
+		{"ExtractWithContext", func() error {
+			_, err := html.ExtractWithContext(context.Background(), []byte(testHTML), cfg)
+			return err
+		}},
 		{"ExtractText", func() error { _, err := html.ExtractText([]byte(testHTML), cfg); return err }},
 		{"ExtractToMarkdown", func() error { _, err := html.ExtractToMarkdown([]byte(testHTML), cfg); return err }},
 		{"ExtractToJSON", func() error { _, err := html.ExtractToJSON([]byte(testHTML), cfg); return err }},
@@ -302,9 +317,15 @@ func TestPanicRecovery_NilAndClosedProcessor(t *testing.T) {
 		fn   func(p *html.Processor) error
 	}{
 		{"Extract", func(p *html.Processor) error { _, err := p.Extract([]byte(testHTML)); return err }},
-		{"ExtractWithContext", func(p *html.Processor) error { _, err := p.ExtractWithContext(context.Background(), []byte(testHTML)); return err }},
+		{"ExtractWithContext", func(p *html.Processor) error {
+			_, err := p.ExtractWithContext(context.Background(), []byte(testHTML))
+			return err
+		}},
 		{"ExtractText", func(p *html.Processor) error { _, err := p.ExtractText([]byte(testHTML)); return err }},
-		{"ExtractTextWithContext", func(p *html.Processor) error { _, err := p.ExtractTextWithContext(context.Background(), []byte(testHTML)); return err }},
+		{"ExtractTextWithContext", func(p *html.Processor) error {
+			_, err := p.ExtractTextWithContext(context.Background(), []byte(testHTML))
+			return err
+		}},
 		{"ExtractFromFile", func(p *html.Processor) error { _, err := p.ExtractFromFile("test.html"); return err }},
 		{"ExtractToMarkdown", func(p *html.Processor) error { _, err := p.ExtractToMarkdown([]byte(testHTML)); return err }},
 		{"ExtractToJSON", func(p *html.Processor) error { _, err := p.ExtractToJSON([]byte(testHTML)); return err }},

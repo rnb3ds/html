@@ -137,8 +137,6 @@ func hashMixInline(h uint64) uint64 {
 
 // hashMixStringInline hashes a string by delegating to hashMixBytesInline.
 // This eliminates ~70 lines of code duplication between the string and []byte variants.
-//
-//nolint:deadcode // Performance: inlined version for cache key generation hot path
 func hashMixStringInline(h uint64, s string) uint64 {
 	return hashMixBytesInline(h, internal.StringToBytes(s))
 }

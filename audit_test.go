@@ -1252,3 +1252,70 @@ func TestWriterAuditSinkWriteEdgeCases(t *testing.T) {
 		}
 	})
 }
+
+// TestChannelAuditSinkDroppedCount covers ChannelAuditSink.DroppedCount
+// (previously 0%) and the Write drop branch that feeds it: when the channel
+// buffer is full, Write must drop the entry and increment the counter rather
+// than block.
+func TestChannelAuditSinkDroppedCount(t *testing.T) {
+	t.Parallel()
+
+	t.Run("nil sink is safe", func(t *testing.T) {
+		var sink *ChannelAuditSink
+		if got := sink.DroppedCount(); got != 0 {
+			t.Errorf("nil DroppedCount = %d, want 0", got)
+		}
+		// Must not panic on a nil receiver.
+		sink.Write(AuditEntry{})
+	})
+
+	t.Run("drops and counts when buffer full", func(t *testing.T) {
+		// A buffer of size 0 is unbuffered, so every Write without a concurrent
+		// reader takes the drop branch.
+		sink := NewChannelAuditSink(0)
+		defer sink.Close()
+
+		for i := 0; i < 5; i++ {
+			sink.Write(AuditEntry{EventType: AuditEventBlockedTag})
+		}
+
+		if got := sink.DroppedCount(); got != 5 {
+			t.Errorf("DroppedCount = %d, want 5", got)
+		}
+	})
+
+	t.Run("buffered writes are not counted as dropped", func(t *testing.T) {
+		sink := NewChannelAuditSink(2)
+		defer sink.Close()
+
+		// Two writes fit in the buffer and must not be dropped.
+		sink.Write(AuditEntry{})
+		sink.Write(AuditEntry{})
+
+		if got := sink.DroppedCount(); got != 0 {
+			t.Errorf("DroppedCount = %d, want 0 for buffered writes", got)
+		}
+
+		// Drain so Close does not race with pending sends.
+		<-sink.Channel()
+		<-sink.Channel()
+	})
+
+	t.Run("drops resume after the buffer drains", func(t *testing.T) {
+		sink := NewChannelAuditSink(1)
+		defer sink.Close()
+
+		sink.Write(AuditEntry{}) // fills the 1-slot buffer
+		// Next write has nowhere to go -> dropped.
+		sink.Write(AuditEntry{})
+		if got := sink.DroppedCount(); got != 1 {
+			t.Fatalf("DroppedCount = %d, want 1", got)
+		}
+
+		<-sink.Channel()         // free the slot
+		sink.Write(AuditEntry{}) // now fits -> not dropped
+		if got := sink.DroppedCount(); got != 1 {
+			t.Errorf("DroppedCount = %d, want 1 (counter must not increase for a delivered write)", got)
+		}
+	})
+}

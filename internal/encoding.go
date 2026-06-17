@@ -536,8 +536,14 @@ func normalizeCharset(charset string) string {
 func normalizeCharsetSlow(charset string) string {
 	charset = strings.ToLower(strings.TrimSpace(charset))
 
-	// Remove common prefixes
-	for _, prefix := range []string{"text/", "text-", "windows-", "cp", "codepage-", "ibm-", "iso-", "iso_"} {
+	// Remove common prefixes.
+	// NOTE: "iso-" and "iso_" are intentionally NOT stripped. The canonical
+	// ISO-8859 names ("iso-8859-2", "iso-8859-7", etc.) must reach getEncoding
+	// intact; stripping "iso-" would turn "iso-8859-2" into "8859-2", which has
+	// no alias entry and no getEncoding case, silently disabling decoding for
+	// ISO-8859-2..10/13/14/16. ISO-8859-1/-15 keep working because their variant
+	// forms ("iso88591", "iso_8859-1", ...) are listed in charsetAliases.
+	for _, prefix := range []string{"text/", "text-", "windows-", "cp", "codepage-", "ibm-"} {
 		charset = strings.TrimPrefix(charset, prefix)
 	}
 

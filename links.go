@@ -3,6 +3,7 @@ package html
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -14,6 +15,11 @@ import (
 // The method automatically detects the character encoding (Windows-1252, UTF-8, GBK, Shift_JIS, etc.)
 // from the HTML bytes and converts it to UTF-8 before extracting links,
 // ensuring that link titles and text are properly decoded.
+//
+// Unlike Extract, this method intentionally does not apply HTML sanitization
+// (EnableSanitization has no effect here) so that resource links living inside
+// tags sanitization would otherwise strip — such as <script src>, <iframe>,
+// <link>, and <embed> — are still enumerated.
 func (p *Processor) ExtractAllLinks(htmlBytes []byte) ([]LinkResource, error) {
 	return recoverLinks(func() ([]LinkResource, error) {
 		// Validate input
@@ -183,6 +189,9 @@ func (p *Processor) ExtractAllLinksFromFileWithContext(ctx context.Context, file
 //
 // An optional Config can be provided to customize link extraction behavior.
 // If no config is provided, DefaultConfig() is used.
+//
+// Note: HTML sanitization is not applied, so links in tags such as <script>,
+// <iframe>, <link>, and <embed> are included in the result.
 func ExtractAllLinks(htmlBytes []byte, cfg ...Config) ([]LinkResource, error) {
 	c, pooled, err := resolveConfig(cfg...)
 	if err != nil {
@@ -254,7 +263,8 @@ func (p *Processor) extractLinksWithTimeout(htmlContent string) ([]LinkResource,
 }
 
 func (p *Processor) extractAllLinksFromContent(htmlContent string) ([]LinkResource, error) {
-	if strings.TrimSpace(htmlContent) == "" {
+	// Reuse the allocation-free blank check used by the Extract path for consistency.
+	if p.isBlankContent(htmlContent) {
 		return []LinkResource{}, nil
 	}
 
@@ -276,10 +286,18 @@ func (p *Processor) extractAllLinksFromContent(htmlContent string) ([]LinkResour
 	linkMap := make(map[string]LinkResource, linkMapCap)
 	p.extractLinksFromDocument(doc, baseURL, linkMap)
 
+	// Collect into a deterministic order. Map iteration order is randomized in
+	// Go, so draining the map directly yielded a different slice order on every
+	// call — making results and downstream caches non-reproducible. Sorting by
+	// URL fixes that without changing deduplication or title-selection semantics
+	// (the map already resolved each URL to its final LinkResource).
 	links := make([]LinkResource, 0, len(linkMap))
 	for _, link := range linkMap {
 		links = append(links, link)
 	}
+	sort.Slice(links, func(i, j int) bool {
+		return links[i].URL < links[j].URL
+	})
 
 	return links, nil
 }
@@ -397,6 +415,18 @@ func (p *Processor) extractLinksFromDocument(doc *stdxhtml.Node, baseURL string,
 	})
 }
 
+// resolveURLIfEnabled resolves raw against baseURL when relative-URL resolution
+// is enabled, and returns raw unchanged otherwise. Centralizing this keeps the
+// ResolveRelativeURLs contract uniform across every link type: previously only
+// content (a[href]) links honored the flag, while image/media/source/script/
+// embed/link tags resolved whenever baseURL was non-empty, silently ignoring it.
+func (p *Processor) resolveURLIfEnabled(baseURL, raw string) string {
+	if p.config.ResolveRelativeURLs && baseURL != "" {
+		return internal.ResolveURL(baseURL, raw)
+	}
+	return raw
+}
+
 func (p *Processor) extractContentLinks(n *stdxhtml.Node, baseURL string, linkMap map[string]LinkResource) {
 	var href, title string
 	for _, attr := range n.Attr {
@@ -414,10 +444,7 @@ func (p *Processor) extractContentLinks(n *stdxhtml.Node, baseURL string, linkMa
 
 	isExternalOriginal := internal.IsExternalURL(href)
 
-	resolvedURL := href
-	if p.config.ResolveRelativeURLs && baseURL != "" {
-		resolvedURL = internal.ResolveURL(baseURL, href)
-	}
+	resolvedURL := p.resolveURLIfEnabled(baseURL, href)
 
 	isExternal := isExternalOriginal
 	if !isExternalOriginal && baseURL != "" {
@@ -438,12 +465,10 @@ func (p *Processor) extractContentLinks(n *stdxhtml.Node, baseURL string, linkMa
 		}
 	}
 
-	linkType := "link"
-
 	linkMap[resolvedURL] = LinkResource{
 		URL:   resolvedURL,
 		Title: title,
-		Type:  linkType,
+		Type:  "link",
 	}
 }
 
@@ -464,10 +489,7 @@ func (p *Processor) extractImageLinks(n *stdxhtml.Node, baseURL string, linkMap 
 		return
 	}
 
-	resolvedURL := src
-	if baseURL != "" {
-		resolvedURL = internal.ResolveURL(baseURL, src)
-	}
+	resolvedURL := p.resolveURLIfEnabled(baseURL, src)
 
 	displayName := title
 	if displayName == "" {
@@ -503,10 +525,7 @@ func (p *Processor) extractMediaLink(n *stdxhtml.Node, baseURL string, linkMap m
 		return
 	}
 
-	resolvedURL := src
-	if baseURL != "" {
-		resolvedURL = internal.ResolveURL(baseURL, src)
-	}
+	resolvedURL := p.resolveURLIfEnabled(baseURL, src)
 
 	displayName := title
 	if displayName == "" {
@@ -544,10 +563,7 @@ func (p *Processor) extractSourceLinks(n *stdxhtml.Node, baseURL string, linkMap
 		return
 	}
 
-	resolvedURL := src
-	if baseURL != "" {
-		resolvedURL = internal.ResolveURL(baseURL, src)
-	}
+	resolvedURL := p.resolveURLIfEnabled(baseURL, src)
 
 	resourceType := "media"
 	if strings.HasPrefix(mediaType, "video/") {
@@ -654,10 +670,7 @@ func (p *Processor) extractLinkTagLinks(n *stdxhtml.Node, baseURL string, linkMa
 		return
 	}
 
-	resolvedURL := href
-	if baseURL != "" {
-		resolvedURL = internal.ResolveURL(baseURL, href)
-	}
+	resolvedURL := p.resolveURLIfEnabled(baseURL, href)
 
 	if title == "" {
 		if lastSlash := strings.LastIndex(resolvedURL, "/"); lastSlash >= 0 {
@@ -688,10 +701,7 @@ func (p *Processor) extractScriptLinks(n *stdxhtml.Node, baseURL string, linkMap
 		return
 	}
 
-	resolvedURL := src
-	if baseURL != "" {
-		resolvedURL = internal.ResolveURL(baseURL, src)
-	}
+	resolvedURL := p.resolveURLIfEnabled(baseURL, src)
 
 	title := ""
 	if lastSlash := strings.LastIndex(resolvedURL, "/"); lastSlash >= 0 {
@@ -728,10 +738,7 @@ func (p *Processor) extractEmbedLinks(n *stdxhtml.Node, baseURL string, linkMap 
 		return
 	}
 
-	resolvedURL := src
-	if baseURL != "" {
-		resolvedURL = internal.ResolveURL(baseURL, src)
-	}
+	resolvedURL := p.resolveURLIfEnabled(baseURL, src)
 
 	if title == "" {
 		// Try to extract platform name from URL

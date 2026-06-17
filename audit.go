@@ -605,13 +605,16 @@ func (s *LevelFilteredSink) Close() error {
 	return s.sink.Close()
 }
 
+// auditLevelRank orders audit levels by severity. Hoisted to package scope so
+// LevelFilteredSink.meetsLevel does not allocate a map on every Write call.
+var auditLevelRank = map[AuditLevel]int{
+	AuditLevelInfo:     0,
+	AuditLevelWarning:  1,
+	AuditLevelCritical: 2,
+}
+
 func (s *LevelFilteredSink) meetsLevel(level AuditLevel) bool {
-	levels := map[AuditLevel]int{
-		AuditLevelInfo:     0,
-		AuditLevelWarning:  1,
-		AuditLevelCritical: 2,
-	}
-	return levels[level] >= levels[s.minLevel]
+	return auditLevelRank[level] >= auditLevelRank[s.minLevel]
 }
 
 // sanitizeRawValue escapes HTML-special characters in audit raw values

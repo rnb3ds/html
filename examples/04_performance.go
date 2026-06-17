@@ -5,6 +5,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"log"
 	"sync"
 	"time"
 
@@ -13,6 +14,9 @@ import (
 
 // This example demonstrates performance optimization patterns.
 // Learn how to tune the library for batch processing and high-throughput scenarios.
+//
+// NOTE: For clarity, extraction errors are elided in the benchmark loops below;
+// see 07_error_handling.go for proper error-handling patterns.
 func main() {
 	fmt.Println("=== Performance Optimization ===")
 	fmt.Println()
@@ -36,7 +40,10 @@ func main() {
 
 	// GOOD: Reusing processor
 	fmt.Println("GOOD: Reusing processor:")
-	processor, _ := html.New()
+	processor, err := html.New()
+	if err != nil {
+		log.Fatal(err)
+	}
 	defer processor.Close()
 
 	start = time.Now()
@@ -101,7 +108,10 @@ func main() {
 	fmt.Println("Batch (worker pool):")
 	batchCfg := html.DefaultConfig()
 	batchCfg.WorkerPoolSize = 4
-	batchProcessor, _ := html.New(batchCfg)
+	batchProcessor, err := html.New(batchCfg)
+	if err != nil {
+		log.Fatal(err)
+	}
 	defer batchProcessor.Close()
 
 	start = time.Now()
@@ -139,7 +149,10 @@ func main() {
 	fmt.Println("5. Concurrent Access")
 	fmt.Println("--------------------")
 
-	processor2, _ := html.New()
+	processor2, err := html.New()
+	if err != nil {
+		log.Fatal(err)
+	}
 	defer processor2.Close()
 
 	const numGoroutines = 5
@@ -177,7 +190,10 @@ func main() {
 	perfCfg.WorkerPoolSize = 8         // Match CPU cores for CPU-bound work
 	perfCfg.CacheCleanup = time.Minute // Frequent cleanup for memory efficiency
 
-	perfProcessor, _ := html.New(perfCfg)
+	perfProcessor, err := html.New(perfCfg)
+	if err != nil {
+		log.Fatal(err)
+	}
 	defer perfProcessor.Close()
 
 	fmt.Println("Performance-optimized config:")

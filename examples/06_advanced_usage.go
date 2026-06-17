@@ -5,6 +5,7 @@ package main
 import (
 	"bytes"
 	"fmt"
+	"io"
 	"log"
 	"strings"
 
@@ -47,10 +48,13 @@ func main() {
 	fmt.Println("2. Audit System (Security Logging)")
 	fmt.Println("-----------------------------------")
 
-	// Configure processor with audit (entries stored internally)
+	// Configure processor with audit (entries stored internally).
+	// Sink is set to io.Discard so audit stays enabled (GetAuditLog() works)
+	// without the default LoggerAuditSink dumping JSON to stderr.
 	auditCfg := html.DefaultConfig()
 	auditCfg.Audit = html.HighSecurityAuditConfig()
 	auditCfg.Audit.Enabled = true
+	auditCfg.Audit.Sink = html.NewWriterAuditSink(io.Discard)
 	auditProcessor, err := html.New(auditCfg)
 	if err != nil {
 		log.Fatal(err)
@@ -93,7 +97,10 @@ func main() {
 	sinkCfg.Audit.LogBlockedAttrs = true
 	sinkCfg.Audit.Sink = html.NewWriterAuditSink(&auditBuf)
 
-	sinkProcessor, _ := html.New(sinkCfg)
+	sinkProcessor, err := html.New(sinkCfg)
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	sinkProcessor.Extract([]byte(dangerousHTML))
 	sinkProcessor.Close() // flush pending audit writes to sink
@@ -116,6 +123,11 @@ func main() {
 
 	// High security config
 	secureConfig := html.HighSecurityConfig()
+	// HighSecurityConfig enables audit by default; point its sink at a buffer
+	// (instead of the default stderr logger) so this section stays quiet —
+	// audit output is already demonstrated in sections 2 and 3 above.
+	var secureAuditBuf bytes.Buffer
+	secureConfig.Audit.Sink = html.NewWriterAuditSink(&secureAuditBuf)
 	fmt.Println("High Security Config:")
 	fmt.Printf("  MaxInputSize: %d MB\n", secureConfig.MaxInputSize/(1024*1024))
 	fmt.Printf("  EnableSanitization: %v\n", secureConfig.EnableSanitization)
@@ -131,6 +143,7 @@ func main() {
 
 	// This will have stricter limits
 	secureProcessor.Extract([]byte(dangerousHTML))
+	fmt.Printf("  Audit events captured (audit enabled by default): %d\n", len(secureProcessor.GetAuditLog()))
 
 	// ============================================================
 	// 5. File Processing Patterns

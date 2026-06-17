@@ -4,6 +4,28 @@ All notable changes to the cybergodev/html library will be documented in this fi
 
 ---
 
+## v1.4.2 - Performance, Race Fix & Robustness (2026-06-17)
+
+### Fixed
+- `ExtractAllLinks` now returns links in deterministic URL-sorted order instead of randomized map-iteration order, making results and downstream caches reproducible
+- ISO-8859-2/3/4/5/6/7/8/9/10/13/14/16 decode correctly again — charset normalization no longer strips the `iso-`/`iso_` prefix that left them silently decoded as raw bytes (mojibake)
+- Cache miss no longer returns a result aliased with the cached entry, fixing a concurrent-mutation data race that could silently corrupt the cached value
+- `formatInlineLinks` no longer drops trailing text after an unclosed `[LINK:n]` placeholder
+- Pooled (package-level) calls no longer stop and respawn the cache cleanup goroutine on every invocation, eliminating goroutine churn
+- `SetPoolSecureClear` builder clear was a no-op; secure-clear mode now drops the builder so its sensitive buffer is never reused
+- Depth validation now runs before sanitization, bounding every recursive pass to `MaxDepth` (DoS hardening against pathologically deep documents)
+
+### Changed
+- `ResolveRelativeURLs` is now honored consistently across all link/resource extractors (img/video/audio/source/script/embed/`<link>`), matching the existing `a[href]` behavior — previously those tags resolved whenever `baseURL != ""`, ignoring the flag
+- Examples unified on consistent error handling; `06_advanced_usage.go` no longer leaks audit JSON to stderr
+
+### Performance
+- Extraction allocations cut 16–20% via scan-first fast path in `escapeMarkdownText`, zero-buffer traversal in `WalkNodesWithTruncation`, and in-place attribute compaction in `sanitizeNodeWithAudit`
+- Speculative media-URL regex scan gated behind an allocation-free pre-filter, cutting `BenchmarkRealisticNoCache` latency ~48% on media-free documents with identical output
+- Audit level→rank map hoisted to package level so it is no longer allocated on every `Write`
+
+---
+
 ## v1.4.1 - Security Hardening, Performance & Race Fix (2026-05-07)
 
 ### Security

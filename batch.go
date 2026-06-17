@@ -228,47 +228,13 @@ func (p *Processor) extractorForFile(filePath string) extractFunc {
 }
 
 // runBatch executes a batch of extractions concurrently.
+// It is a thin wrapper around runBatchWithContext using context.Background(),
+// which never cancels: with a non-cancellable context the <-ctx.Done() cases in
+// runBatchWithContext are never selected (the channel is nil and blocks
+// forever), yielding identical semantics to a dedicated implementation while
+// avoiding duplicated goroutine/recover/result-collection logic.
 func (p *Processor) runBatch(extractors []extractFunc) *BatchResult {
-	br := &BatchResult{
-		Results: make([]*Result, len(extractors)),
-		Errors:  make([]error, len(extractors)),
-	}
-
-	var mu sync.Mutex
-	sem := make(chan struct{}, p.config.WorkerPoolSize)
-	var wg sync.WaitGroup
-
-	for i, extractor := range extractors {
-		sem <- struct{}{}
-
-		wg.Add(1)
-		go func(idx int, extract extractFunc) {
-			defer func() {
-				<-sem
-				if r := recover(); r != nil {
-					mu.Lock()
-					br.Errors[idx] = fmt.Errorf("%w: %v", ErrInternalPanic, r)
-					br.Failed++
-					mu.Unlock()
-				}
-				wg.Done()
-			}()
-
-			result, err := extract()
-			mu.Lock()
-			defer mu.Unlock()
-			if err != nil {
-				br.Errors[idx] = err
-				br.Failed++
-			} else {
-				br.Results[idx] = result
-				br.Success++
-			}
-		}(i, extractor)
-	}
-
-	wg.Wait()
-	return br
+	return p.runBatchWithContext(context.Background(), extractors)
 }
 
 // runBatchWithContext executes a batch of extractions concurrently with context support.

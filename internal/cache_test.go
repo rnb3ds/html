@@ -549,3 +549,56 @@ func TestCacheMultipleStartCleanup(t *testing.T) {
 	// Clean up
 	cache.StopCleanup()
 }
+
+// TestCacheRestartCleanup covers Cache.RestartCleanup (previously 0%). A pooled
+// processor is Close()d (which StopCleanup()s the cache) and then reused; the
+// cache must be able to restart its background sweeper so expired entries do not
+// accumulate. This test drives that lifecycle directly: after StopCleanup a fresh
+// expired entry lingers, and after RestartCleanup it is evicted again.
+func TestCacheRestartCleanup(t *testing.T) {
+	t.Parallel()
+
+	cache := NewCache(4, 25*time.Millisecond)
+	cache.StartCleanup(10 * time.Millisecond)
+	defer cache.StopCleanup()
+
+	cache.Set("present", "v")
+	if got := cache.Len(); got != 1 {
+		t.Fatalf("Len = %d, want 1 immediately after Set", got)
+	}
+
+	// Phase 1: the running sweeper evicts the expired entry.
+	if !waitCacheLen(cache, 0, time.Second) {
+		t.Fatal("background cleanup did not evict the expired entry")
+	}
+
+	// Phase 2: stop the sweeper (as Close() does). A newly expired entry must
+	// now linger because nobody is sweeping.
+	cache.StopCleanup()
+	cache.Set("lingering", "v")
+	// Allow more than the TTL + several sweep intervals; if the sweeper were
+	// still running the entry would be gone by now.
+	time.Sleep(80 * time.Millisecond)
+	if cache.Len() == 0 {
+		t.Fatal("after StopCleanup the expired entry should linger (no sweeper running)")
+	}
+
+	// Phase 3: RestartCleanup brings the sweeper back and the lingering entry is evicted.
+	cache.RestartCleanup(10 * time.Millisecond)
+	if !waitCacheLen(cache, 0, time.Second) {
+		t.Fatal("RestartCleanup did not resume eviction of expired entries")
+	}
+}
+
+// waitCacheLen polls c.Len() until it equals want or the timeout elapses.
+// Returns true if the target was reached.
+func waitCacheLen(c *Cache, want int, timeout time.Duration) bool {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if c.Len() == want {
+			return true
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	return c.Len() == want
+}

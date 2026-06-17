@@ -12,6 +12,9 @@ import (
 
 // This example demonstrates link extraction, URL resolution, and media extraction.
 // Learn how to extract links, images, videos, and audio from HTML content.
+//
+// NOTE: For brevity, extraction errors are elided in this example;
+// see 07_error_handling.go for proper error-handling patterns.
 func main() {
 	fmt.Println("=== Links & Media Extraction ===")
 	fmt.Println()
@@ -41,7 +44,10 @@ func main() {
 		</html>
 	`
 
-	processor, _ := html.New()
+	processor, err := html.New()
+	if err != nil {
+		log.Fatal(err)
+	}
 	defer processor.Close()
 
 	// ============================================================
@@ -82,7 +88,10 @@ func main() {
 	filterCfg := html.DefaultConfig()
 	filterCfg.IncludeCSS = false
 	filterCfg.IncludeJS = false
-	filterProcessor, _ := html.New(filterCfg)
+	filterProcessor, err := html.New(filterCfg)
+	if err != nil {
+		log.Fatal(err)
+	}
 	defer filterProcessor.Close()
 
 	filteredLinks, _ := filterProcessor.ExtractAllLinks([]byte(htmlContent))
@@ -150,7 +159,10 @@ func main() {
 	imageOnlyCfg := html.DefaultConfig()
 	imageOnlyCfg.PreserveVideos = false
 	imageOnlyCfg.PreserveAudios = false
-	imageProcessor, _ := html.New(imageOnlyCfg)
+	imageProcessor, err := html.New(imageOnlyCfg)
+	if err != nil {
+		log.Fatal(err)
+	}
 	defer imageProcessor.Close()
 
 	imgResult, _ := imageProcessor.Extract([]byte(htmlContent))
@@ -160,7 +172,10 @@ func main() {
 	// Video and audio only (disable images)
 	mediaOnlyCfg := html.DefaultConfig()
 	mediaOnlyCfg.PreserveImages = false
-	mediaProcessor, _ := html.New(mediaOnlyCfg)
+	mediaProcessor, err := html.New(mediaOnlyCfg)
+	if err != nil {
+		log.Fatal(err)
+	}
 	defer mediaProcessor.Close()
 
 	mediaResult, _ := mediaProcessor.Extract([]byte(htmlContent))

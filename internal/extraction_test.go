@@ -213,17 +213,6 @@ func TestExtractTableNil(t *testing.T) {
 	}
 }
 
-func TestExtractTextWithStructureNil(t *testing.T) {
-	t.Parallel()
-
-	var sb strings.Builder
-	ExtractTextWithStructureAndImages(nil, &sb, nil, nil, "markdown")
-
-	if sb.Len() != 0 {
-		t.Error("ExtractTextWithStructureAndImages(nil) should not write anything")
-	}
-}
-
 func TestExtractTextWithStructureDepth(t *testing.T) {
 	t.Parallel()
 

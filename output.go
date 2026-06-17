@@ -3,7 +3,6 @@ package html
 import (
 	"context"
 	"encoding/json"
-	"strings"
 
 	"github.com/cybergodev/html/internal"
 )
@@ -302,43 +301,44 @@ func (r *Result) MarshalJSON() ([]byte, error) {
 	return json.Marshal(jr)
 }
 
-// extractWithFormats extracts content using temporary format settings.
-// This creates a config copy to avoid race conditions when modifying format settings.
-func (p *Processor) extractWithFormats(htmlBytes []byte, imageFormat, linkFormat string) (*Result, error) {
-	if p == nil || p.closed.Load() {
-		return nil, ErrProcessorClosed
-	}
-
-	// Create a copy of config with modified format settings
+// buildFormatProcessor returns a transient processor that reuses p's scorer but
+// applies the given inline image/link formats. It snapshots p's config under the
+// config lock so the format overrides never mutate the shared config, uses a
+// disabled cache to avoid polluting p's cache with format-specific results, and
+// an independent disabled audit collector so a parent Close() cannot race with
+// an in-flight extraction on the temporary processor.
+func (p *Processor) buildFormatProcessor(imageFormat, linkFormat string) *Processor {
 	p.configMu.Lock()
 	cfg := *p.config // Value copy to avoid race conditions
 	p.configMu.Unlock()
 
 	cfg.InlineImageFormat = imageFormat
 	cfg.InlineLinkFormat = linkFormat
+	// The transient processor uses a disabled cache (NewCache(0, 0) below), so
+	// zero the entry budget too: this short-circuits the cache-key generation
+	// and Get/Set calls in Extract, which would otherwise run as no-ops while
+	// still paying the cost of hashing the input on every format conversion.
+	cfg.MaxCacheEntries = 0
 
-	// Create a temporary processor with the modified config.
-	// Uses a disabled cache to avoid polluting the parent's cache with format-specific results.
-	// Uses an independent audit collector to prevent race conditions if the parent is closed
-	// while the temporary processor is still running.
-	tempP := &Processor{
+	return &Processor{
 		config:       &cfg,
 		cache:        internal.NewCache(0, 0),
 		scorer:       p.scorer,
 		audit:        newAuditCollector(AuditConfig{Enabled: false}),
 		auditAdapter: &auditRecorderAdapter{collector: nil},
 		stats:        &processorStats{},
-		imageFormat:  strings.ToLower(strings.TrimSpace(imageFormat)),
-		linkFormat:   strings.ToLower(strings.TrimSpace(linkFormat)),
+		imageFormat:  normalizeInlineFormat(imageFormat),
+		linkFormat:   normalizeInlineFormat(linkFormat),
 	}
-	if tempP.imageFormat == "" {
-		tempP.imageFormat = "none"
-	}
-	if tempP.linkFormat == "" {
-		tempP.linkFormat = "none"
-	}
+}
 
-	return tempP.Extract(htmlBytes)
+// extractWithFormats extracts content using temporary format settings.
+// This creates a config copy to avoid race conditions when modifying format settings.
+func (p *Processor) extractWithFormats(htmlBytes []byte, imageFormat, linkFormat string) (*Result, error) {
+	if p == nil || p.closed.Load() {
+		return nil, ErrProcessorClosed
+	}
+	return p.buildFormatProcessor(imageFormat, linkFormat).Extract(htmlBytes)
 }
 
 // extractFromFileWithFormats extracts content from file using temporary format settings.
@@ -346,12 +346,10 @@ func (p *Processor) extractFromFileWithFormats(filePath, imageFormat, linkFormat
 	if p == nil || p.closed.Load() {
 		return nil, ErrProcessorClosed
 	}
-
 	data, err := p.validateAndReadFile(filePath)
 	if err != nil {
 		return nil, err
 	}
-
 	return p.extractWithFormats(data, imageFormat, linkFormat)
 }
 
@@ -360,35 +358,7 @@ func (p *Processor) extractWithFormatsWithContext(ctx context.Context, htmlBytes
 	if p == nil || p.closed.Load() {
 		return nil, ErrProcessorClosed
 	}
-
-	p.configMu.Lock()
-	cfg := *p.config
-	p.configMu.Unlock()
-
-	cfg.InlineImageFormat = imageFormat
-	cfg.InlineLinkFormat = linkFormat
-
-	imgFmt := strings.ToLower(strings.TrimSpace(imageFormat))
-	lnkFmt := strings.ToLower(strings.TrimSpace(linkFormat))
-	if imgFmt == "" {
-		imgFmt = "none"
-	}
-	if lnkFmt == "" {
-		lnkFmt = "none"
-	}
-
-	tempP := &Processor{
-		config:       &cfg,
-		cache:        internal.NewCache(0, 0),
-		scorer:       p.scorer,
-		audit:        newAuditCollector(AuditConfig{Enabled: false}),
-		auditAdapter: &auditRecorderAdapter{collector: nil},
-		stats:        &processorStats{},
-		imageFormat:  imgFmt,
-		linkFormat:   lnkFmt,
-	}
-
-	return tempP.ExtractWithContext(ctx, htmlBytes)
+	return p.buildFormatProcessor(imageFormat, linkFormat).ExtractWithContext(ctx, htmlBytes)
 }
 
 // extractFromFileWithFormatsWithContext extracts content from file using temporary format settings with context support.
@@ -396,11 +366,9 @@ func (p *Processor) extractFromFileWithFormatsWithContext(ctx context.Context, f
 	if p == nil || p.closed.Load() {
 		return nil, ErrProcessorClosed
 	}
-
 	data, err := p.validateAndReadFile(filePath)
 	if err != nil {
 		return nil, err
 	}
-
 	return p.extractWithFormatsWithContext(ctx, data, imageFormat, linkFormat)
 }
