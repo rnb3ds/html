@@ -483,3 +483,50 @@ func TestPutNodeSliceSecureClear(t *testing.T) {
 
 	// This test primarily verifies the code path executes without panic
 }
+
+// TestSetPoolDebug verifies that enabling pool debug logging routes corruption
+// events to the supplied logger, and that disabling it silences them.
+//
+// This test is intentionally NOT parallel: it toggles the package-global
+// poolDebug flag and corrupts the shared pools, so it must not overlap with the
+// other pool tests.
+func TestSetPoolDebug(t *testing.T) {
+	var (
+		mu     sync.Mutex
+		called bool
+	)
+	logger := func(format string, args ...any) {
+		mu.Lock()
+		called = true
+		mu.Unlock()
+	}
+
+	// Enable debug logging, then corrupt a pool exactly as the corruption tests do.
+	SetPoolDebug(true, logger)
+	defer SetPoolDebug(false, nil)
+
+	BufferPool.Put("not a buffer") //lint:ignore SA6002 intentionally using non-pointer to test pool corruption handling
+	_ = GetBuffer()                // type-assertion fallback invokes logPoolCorruption
+
+	mu.Lock()
+	wasCalled := called
+	mu.Unlock()
+	if !wasCalled {
+		t.Fatal("logger was not invoked despite enabled debug logging and pool corruption")
+	}
+
+	// Disable debug logging; subsequent corruption must not invoke the logger.
+	SetPoolDebug(false, nil)
+	mu.Lock()
+	called = false
+	mu.Unlock()
+
+	BufferPool.Put("not a buffer") //lint:ignore SA6002 intentionally using non-pointer to test pool corruption handling
+	_ = GetBuffer()
+
+	mu.Lock()
+	if called {
+		t.Fatal("logger was invoked after SetPoolDebug(false, nil)")
+	}
+	mu.Unlock()
+}

@@ -7,6 +7,7 @@ import (
 	htmlstd "html"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -120,6 +121,10 @@ func recoverBytes(fn func() ([]byte, error)) ([]byte, error)  { return recoverPa
 //	cfg := html.DefaultConfig()
 //	cfg.PreserveImages = false
 //	result, err := html.Extract(htmlBytes, cfg)
+//
+// Returns the same errors as [Processor.Extract], plus ErrMultipleConfigs if
+// more than one Config is provided and ErrInvalidConfig (wrapped in *ConfigError)
+// if the supplied configuration is invalid.
 func Extract(htmlBytes []byte, cfg ...Config) (*Result, error) {
 	c, pooled, err := resolveConfig(cfg...)
 	if err != nil {
@@ -138,6 +143,10 @@ func Extract(htmlBytes []byte, cfg ...Config) (*Result, error) {
 //
 // An optional Config can be provided to customize extraction behavior.
 // If no config is provided, DefaultConfig() is used.
+//
+// In addition to the errors returned by [Extract], file access may fail with a
+// *FileError wrapping ErrFileNotFound, ErrInvalidFilePath, or a path-traversal
+// rejection (see Config.AllowedBaseDir).
 func ExtractFromFile(filePath string, cfg ...Config) (*Result, error) {
 	c, pooled, err := resolveConfig(cfg...)
 	if err != nil {
@@ -252,6 +261,15 @@ func ExtractFromFileWithContext(ctx context.Context, filePath string, cfg ...Con
 //
 // This is the primary method for HTML content extraction when the source encoding
 // may not be UTF-8, such as content from HTTP responses, databases, or files.
+//
+// Returns:
+//   - ErrProcessorClosed if the processor is nil or has been closed
+//   - ErrInputTooLarge (wrapped in *InputError) if len(htmlBytes) exceeds MaxInputSize
+//   - a wrapped error if character-encoding detection or conversion fails
+//   - ErrInvalidHTML if the bytes cannot be parsed as HTML
+//   - ErrMaxDepthExceeded if element nesting exceeds MaxDepth
+//   - ErrProcessingTimeout if processing exceeds ProcessingTimeout
+//   - ErrInternalPanic if an unexpected internal panic is recovered
 func (p *Processor) Extract(htmlBytes []byte) (*Result, error) {
 	return recoverResult(func() (*Result, error) {
 		return p.extractCoreWithContext(context.Background(), htmlBytes)
@@ -274,6 +292,9 @@ func (p *Processor) Extract(htmlBytes []byte) (*Result, error) {
 //	if errors.Is(err, context.Canceled) {
 //	    // Extraction was cancelled
 //	}
+//
+// In addition to the errors returned by [Processor.Extract], this method returns
+// context.Canceled or context.DeadlineExceeded when ctx is cancelled.
 func (p *Processor) ExtractWithContext(ctx context.Context, htmlBytes []byte) (*Result, error) {
 	return recoverResult(func() (*Result, error) {
 		return p.extractCoreWithContext(ctx, htmlBytes)
@@ -633,21 +654,39 @@ func (p *Processor) isBlankContent(content string) bool {
 	return true
 }
 
+// depthStackEntry pairs a node with its depth for iterative depth validation.
+type depthStackEntry struct {
+	node  *stdxhtml.Node
+	depth int
+}
+
+// depthStackPool reuses the traversal stack across Extract calls so each
+// extraction does not allocate (and repeatedly grow) a fresh slice. The
+// profiler attributed ~3.9% of allocations to this stack's growth.
+var depthStackPool = sync.Pool{
+	New: func() any {
+		s := make([]depthStackEntry, 0, 64)
+		return &s
+	},
+}
+
 // validateDepthTraversal validates DOM tree depth using an iterative approach
 // to avoid potential stack overflow on deeply nested documents.
 // It folds depth validation into a single traversal rather than scanning the
 // tree twice (once for depth, once for extraction).
 func (p *Processor) validateDepthTraversal(root *stdxhtml.Node, initialDepth int) error {
 	// Use iterative approach with explicit stack to avoid stack overflow
-	// on deeply nested documents (MaxDepth can be up to 500)
-	type stackEntry struct {
-		node  *stdxhtml.Node
-		depth int
-	}
+	// on deeply nested documents (MaxDepth can be up to 500). The stack is
+	// borrowed from a pool and returned when traversal completes, so a
+	// typical Extract allocates nothing here.
+	stackPtr := depthStackPool.Get().(*[]depthStackEntry)
+	stack := (*stackPtr)[:0]
+	defer func() {
+		*stackPtr = stack
+		depthStackPool.Put(stackPtr)
+	}()
 
-	// Pre-allocate stack with reasonable initial capacity
-	stack := make([]stackEntry, 0, 64)
-	stack = append(stack, stackEntry{root, initialDepth})
+	stack = append(stack, depthStackEntry{root, initialDepth})
 
 	for len(stack) > 0 {
 		entry := stack[len(stack)-1]
@@ -659,7 +698,7 @@ func (p *Processor) validateDepthTraversal(root *stdxhtml.Node, initialDepth int
 
 		// Add children to stack in reverse order for correct traversal order
 		for c := entry.node.FirstChild; c != nil; c = c.NextSibling {
-			stack = append(stack, stackEntry{c, entry.depth + 1})
+			stack = append(stack, depthStackEntry{c, entry.depth + 1})
 		}
 	}
 	return nil
@@ -717,11 +756,20 @@ func (p *Processor) extractFromDocument(doc *stdxhtml.Node, htmlContent string) 
 	result.WordCount = p.countWords(result.Text)
 	result.ReadingTime = p.calculateReadingTime(result.WordCount)
 
-	if p.config.PreserveVideos {
-		result.Videos = p.extractVideos(doc, htmlContent)
-	}
-	if p.config.PreserveAudios {
-		result.Audios = p.extractAudios(doc, htmlContent)
+	// Compute the media-reference gate once for both extractors. HasMediaReference
+	// scans the whole document, and the video and audio gates evaluate the same
+	// content-only condition, so computing it here (only when at least one media
+	// type is preserved) halves the scan versus each extractor computing its own.
+	if p.config.PreserveVideos || p.config.PreserveAudios {
+		canContainMedia := len(htmlContent) > 0 &&
+			len(htmlContent) <= maxHTMLForRegex &&
+			internal.HasMediaReference(htmlContent)
+		if p.config.PreserveVideos {
+			result.Videos = p.extractVideos(doc, htmlContent, canContainMedia)
+		}
+		if p.config.PreserveAudios {
+			result.Audios = p.extractAudios(doc, htmlContent, canContainMedia)
+		}
 	}
 	return result, nil
 }

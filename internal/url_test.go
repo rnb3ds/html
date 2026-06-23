@@ -345,6 +345,23 @@ func TestResolveURL(t *testing.T) {
 			relativeURL: "#section",
 			want:        "http://example.com/path/#section",
 		},
+		{
+			// Absolute path against a base that has a scheme but no path after
+			// the domain: the domain has no trailing '/', so the base is reused
+			// verbatim and the absolute path appended to it.
+			name:        "absolute path, base has scheme but no path after domain",
+			baseURL:     "http://example.com",
+			relativeURL: "/other/path",
+			want:        "http://example.com/other/path",
+		},
+		{
+			// Absolute path against a base with no scheme (no "://"): the base is
+			// unusable, so the absolute path is returned on its own.
+			name:        "absolute path, base has no scheme",
+			baseURL:     "example.com",
+			relativeURL: "/other/path",
+			want:        "/other/path",
+		},
 	}
 
 	for _, tt := range tests {

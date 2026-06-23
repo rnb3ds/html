@@ -662,3 +662,40 @@ func TestSetMaxSampleSize(t *testing.T) {
 		}
 	})
 }
+
+// TestScoreLanguagePatterns exercises every scoring arm of
+// scoreLanguagePatterns: no special characters, CJK with a matching CJK charset
+// (positive bonus), CJK with a Western charset (-10 penalty), Cyrillic with a
+// matching Cyrillic charset (+10), and Cyrillic with a Western charset (neutral).
+// The CJK-bonus value depends on int(cjkRatio*15) and is float-truncation
+// sensitive, so that arm asserts only the sign (> 0); the other arms are exact
+// integer constants.
+func TestScoreLanguagePatterns(t *testing.T) {
+	t.Parallel()
+
+	ed := &EncodingDetector{}
+
+	tests := []struct {
+		name    string
+		decoded string
+		charset string
+		check   func(int) bool
+		desc    string
+	}{
+		{"empty input", "", "utf-8", func(s int) bool { return s == 0 }, "== 0"},
+		{"ascii no special chars", "hello world", "gbk", func(s int) bool { return s == 0 }, "== 0"},
+		{"cjk with matching cjk charset", "你好世界", "gbk", func(s int) bool { return s > 0 }, "> 0"},
+		{"cjk with western charset penalty", "你好世界", "utf-8", func(s int) bool { return s == -10 }, "== -10"},
+		{"cyrillic with matching cyrillic charset", "Привет мир", "windows-1251", func(s int) bool { return s == 10 }, "== 10"},
+		{"cyrillic with western charset neutral", "Привет мир", "utf-8", func(s int) bool { return s == 0 }, "== 0"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := ed.scoreLanguagePatterns([]byte(tt.decoded), tt.charset)
+			if !tt.check(got) {
+				t.Errorf("scoreLanguagePatterns(%q, %q) = %d, want %s", tt.decoded, tt.charset, got, tt.desc)
+			}
+		})
+	}
+}

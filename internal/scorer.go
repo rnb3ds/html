@@ -236,9 +236,21 @@ func (s *DefaultScorer) ShouldRemove(node *html.Node) bool {
 		return true
 	}
 
+	// Semantic main-content containers (<article>, <main>, or an explicit
+	// ARIA role of main/article) unambiguously denote primary content. They
+	// must NOT be stripped by the class/id substring heuristic: a class such
+	// as "post-with-sidebar" denotes an article rendered in a sidebar layout,
+	// not a sidebar itself, yet the "-" delimiter made it match the "sidebar"
+	// removal pattern and discard the entire article body. Hidden/style
+	// signals below are still honored because they are unambiguous.
+	primaryContent := isPrimaryContentContainer(node)
+
 	for _, attr := range node.Attr {
 		switch attr.Key {
 		case "class", "id":
+			if primaryContent {
+				continue
+			}
 			lowerVal := strings.ToLower(attr.Val)
 			for pattern := range s.config.RemovePatterns {
 				if hasWordBoundary(lowerVal, pattern, boundaryStandard) {
@@ -255,6 +267,28 @@ func (s *DefaultScorer) ShouldRemove(node *html.Node) bool {
 			}
 		case "hidden":
 			return true
+		}
+	}
+	return false
+}
+
+// isPrimaryContentContainer reports whether the node unambiguously represents
+// primary/main content via its semantic tag or ARIA role. Such nodes are
+// excluded from the class/id-based removal heuristic to prevent false
+// positives such as <article class="post-with-sidebar"> matching the "sidebar"
+// pattern. Note: this only governs the heuristic; a genuinely hidden node
+// (hidden attribute or display:none) is still removed.
+func isPrimaryContentContainer(node *html.Node) bool {
+	switch node.Data {
+	case "article", "main":
+		return true
+	}
+	for _, attr := range node.Attr {
+		if attr.Key == "role" {
+			switch strings.ToLower(attr.Val) {
+			case "main", "article":
+				return true
+			}
 		}
 	}
 	return false

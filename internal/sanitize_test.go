@@ -447,68 +447,59 @@ func TestSanitizeHTML_DangerousTags(t *testing.T) {
 	}
 }
 
-func TestSanitizeHTML_SVGXSSPrevention(t *testing.T) {
+func TestSanitizeHTML_SVGAndMathMLXSSPrevention(t *testing.T) {
 	tests := []struct {
-		name  string
-		input string
+		name         string
+		input        string
+		forbiddenTag string // dangerous container tag that must be stripped
 	}{
+		// SVG vectors
 		{
-			name:  "svg with onload",
-			input: `<svg onload="alert('xss')"><circle cx="50" cy="50" r="50"/></svg>`,
+			name:         "svg with onload",
+			input:        `<svg onload="alert('xss')"><circle cx="50" cy="50" r="50"/></svg>`,
+			forbiddenTag: "<svg",
 		},
 		{
-			name:  "svg with script",
-			input: `<svg><script>alert('xss')</script></svg>`,
+			name:         "svg with script",
+			input:        `<svg><script>alert('xss')</script></svg>`,
+			forbiddenTag: "<svg",
 		},
 		{
-			name:  "svg with foreignObject",
-			input: `<svg><foreignObject><body onload="alert('xss')"></foreignObject></svg>`,
+			name:         "svg with foreignObject",
+			input:        `<svg><foreignObject><body onload="alert('xss')"></foreignObject></svg>`,
+			forbiddenTag: "<svg",
 		},
 		{
-			name:  "svg with animate",
-			input: `<svg><animate onbegin="alert('xss')"/></svg>`,
+			name:         "svg with animate",
+			input:        `<svg><animate onbegin="alert('xss')"/></svg>`,
+			forbiddenTag: "<svg",
 		},
 		{
-			name:  "svg inline event",
-			input: `<svg><set onbegin="alert('xss')"/></svg>`,
+			name:         "svg inline event",
+			input:        `<svg><set onbegin="alert('xss')"/></svg>`,
+			forbiddenTag: "<svg",
+		},
+		// MathML vectors
+		{
+			name:         "math with annotation-xml",
+			input:        `<math><annotation-xml encoding="application/xhtml+xml"><script>alert('xss')</script></annotation-xml></math>`,
+			forbiddenTag: "<math",
+		},
+		{
+			name:         "math with href",
+			input:        `<math href="javascript:alert('xss')"><mtext>click</mtext></math>`,
+			forbiddenTag: "<math",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			output := SanitizeHTML(tt.input)
-			if strings.Contains(strings.ToLower(output), "<svg") {
-				t.Errorf("SVG tag should be removed, but found in: %s", output)
+			lower := strings.ToLower(output)
+			if strings.Contains(lower, tt.forbiddenTag) {
+				t.Errorf("%s tag should be removed, but found in: %s", tt.forbiddenTag, output)
 			}
-			if strings.Contains(strings.ToLower(output), "alert") {
-				t.Errorf("Script content should be removed, but found in: %s", output)
-			}
-		})
-	}
-}
-
-func TestSanitizeHTML_MathMLXSSPrevention(t *testing.T) {
-	tests := []struct {
-		name  string
-		input string
-	}{
-		{
-			name:  "math with annotation-xml",
-			input: `<math><annotation-xml encoding="application/xhtml+xml"><script>alert('xss')</script></annotation-xml></math>`,
-		},
-		{
-			name:  "math with href",
-			input: `<math href="javascript:alert('xss')"><mtext>click</mtext></math>`,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			output := SanitizeHTML(tt.input)
-			if strings.Contains(strings.ToLower(output), "<math") {
-				t.Errorf("Math tag should be removed, but found in: %s", output)
-			}
-			if strings.Contains(strings.ToLower(output), "alert") {
+			if strings.Contains(lower, "alert") {
 				t.Errorf("Script content should be removed, but found in: %s", output)
 			}
 		})
@@ -786,4 +777,85 @@ func TestIndexASCIIFold(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestNormalizeFullwidthToASCII covers the fullwidth->ASCII normalization used
+// to defeat scheme/keyword obfuscation. This guard previously had zero direct
+// coverage. Ranges used: U+FF01..U+FF5E shift by -0xFEE0.
+func TestNormalizeFullwidthToASCII(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{"empty", "", ""},
+		{"ascii passthrough no fullwidth", "hello world", "hello world"},
+		{"single fullwidth letter", "Ａ", "A"}, // Ａ -> A
+		{"fullwidth digit", "１", "1"},         // １ -> 1
+		{"fullwidth word", "Ｊａｖａ", "Java"},    // Ｊａｖａ -> Java
+		{"fullwidth scheme bypass", "ｊａｖａｓｃｒｉｐｔ：", "javascript:"},
+		{"mixed fullwidth and ascii", "ＡＢＣ" + "123", "ABC123"},
+		{"range lower bound converts", "！", "!"},   // ！-> !
+		{"range upper bound converts", "～", "~"},   // ～ -> ~
+		{"just below range passthrough", "＀", "＀"}, // ￀ unchanged
+		{"just above range passthrough", "｟", "｟"}, // ￟ unchanged
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := normalizeFullwidthToASCII(tt.in); got != tt.want {
+				t.Errorf("normalizeFullwidthToASCII(%q) = %q, want %q", tt.in, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestFindBodyElement covers the success path and both nil-return paths of
+// findBodyElement (non-DocumentNode input, and a DocumentNode with no body).
+func TestFindBodyElement(t *testing.T) {
+	t.Parallel()
+
+	t.Run("document with direct body child returns body node", func(t *testing.T) {
+		t.Parallel()
+		// findBodyElement only walks the DocumentNode's *direct* children, so the
+		// success branch is only reachable when <body> is a top-level child. A full
+		// document parsed via html.Parse nests <body> under <html> (covered by the
+		// no-body case below), so construct this structure directly.
+		doc := &html.Node{Type: html.DocumentNode}
+		body := &html.Node{Type: html.ElementNode, Data: "body"}
+		doc.AppendChild(body)
+		got := findBodyElement(doc)
+		if got == nil {
+			t.Fatal("findBodyElement returned nil for a document with a direct <body> child")
+		}
+		if got != body {
+			t.Error("findBodyElement returned a node other than the body child")
+		}
+		if got.Data != "body" {
+			t.Errorf("returned node Data = %q, want %q", got.Data, "body")
+		}
+	})
+
+	t.Run("non document node returns nil", func(t *testing.T) {
+		t.Parallel()
+		// An element node named "body" must still be rejected: the function
+		// only walks a DocumentNode.
+		elem := &html.Node{Type: html.ElementNode, Data: "body"}
+		if got := findBodyElement(elem); got != nil {
+			t.Errorf("findBodyElement on an ElementNode returned %v, want nil", got)
+		}
+	})
+
+	t.Run("document without body returns nil", func(t *testing.T) {
+		t.Parallel()
+		// Build a DocumentNode whose only child is <html> with no <body>.
+		doc := &html.Node{Type: html.DocumentNode}
+		htmlNode := &html.Node{Type: html.ElementNode, Data: "html"}
+		doc.AppendChild(htmlNode)
+		if got := findBodyElement(doc); got != nil {
+			t.Errorf("findBodyElement on a body-less document returned %v, want nil", got)
+		}
+	})
 }

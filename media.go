@@ -7,56 +7,44 @@ import (
 	stdxhtml "golang.org/x/net/html"
 )
 
-func (p *Processor) extractVideos(node *stdxhtml.Node, htmlContent string) []VideoInfo {
+// appendUniqueVideoURLs appends each url that is a valid, not-yet-seen video URL
+// to videos, recording it in seen. It centralizes the validate-and-deduplicate
+// logic shared by the iframe, embed, and object raw-HTML extraction paths.
+func appendUniqueVideoURLs(urls []string, seen map[string]bool, videos []VideoInfo) []VideoInfo {
+	for _, url := range urls {
+		if internal.IsValidURL(url) && internal.IsVideoURL(url) && !seen[url] {
+			seen[url] = true
+			videos = append(videos, VideoInfo{
+				URL:  url,
+				Type: internal.DetectVideoType(url),
+			})
+		}
+	}
+	return videos
+}
+
+func (p *Processor) extractVideos(node *stdxhtml.Node, htmlContent string, canContainMedia bool) []VideoInfo {
 	videos := make([]VideoInfo, 0, initialSliceCap)
 	seen := make(map[string]bool, initialMapCap)
 
+	// canContainMedia is computed once by the caller (extractFromDocument) and
+	// shared with extractAudios: HasMediaReference scans the whole document, and
+	// the video and audio gates evaluate the identical, content-only condition.
 	// The raw-HTML scans below (iframe/embed/object attribute extraction and the
 	// video-URL regex) can only yield a result when the content references a media
 	// extension or a known embed host. Skip them entirely when it provably does not;
 	// the DOM walk below still finds <video>/<iframe>/<embed>/<object> elements.
-	canContainMedia := len(htmlContent) > 0 &&
-		len(htmlContent) <= maxHTMLForRegex &&
-		internal.HasMediaReference(htmlContent)
 
 	// First, extract from the HTML content directly for iframe/embed/object tags
-	// These may be removed by sanitization, so we parse them from raw HTML first
+	// These may be removed by sanitization, so we parse them from raw HTML first.
+	// All three share identical validate/dedup logic (appendUniqueVideoURLs).
 	if canContainMedia {
-		// Parse iframe tags
-		iframeMatches := p.extractTagAttributes(htmlContent, "iframe", "src")
-		for _, url := range iframeMatches {
-			if internal.IsValidURL(url) && internal.IsVideoURL(url) && !seen[url] {
-				seen[url] = true
-				videos = append(videos, VideoInfo{
-					URL:  url,
-					Type: internal.DetectVideoType(url),
-				})
-			}
-		}
-
-		// Parse embed tags
-		embedMatches := p.extractTagAttributes(htmlContent, "embed", "src", "data")
-		for _, url := range embedMatches {
-			if internal.IsValidURL(url) && internal.IsVideoURL(url) && !seen[url] {
-				seen[url] = true
-				videos = append(videos, VideoInfo{
-					URL:  url,
-					Type: internal.DetectVideoType(url),
-				})
-			}
-		}
-
-		// Parse object tags
-		objectMatches := p.extractTagAttributes(htmlContent, "object", "data")
-		for _, url := range objectMatches {
-			if internal.IsValidURL(url) && internal.IsVideoURL(url) && !seen[url] {
-				seen[url] = true
-				videos = append(videos, VideoInfo{
-					URL:  url,
-					Type: internal.DetectVideoType(url),
-				})
-			}
-		}
+		videos = appendUniqueVideoURLs(
+			p.extractTagAttributes(htmlContent, "iframe", "src"), seen, videos)
+		videos = appendUniqueVideoURLs(
+			p.extractTagAttributes(htmlContent, "embed", "src", "data"), seen, videos)
+		videos = appendUniqueVideoURLs(
+			p.extractTagAttributes(htmlContent, "object", "data"), seen, videos)
 	}
 
 	// Then extract from the DOM tree (for video tags and any iframe/embed/object that survived sanitization)
@@ -173,7 +161,7 @@ func (p *Processor) parseEmbedNode(n *stdxhtml.Node) VideoInfo {
 	return VideoInfo{}
 }
 
-func (p *Processor) extractAudios(node *stdxhtml.Node, htmlContent string) []AudioInfo {
+func (p *Processor) extractAudios(node *stdxhtml.Node, htmlContent string, canContainMedia bool) []AudioInfo {
 	audios := make([]AudioInfo, 0, initialSliceCap)
 	seen := make(map[string]bool, initialMapCap)
 
@@ -190,9 +178,8 @@ func (p *Processor) extractAudios(node *stdxhtml.Node, htmlContent string) []Aud
 	// The audio-URL regex can only match when the content references a media
 	// extension; skip it when it provably does not. The DOM walk above still finds
 	// <audio>/<source> elements regardless of their URL extension.
-	if len(htmlContent) > 0 &&
-		len(htmlContent) <= maxHTMLForRegex &&
-		internal.HasMediaReference(htmlContent) {
+	// canContainMedia is computed once by the caller and shared with extractVideos.
+	if canContainMedia {
 		matches := audioRegex.FindAllString(htmlContent, maxRegexMatches)
 		for _, url := range matches {
 			if internal.IsValidURL(url) && !seen[url] {
@@ -343,8 +330,13 @@ func findTagIgnoreCase(html, lowerTag string) int {
 
 // extractAttributeValue extracts a single attribute value from a tag string.
 // It handles quoted (single and double) and unquoted attribute values.
+// The attribute name is matched case-insensitively (HTML attribute names are
+// case-insensitive, and raw HTML may use any case).
 func extractAttributeValue(tagContent, attrName string) string {
-	search := attrName + "="
+	// search is compared byte-for-byte against lowercased content bytes below,
+	// so normalize it to lowercase once. Without this, an uppercase attrName
+	// would never match (the scan lowercases content but not the search string).
+	search := strings.ToLower(attrName) + "="
 	searchLen := len(search)
 	tagLen := len(tagContent)
 

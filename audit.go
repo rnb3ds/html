@@ -161,7 +161,6 @@ type auditCollector struct {
 	entries []AuditEntry
 	config  AuditConfig
 	sink    AuditSink
-	wg      sync.WaitGroup // WaitGroup for async sink writes
 }
 
 // newAuditCollector creates a new audit collector with the given configuration.
@@ -206,24 +205,39 @@ func (c *auditCollector) Record(entry AuditEntry) {
 	c.entries = append(c.entries, entry)
 	c.mu.Unlock()
 
-	// Write to sink asynchronously with proper synchronization
+	// Write to the sink synchronously. AuditSink.Write is contractually
+	// non-blocking and thread-safe, so invoking it inline on the recording
+	// goroutine is correct and avoids spawning an unbounded number of
+	// goroutines — one per entry — which an adversarial document (thousands of
+	// blocked attributes) could amplify under an enabled audit config.
+	//
+	// The sink is a user-supplied extension point (custom AuditSink, or a
+	// filtered/multi-sink wrapping one), so Write may panic. Recover so a
+	// misbehaving sink cannot crash the process: the audit subsystem is
+	// best-effort and must never propagate a panic to the public-API caller
+	// (SEC-003). The recovered value is intentionally discarded — there is no
+	// safe channel to report a panic originating inside the audit path itself.
 	if c.sink != nil {
-		c.wg.Add(1)
-		go func(e AuditEntry) {
-			defer c.wg.Done()
-			c.sink.Write(e)
-		}(entry)
+		func() {
+			defer func() {
+				_ = recover() // swallow sink panic; see comment above
+			}()
+			c.sink.Write(entry)
+		}()
 	}
 }
 
-// Wait blocks until all pending async sink writes have completed.
-// This is useful for ensuring all audit entries are written before
-// test completion or processor shutdown.
+// Wait is retained as a no-op safety hook.
+//
+// Sink writes are now synchronous (see Record), so there are no pending async
+// writes to drain: once a Record* method returns, the entry has already been
+// handed to the sink. Callers (notably putPooledProcessor) and tests still call
+// Wait() to mark the "all audit work for this use is done" point; it remains
+// nil-safe and safe to call any number of times.
 func (c *auditCollector) Wait() {
 	if c == nil {
 		return
 	}
-	c.wg.Wait()
 }
 
 // RecordBlockedTag records a blocked tag event.
@@ -304,7 +318,6 @@ func (c *auditCollector) RecordTimeout(timeout time.Duration) {
 		EventType: AuditEventTimeout,
 		Level:     AuditLevelWarning,
 		Message:   fmt.Sprintf("Processing timeout exceeded: %v", timeout),
-		Metadata:  map[string]any{"timeout": timeout.String()},
 	})
 }
 
@@ -358,13 +371,11 @@ func (c *auditCollector) Clear() {
 }
 
 // Close closes the audit collector and its sink.
-// It waits for all pending async sink writes to complete before closing.
+// Sink writes are synchronous, so no draining is needed before closing.
 func (c *auditCollector) Close() error {
 	if c == nil {
 		return nil
 	}
-	// Wait for all async sink writes to complete
-	c.wg.Wait()
 	if c.sink != nil {
 		return c.sink.Close()
 	}

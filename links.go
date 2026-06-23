@@ -496,8 +496,8 @@ func (p *Processor) extractImageLinks(n *stdxhtml.Node, baseURL string, linkMap 
 		displayName = alt
 	}
 	if displayName == "" {
-		if lastSlash := strings.LastIndex(resolvedURL, "/"); lastSlash >= 0 {
-			displayName = resolvedURL[lastSlash+1:]
+		if strings.Contains(resolvedURL, "/") {
+			displayName = lastPathSegment(resolvedURL)
 		} else {
 			displayName = "Image"
 		}
@@ -529,8 +529,8 @@ func (p *Processor) extractMediaLink(n *stdxhtml.Node, baseURL string, linkMap m
 
 	displayName := title
 	if displayName == "" {
-		if lastSlash := strings.LastIndex(resolvedURL, "/"); lastSlash >= 0 {
-			displayName = resolvedURL[lastSlash+1:]
+		if strings.Contains(resolvedURL, "/") {
+			displayName = lastPathSegment(resolvedURL)
 		}
 		if displayName == "" {
 			if mediaType != "" {
@@ -579,8 +579,8 @@ func (p *Processor) extractSourceLinks(n *stdxhtml.Node, baseURL string, linkMap
 	}
 
 	title := "Media"
-	if lastSlash := strings.LastIndex(resolvedURL, "/"); lastSlash >= 0 {
-		title = resolvedURL[lastSlash+1:]
+	if strings.Contains(resolvedURL, "/") {
+		title = lastPathSegment(resolvedURL)
 	}
 
 	linkMap[resolvedURL] = LinkResource{
@@ -673,8 +673,8 @@ func (p *Processor) extractLinkTagLinks(n *stdxhtml.Node, baseURL string, linkMa
 	resolvedURL := p.resolveURLIfEnabled(baseURL, href)
 
 	if title == "" {
-		if lastSlash := strings.LastIndex(resolvedURL, "/"); lastSlash >= 0 {
-			title = resolvedURL[lastSlash+1:]
+		if strings.Contains(resolvedURL, "/") {
+			title = lastPathSegment(resolvedURL)
 		}
 	}
 	if title == "" {
@@ -704,8 +704,8 @@ func (p *Processor) extractScriptLinks(n *stdxhtml.Node, baseURL string, linkMap
 	resolvedURL := p.resolveURLIfEnabled(baseURL, src)
 
 	title := ""
-	if lastSlash := strings.LastIndex(resolvedURL, "/"); lastSlash >= 0 {
-		title = resolvedURL[lastSlash+1:]
+	if strings.Contains(resolvedURL, "/") {
+		title = lastPathSegment(resolvedURL)
 	}
 	if title == "" {
 		title = "Script"
@@ -776,4 +776,14 @@ func GroupLinksByType(links []LinkResource) map[string][]LinkResource {
 		}
 	}
 	return grouped
+}
+
+// lastPathSegment returns the substring after the final '/' in url, or "" if
+// url contains no '/'. It centralizes the filename extraction shared by the
+// link/image/media/script title fallbacks below.
+func lastPathSegment(url string) string {
+	if i := strings.LastIndexByte(url, '/'); i >= 0 {
+		return url[i+1:]
+	}
+	return ""
 }

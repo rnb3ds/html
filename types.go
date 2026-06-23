@@ -1,4 +1,3 @@
-// types.go contains type aliases for commonly used types from golang.org/x/net/html.
 package html
 
 // ============================================================================
@@ -21,7 +20,8 @@ type NodeAttr struct {
 // needed for content quality assessment and filtering.
 type ContentNode interface {
 	// Type returns the node type as a string.
-	// Common values: "element", "text", "comment", "document", "doctype"
+	// Possible values: "element", "text", "comment", "document", "doctype",
+	// "error", "raw", or "unknown".
 	Type() string
 
 	// Data returns the element tag name for element nodes (e.g., "div", "p"),

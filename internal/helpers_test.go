@@ -842,3 +842,124 @@ func BenchmarkIsValidURL(b *testing.B) {
 		})
 	}
 }
+
+func TestNormalizeNonBreakingSpaces(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{"empty", "", ""},
+		{"no nbsp passthrough", "hello world", "hello world"},
+		{"single nbsp", "a b", "a b"},
+		{"multiple nbsp", "a  b", "a  b"},
+		{"leading and trailing nbsp", " hi ", " hi "},
+		{"only nbsp", " ", " "},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := normalizeNonBreakingSpaces(tt.in); got != tt.want {
+				t.Errorf("normalizeNonBreakingSpaces(%q) = %q, want %q", tt.in, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestGetIndentLevel(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		padding int
+		want    int
+	}{
+		{"zero", 0, 0},
+		{"boundary 18 stays level 0", 18, 0},
+		{"boundary 19 promotes to level 1", 19, 1},
+		{"boundary 40 stays level 1", 40, 1},
+		{"boundary 41 promotes to level 2", 41, 2},
+		{"boundary 80 stays level 2", 80, 2},
+		{"boundary 81 promotes to level 3", 81, 3},
+		{"deep indent caps at level 3", 200, 3},
+		{"negative clamps to level 0", -5, 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := getIndentLevel(tt.padding); got != tt.want {
+				t.Errorf("getIndentLevel(%d) = %d, want %d", tt.padding, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestGetListPrefix(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		padding int
+		want    string
+	}{
+		{"root level no prefix", 0, ""},
+		{"level 1 two-space indent", 19, "  - "},
+		{"level 2 four-space indent", 41, "    - "},
+		{"level 3 six-space indent", 81, "      - "},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := getListPrefix(tt.padding); got != tt.want {
+				t.Errorf("getListPrefix(%d) = %q, want %q", tt.padding, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestReplaceEntityAt(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		text         string
+		pos          int
+		wantRepl     string
+		wantConsumed int
+	}{
+		// Boundary / error arms
+		{"pos out of range", "abc", 3, "&", 1},
+		{"non-ampersand at pos", "abc", 0, "&", 1},
+		{"lone trailing ampersand", "a&", 1, "&", 1},
+		{"ampersand alone at end", "&", 0, "&", 1},
+		{"named entity without semicolon", "&abc", 0, "&", 1},
+		// Named-entity switch cases
+		{"amp entity", "&amp;", 0, "&", 5},
+		{"nbsp entity", "&nbsp;", 0, " ", 6},
+		{"lt entity", "&lt;", 0, "<", 4},
+		{"gt entity", "&gt;", 0, ">", 4},
+		{"quot entity", "&quot;", 0, "\"", 6},
+		{"apos entity", "&apos;", 0, "'", 6},
+		{"copy entity", "&copy;", 0, "©", 6},
+		{"reg entity", "&reg;", 0, "®", 5},
+		{"mdash entity", "&mdash;", 0, "—", 7},
+		{"ndash entity", "&ndash;", 0, "–", 7},
+		// Numeric entities
+		{"decimal numeric entity", "&#65;", 0, "A", 5},
+		{"hex numeric entity", "&#x41;", 0, "A", 6},
+		// Mid-string entity (pos != 0)
+		{"mid-string amp entity", "x&amp;y", 1, "&", 5},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			repl, consumed := replaceEntityAt(tt.text, tt.pos)
+			if repl != tt.wantRepl || consumed != tt.wantConsumed {
+				t.Errorf("replaceEntityAt(%q, %d) = (%q, %d), want (%q, %d)",
+					tt.text, tt.pos, repl, consumed, tt.wantRepl, tt.wantConsumed)
+			}
+		})
+	}
+}

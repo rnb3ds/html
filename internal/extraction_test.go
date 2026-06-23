@@ -76,6 +76,50 @@ func TestExtractTextWithStructure(t *testing.T) {
 	}
 }
 
+// TestExtractListMarkers verifies that <li> elements render with proper Markdown
+// list markers derived from DOM structure. HTML lists (e.g. WordPress
+// wp-block-list) rely on browser default styling and carry no inline
+// padding-left, so markers must come from the <ul>/<ol> ancestry rather than
+// CSS padding — otherwise consecutive items collapse into one paragraph.
+func TestExtractListMarkers(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		html string
+		want string
+	}{
+		{
+			name: "unordered list markers",
+			html: `<ul class="wp-block-list"><li>季度收入</li><li>数据中心</li><li>全年收入</li></ul>`,
+			want: "- 季度收入\n- 数据中心\n- 全年收入",
+		},
+		{
+			name: "ordered list markers",
+			html: `<ol><li>第一项</li><li>第二项</li></ol>`,
+			want: "1. 第一项\n2. 第二项",
+		},
+		{
+			name: "nested unordered list indentation",
+			html: `<ul><li>顶层A<ul><li>嵌套1</li><li>嵌套2</li></ul></li><li>顶层B</li></ul>`,
+			want: "- 顶层A\n  - 嵌套1\n  - 嵌套2\n\n- 顶层B",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			doc, _ := html.Parse(strings.NewReader(tt.html))
+			var sb strings.Builder
+			ExtractTextWithStructureAndImages(doc, &sb, nil, nil, "markdown")
+			result := strings.TrimSpace(sb.String())
+
+			if result != tt.want {
+				t.Errorf("got %q, want %q", result, tt.want)
+			}
+		})
+	}
+}
+
 func TestExtractTextWithStructureAndImages(t *testing.T) {
 	t.Parallel()
 

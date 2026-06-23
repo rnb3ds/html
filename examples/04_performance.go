@@ -58,29 +58,36 @@ func main() {
 	fmt.Println("2. Caching Benefits")
 	fmt.Println("-------------------")
 
-	// Cold cache: 100 unique documents (all cache misses)
+	// Use the SAME iteration count for both loops so the comparison is
+	// per-operation and not confounded by different run lengths. (Comparing
+	// total time across unequal counts previously masked the real speedup.)
+	const cacheIters = 1000
+
+	cacheBody := "<p>This is a longer article used for caching demonstration. It contains multiple paragraphs to produce measurable extraction times on modern hardware. The cache stores results by content hash, so extracting the same document twice returns the cached result instantly.</p><p>Cache hits reduce both CPU time and memory allocations, which is especially valuable in web services processing repeated content.</p>"
+
+	// Cold cache: each document is unique (all cache misses).
 	start = time.Now()
-	for i := 0; i < 100; i++ {
-		doc := []byte(fmt.Sprintf(`<html><body><article><h1>Cache Test %d</h1><p>This is a longer article used for caching demonstration. It contains multiple paragraphs to produce measurable extraction times on modern hardware. The cache stores results by content hash, so extracting the same document twice returns the cached result instantly.</p><p>Cache hits reduce both CPU time and memory allocations, which is especially valuable in web services processing repeated content.</p></article></body></html>`, i))
+	for i := 0; i < cacheIters; i++ {
+		doc := []byte(fmt.Sprintf(`<html><body><article><h1>Cache Test %d</h1>%s</article></body></html>`, i, cacheBody))
 		processor.Extract(doc)
 	}
 	missTime := time.Since(start)
 
-	// Warm cache: same document repeated (all cache hits)
-	warmDoc := []byte(`<html><body><article><h1>Cache Warm</h1><p>This is a longer article used for caching demonstration. It contains multiple paragraphs to produce measurable extraction times on modern hardware. The cache stores results by content hash, so extracting the same document twice returns the cached result instantly.</p><p>Cache hits reduce both CPU time and memory allocations, which is especially valuable in web services processing repeated content.</p></article></body></html>`)
-	processor.Extract(warmDoc) // populate cache
+	// Warm cache: the same document repeated (all cache hits).
+	warmDoc := []byte("<html><body><article><h1>Cache Warm</h1>" + cacheBody + "</article></body></html>")
+	processor.Extract(warmDoc) // populate the cache
 	start = time.Now()
-	for i := 0; i < 10000; i++ {
+	for i := 0; i < cacheIters; i++ {
 		processor.Extract(warmDoc)
 	}
 	hitTime := time.Since(start)
 
-	fmt.Printf("100 unique docs (all misses):   %v\n", missTime)
-	fmt.Printf("10000 same docs  (all hits):  %v\n", hitTime)
-	if missTime > 0 && hitTime > 0 && missTime > hitTime {
-		fmt.Printf("Speedup:    %.1fx\n\n", float64(missTime)/float64(hitTime))
-	} else {
-		fmt.Printf("(Cache hit is fast)\n\n")
+	missPerOp := missTime / cacheIters
+	hitPerOp := hitTime / cacheIters
+	fmt.Printf("%d unique docs (misses): %v (%v/op)\n", cacheIters, missTime, missPerOp)
+	fmt.Printf("%d repeat  docs (hits):   %v (%v/op)\n", cacheIters, hitTime, hitPerOp)
+	if hitPerOp > 0 {
+		fmt.Printf("Per-op speedup: %.1fx\n\n", float64(missPerOp)/float64(hitPerOp))
 	}
 
 	// ============================================================
@@ -89,23 +96,30 @@ func main() {
 	fmt.Println("3. Batch Processing")
 	fmt.Println("-------------------")
 
-	// Create test documents
-	docs := make([][]byte, 100)
-	for i := 0; i < 100; i++ {
-		docs[i] = []byte(fmt.Sprintf(`<article><h1>Doc %d</h1><p>Content %d</p></article>`, i, i))
+	// Create test documents. Each carries enough real content that
+	// extraction takes measurable time, so the sequential-vs-batch
+	// comparison reflects parallelism rather than per-doc overhead.
+	const numDocs = 100
+	docBody := "<p>Go makes concurrent programming approachable through goroutines and channels, " +
+		"offering a lightweight model for building services that scale across CPU cores.</p>" +
+		"<p>The runtime multiplexes goroutines onto a small pool of OS threads, so launching " +
+		"thousands of concurrent tasks is cheap and does not require manual thread management.</p>"
+	docs := make([][]byte, numDocs)
+	for i := 0; i < numDocs; i++ {
+		docs[i] = []byte(fmt.Sprintf(`<html><body><article><h1>Doc %d</h1>%s</article></body></html>`, i, docBody))
 	}
 
-	// Sequential processing
+	// Sequential processing (same document set, for a fair comparison)
 	fmt.Println("Sequential (single goroutine):")
 	start = time.Now()
-	for _, doc := range docs[:20] {
+	for _, doc := range docs {
 		processor.Extract(doc)
 	}
 	seqTime := time.Since(start)
-	fmt.Printf("  20 docs: %v\n", seqTime)
+	fmt.Printf("  %d docs: %v (%.2f docs/sec)\n", numDocs, seqTime, docsPerSec(numDocs, seqTime))
 
-	// Batch processing with worker pool
-	fmt.Println("Batch (worker pool):")
+	// Batch processing with a worker pool (same documents, in parallel)
+	fmt.Println("Batch (worker pool, 4 workers):")
 	batchCfg := html.DefaultConfig()
 	batchCfg.WorkerPoolSize = 4
 	batchProcessor, err := html.New(batchCfg)
@@ -117,7 +131,7 @@ func main() {
 	start = time.Now()
 	batchResult := batchProcessor.ExtractBatch(docs)
 	batchTime := time.Since(start)
-	fmt.Printf("  100 docs: %v (%.2f docs/sec)\n\n", batchTime, float64(100)/batchTime.Seconds())
+	fmt.Printf("  %d docs: %v (%.2f docs/sec)\n\n", numDocs, batchTime, docsPerSec(numDocs, batchTime))
 
 	fmt.Printf("  Success: %d/%d\n\n", batchResult.Success, len(batchResult.Results))
 
@@ -252,4 +266,14 @@ func main() {
 	fmt.Println("Use Case: Web server")
 	fmt.Println("  - Share one Processor across goroutines")
 	fmt.Println("  - Thread-safe by design")
+}
+
+// docsPerSec reports throughput for n items processed in duration d.
+// It returns 0 for a negligible duration to avoid a meaningless +Inf
+// when the work completes faster than the clock resolution.
+func docsPerSec(n int, d time.Duration) float64 {
+	if d <= 0 {
+		return 0
+	}
+	return float64(n) / d.Seconds()
 }

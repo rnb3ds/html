@@ -26,9 +26,9 @@ func TestBlockElementClassification(t *testing.T) {
 		{"tfoot", "tfoot", true, false},
 
 		// Medium priority block elements
-		{"dl", "dl", true, true},
+		{"dl", "dl", true, false},
 		{"dt", "dt", true, false},
-		{"dd", "dd", true, false},
+		{"dd", "dd", true, true},
 		{"fieldset", "fieldset", true, true},
 		{"details", "details", true, true},
 		{"summary", "summary", true, true},
@@ -114,14 +114,14 @@ func TestNewBlockElementsSpacing(t *testing.T) {
 		{
 			name: "definition list dl adds paragraph spacing",
 			html: `<p>Before</p><dl><dt>Term</dt><dd>Definition</dd></dl><p>After</p>`,
-			want: "Before\n\nTerm\nDefinition\n\nAfter",
-			desc: "DL elements should create paragraph separation",
+			want: "Before\n\nTerm\n: Definition\n\nAfter",
+			desc: "DL elements should create paragraph separation; DD is marked with ': '",
 		},
 		{
-			name: "dt and dd do not add paragraph spacing",
+			name: "dt stays tight to dd, pairs separated by blank line",
 			html: `<dl><dt>Term 1</dt><dd>Def 1</dd><dt>Term 2</dt><dd>Def 2</dd></dl>`,
-			want: "Term 1\nDef 1\nTerm 2\nDef 2",
-			desc: "DT and DD are block elements but don't add paragraph spacing",
+			want: "Term 1\n: Def 1\n\nTerm 2\n: Def 2",
+			desc: "DT is tight to its DD; DD paragraph spacing separates term/definition pairs",
 		},
 		{
 			name: "fieldset adds paragraph spacing",
@@ -253,17 +253,17 @@ func TestDefinitionListFormatting(t *testing.T) {
 		{
 			name: "simple definition list",
 			html: `<dl><dt>Term 1</dt><dd>Definition 1</dd></dl>`,
-			want: "Term 1\nDefinition 1", // DT and DD are block elements, each on its own line
+			want: "Term 1\n: Definition 1", // DT tight to its DD; DD marked with ': '
 		},
 		{
 			name: "multiple terms and definitions",
 			html: `<dl><dt>Term 1</dt><dd>Def 1</dd><dt>Term 2</dt><dd>Def 2</dd></dl>`,
-			want: "Term 1\nDef 1\nTerm 2\nDef 2", // DT and DD are block elements
+			want: "Term 1\n: Def 1\n\nTerm 2\n: Def 2", // DD paragraph spacing separates pairs
 		},
 		{
 			name: "definition list with inline markup",
 			html: `<dl><dt><strong>Term</strong></dt><dd><em>Definition</em></dd></dl>`,
-			want: "Term\nDefinition", // DT and DD are block elements
+			want: "Term\n: Definition", // DT tight to its DD; DD marked with ': '
 		},
 	}
 

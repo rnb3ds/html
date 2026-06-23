@@ -131,8 +131,36 @@ func ResolveURL(baseURL, relativeURL string) string {
 		return relativeURL
 	}
 
-	// Handle relative paths (path or ./path)
+	// Handle relative paths (path or ./path).
+	//
+	// The base is treated as a directory: a relative reference is appended to it
+	// verbatim. A base that does not end in '/' (e.g. a file-style base such as
+	// "https://host/section/page.html") would otherwise yield a broken URL
+	// (".../page.htmlabout.html"), so drop its last path segment first. Bases
+	// ending in '/' are the documented contract and are left untouched, which
+	// preserves the existing behavior for "./" and "../" references (their dot
+	// segments are intentionally NOT collapsed).
+	baseURL = asDirectoryBase(baseURL)
 	return baseURL + relativeURL
+}
+
+// asDirectoryBase ensures baseURL is suitable for appending a relative path to.
+// If it already ends in '/', it is returned unchanged. Otherwise the last path
+// segment is dropped (file-style base → its directory). For an authority with
+// no path (e.g. "http://host") a trailing '/' is appended.
+func asDirectoryBase(baseURL string) string {
+	if strings.HasSuffix(baseURL, "/") {
+		return baseURL
+	}
+	pathStart := 0
+	if schemeIdx := strings.Index(baseURL, "://"); schemeIdx >= 0 {
+		pathStart = schemeIdx + 3
+	}
+	if lastSlash := strings.LastIndexByte(baseURL[pathStart:], '/'); lastSlash >= 0 {
+		return baseURL[:pathStart+lastSlash+1]
+	}
+	// Authority with no path component.
+	return baseURL + "/"
 }
 
 // IsDifferentDomain checks if two URLs have different domains.

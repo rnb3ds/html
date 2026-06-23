@@ -9,12 +9,19 @@ import (
 
 // Default configuration values.
 const (
-	DefaultMaxInputSize      = 50 * 1024 * 1024 // 50MB
-	DefaultMaxCacheEntries   = 2000
-	DefaultWorkerPoolSize    = 4
-	DefaultCacheTTL          = time.Hour
-	DefaultCacheCleanup      = 5 * time.Minute // Background cleanup interval for expired cache entries
-	DefaultMaxDepth          = 500
+	// DefaultMaxInputSize is the default maximum accepted HTML input size (50 MB).
+	DefaultMaxInputSize = 50 * 1024 * 1024
+	// DefaultMaxCacheEntries is the default maximum number of cached extraction results.
+	DefaultMaxCacheEntries = 2000
+	// DefaultWorkerPoolSize is the default number of workers used for batch extraction.
+	DefaultWorkerPoolSize = 4
+	// DefaultCacheTTL is the default time-to-live for cached extraction results.
+	DefaultCacheTTL = time.Hour
+	// DefaultCacheCleanup is the default interval between background sweeps of expired cache entries.
+	DefaultCacheCleanup = 5 * time.Minute
+	// DefaultMaxDepth is the default maximum HTML nesting depth, guarding against stack overflow.
+	DefaultMaxDepth = 500
+	// DefaultProcessingTimeout is the default per-document processing timeout.
 	DefaultProcessingTimeout = 30 * time.Second
 )
 
@@ -279,67 +286,108 @@ func MarkdownConfig() Config {
 
 // Result holds the extraction result.
 type Result struct {
-	Text           string        `json:"text"`
-	Title          string        `json:"title"`
-	Images         []ImageInfo   `json:"images,omitempty"`
-	Links          []LinkInfo    `json:"links,omitempty"`
-	Videos         []VideoInfo   `json:"videos,omitempty"`
-	Audios         []AudioInfo   `json:"audios,omitempty"`
-	ProcessingTime time.Duration `json:"-"` // Serialized as processing_time_ms by MarshalJSON
-	WordCount      int           `json:"word_count"`
-	ReadingTime    time.Duration `json:"-"` // Serialized as reading_time_ms by MarshalJSON
+	// Text is the extracted plain-text content of the document.
+	Text string `json:"text"`
+	// Title is the document title from <title>, or the first <h1>/<h2> when absent.
+	Title string `json:"title"`
+	// Images lists extracted <img> elements in document order; empty when PreserveImages is false.
+	Images []ImageInfo `json:"images,omitempty"`
+	// Links lists extracted <a> elements in document order; empty when PreserveLinks is false.
+	Links []LinkInfo `json:"links,omitempty"`
+	// Videos lists extracted video sources; empty when PreserveVideos is false.
+	Videos []VideoInfo `json:"videos,omitempty"`
+	// Audios lists extracted audio sources; empty when PreserveAudios is false.
+	Audios []AudioInfo `json:"audios,omitempty"`
+	// ProcessingTime is the wall-clock time spent on this extraction. It is omitted from
+	// JSON and serialized as processing_time_ms by MarshalJSON.
+	ProcessingTime time.Duration `json:"-"`
+	// WordCount is the number of whitespace-separated words in Text.
+	WordCount int `json:"word_count"`
+	// ReadingTime is the estimated reading time based on WordCount. It is omitted from
+	// JSON and serialized as reading_time_ms by MarshalJSON.
+	ReadingTime time.Duration `json:"-"`
 }
 
 // ImageInfo holds information about an extracted image.
 type ImageInfo struct {
-	URL          string `json:"url"`
-	Alt          string `json:"alt"`
-	Title        string `json:"title"`
-	Width        string `json:"width"`
-	Height       string `json:"height"`
-	IsDecorative bool   `json:"is_decorative"`
-	Position     int    `json:"position"`
+	// URL is the image source (the src attribute).
+	URL string `json:"url"`
+	// Alt is the alternative text (the alt attribute).
+	Alt string `json:"alt"`
+	// Title is the advisory title (the title attribute).
+	Title string `json:"title"`
+	// Width is the intrinsic width attribute, as an unparsed string.
+	Width string `json:"width"`
+	// Height is the intrinsic height attribute, as an unparsed string.
+	Height string `json:"height"`
+	// IsDecorative is true when Alt is empty, indicating a decorative image.
+	IsDecorative bool `json:"is_decorative"`
+	// Position is the 1-based ordinal of the image within the extracted content (0 if unplaced).
+	Position int `json:"position"`
 }
 
 // LinkInfo holds information about an extracted link.
 type LinkInfo struct {
-	URL        string `json:"url"`
-	Text       string `json:"text"`
-	Title      string `json:"title"`
-	IsExternal bool   `json:"is_external"`
-	IsNoFollow bool   `json:"is_nofollow"`
-	Position   int    `json:"position"`
+	// URL is the link destination (the href attribute).
+	URL string `json:"url"`
+	// Text is the link's visible text content.
+	Text string `json:"text"`
+	// Title is the advisory title (the title attribute).
+	Title string `json:"title"`
+	// IsExternal is true when the URL targets a different host than BaseURL.
+	IsExternal bool `json:"is_external"`
+	// IsNoFollow is true when the link's rel attribute contains "nofollow".
+	IsNoFollow bool `json:"is_nofollow"`
+	// Position is the 1-based ordinal of the link within the extracted content (0 if unplaced).
+	Position int `json:"position"`
 }
 
 // VideoInfo holds information about an extracted video.
 type VideoInfo struct {
-	URL      string `json:"url"`
-	Type     string `json:"type"`
-	Poster   string `json:"poster"`
-	Width    string `json:"width"`
-	Height   string `json:"height"`
+	// URL is the video source URL.
+	URL string `json:"url"`
+	// Type is the detected video type (the file container, or "embed" for iframe embeds).
+	Type string `json:"type"`
+	// Poster is the poster-frame URL for <video> elements.
+	Poster string `json:"poster"`
+	// Width is the width attribute, as an unparsed string.
+	Width string `json:"width"`
+	// Height is the height attribute, as an unparsed string.
+	Height string `json:"height"`
+	// Duration is the duration attribute, as an unparsed string.
 	Duration string `json:"duration"`
 }
 
 // AudioInfo holds information about an extracted audio.
 type AudioInfo struct {
-	URL      string `json:"url"`
-	Type     string `json:"type"`
+	// URL is the audio source URL.
+	URL string `json:"url"`
+	// Type is the detected audio type (the file container).
+	Type string `json:"type"`
+	// Duration is the duration attribute, as an unparsed string.
 	Duration string `json:"duration"`
 }
 
 // LinkResource represents a link resource extracted from HTML.
 type LinkResource struct {
-	URL   string
+	// URL is the resource URL, resolved against BaseURL when ResolveRelativeURLs is enabled.
+	URL string
+	// Title is a human-readable label for the resource.
 	Title string
-	Type  string
+	// Type categorizes the resource: "link", "image", "video", "audio", "css", "js", "icon", or "media".
+	Type string
 }
 
 // Statistics holds processor statistics.
 type Statistics struct {
-	TotalProcessed     int64
-	CacheHits          int64
-	CacheMisses        int64
-	ErrorCount         int64
+	// TotalProcessed is the number of extractions that completed without error, including cache hits.
+	TotalProcessed int64
+	// CacheHits is the number of extractions served from the cache.
+	CacheHits int64
+	// CacheMisses is the number of extractions that missed the cache and required full processing.
+	CacheMisses int64
+	// ErrorCount is the number of extractions that returned an error.
+	ErrorCount int64
+	// AverageProcessTime is the mean wall-clock time per extraction.
 	AverageProcessTime time.Duration
 }

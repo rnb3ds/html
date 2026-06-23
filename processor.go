@@ -190,6 +190,10 @@ type processorStats struct {
 //	cfg := html.DefaultConfig()
 //	cfg.Scorer = myScorer
 //	processor, err := html.New(cfg)
+//
+// Returns:
+//   - ErrMultipleConfigs if more than one Config is provided
+//   - ErrInvalidConfig (wrapped in *ConfigError) if the configuration fails validation
 func New(cfg ...Config) (*Processor, error) {
 	c, _, err := resolveConfig(cfg...)
 	if err != nil {

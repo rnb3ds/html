@@ -134,23 +134,16 @@ func extractTextWithStructure(node *html.Node, tb *table.TrackedBuilder, imageCo
 		startLen := tb.Len()
 		if isBlockElement && startLen > 0 {
 			table.EnsureNewline(tb)
-			// Add Markdown list prefix based on padding-left level
-			paddingLeft := extractPaddingLeft(node)
-			if paddingLeft > 0 {
-				listPrefix := getListPrefix(paddingLeft)
-				if listPrefix != "" {
-					tb.WriteString(listPrefix)
-				}
+			// Add Markdown list/indentation prefix (list markers for <li>,
+			// padding-left based indentation for other indented blocks).
+			if listPrefix := blockListPrefix(node); listPrefix != "" {
+				tb.WriteString(listPrefix)
 			}
 			startLen = tb.Len()
 		} else if isBlockElement && startLen == 0 {
-			// First element - add list prefix if it has padding-left
-			paddingLeft := extractPaddingLeft(node)
-			if paddingLeft > 0 {
-				listPrefix := getListPrefix(paddingLeft)
-				if listPrefix != "" {
-					tb.WriteString(listPrefix)
-				}
+			// First element - add list/indentation prefix if applicable.
+			if listPrefix := blockListPrefix(node); listPrefix != "" {
+				tb.WriteString(listPrefix)
 				startLen = tb.Len()
 			}
 		}

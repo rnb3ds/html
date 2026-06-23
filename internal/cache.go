@@ -264,7 +264,18 @@ func (c *Cache) StartCleanup(interval time.Duration) context.CancelFunc {
 				case <-ctx.Done():
 					return
 				case <-ticker.C:
-					c.cleanupExpired()
+					// Recover per cleanup pass so a single failing pass cannot
+					// terminate the background cleaner (and crash the process).
+					// cleanupExpired operates only on internal data, so a panic
+					// here would be a library bug — but it still must not escape
+					// a goroutine spawned by the public API (SEC-003). The value
+					// is discarded because the cache has no error channel.
+					func() {
+						defer func() {
+							_ = recover() // keep the cleaner alive on panic
+						}()
+						c.cleanupExpired()
+					}()
 				}
 			}
 		}()

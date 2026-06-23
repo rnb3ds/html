@@ -1,9 +1,6 @@
 package html_test
 
 import (
-	"io"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"strings"
 	"testing"
@@ -250,61 +247,18 @@ func TestExtractWithEncoding(t *testing.T) {
 	}
 }
 
-// TestHTTPScenario simulates real-world HTTP response processing
-func TestHTTPScenario(t *testing.T) {
-	// Create a test server that serves Windows-1252 HTML
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Read Windows-1252 test file
-		testFile := "dev_test/Source Files/a2025q310-qexx311.html"
-		if _, err := os.Stat(testFile); os.IsNotExist(err) {
-			http.Error(w, "Test file not found", http.StatusNotFound)
-			return
-		}
-
-		htmlBytes, _ := os.ReadFile(testFile)
-		w.Header().Set("Content-Type", "text/html; charset=windows-1252")
-		w.Write(htmlBytes)
-	}))
-	defer server.Close()
-
-	// Simulate HTTP client
-	resp, err := http.Get(server.URL)
-	if err != nil {
-		t.Fatalf("HTTP GET failed: %v", err)
-	}
-	defer resp.Body.Close()
-
-	// Read response bytes
-	htmlBytes, err := io.ReadAll(resp.Body)
-	if err != nil {
-		t.Fatalf("Failed to read response body: %v", err)
-	}
-
-	// WRONG WAY: Direct string conversion
-	_ = string(htmlBytes) // This would cause garbled text
-
-	// CORRECT WAY: Use Extract
-	result, err := html.Extract(htmlBytes)
-	if err != nil {
-		t.Fatalf("Extract failed: %v", err)
-	}
-
-	// Verify correct encoding
-	if !strings.Contains(result.Text, "registrant's") {
-		t.Errorf("Expected correctly decoded UTF-8 text")
-	}
-
-	t.Logf("Successfully extracted and decoded Windows-1252 HTML from HTTP response")
-}
-
-// TestExtractWithForcedEncoding tests forced encoding override
+// TestExtractWithForcedEncoding tests forced encoding override. The input uses
+// Windows-1252 bytes (0x92 = right single quotation mark, U+2019), which are
+// invalid UTF-8, so forcing windows-1252 genuinely exercises the override-decode
+// path. Previously the input was plain ASCII and the forced-encoding branch was
+// never hit.
 func TestExtractWithForcedEncoding(t *testing.T) {
-	htmlContent := "<html><body><p>Test</p></body></html>"
-	htmlBytes := []byte(htmlContent)
+	// 0x92 is the Windows-1252 right single quotation mark; as a lone byte it is
+	// invalid UTF-8, so auto-detection would fail without the forced charset.
+	htmlBytes := []byte("<html><body><p>Company\x92s</p></body></html>")
 
-	// Test with forced encoding in config
 	cfg := html.DefaultConfig()
-	cfg.Encoding = "utf-8"
+	cfg.Encoding = "windows-1252"
 	p, err := html.New(cfg)
 	if err != nil {
 		t.Fatalf("New() failed: %v", err)
@@ -316,7 +270,12 @@ func TestExtractWithForcedEncoding(t *testing.T) {
 		t.Fatalf("Extract failed: %v", err)
 	}
 
-	if !strings.Contains(result.Text, "Test") {
-		t.Errorf("Expected 'Test', got: %s", result.Text)
+	// Forced windows-1252 decoding must turn 0x92 into U+2019.
+	if !strings.Contains(result.Text, "Company’s") {
+		t.Errorf("Expected forced windows-1252 decode of 0x92 to '’', got: %q", result.Text)
+	}
+	// And there must be no UTF-8 replacement character (mis-decode marker).
+	if strings.Contains(result.Text, "�") {
+		t.Errorf("Found replacement character, forced decode may be wrong: %q", result.Text)
 	}
 }
