@@ -229,6 +229,49 @@ func PutBuffer(buf *bytes.Buffer) {
 	BufferPool.Put(buf)
 }
 
+// byteBufPool pools reusable []byte scratch buffers.
+//
+// Unlike BuilderPool, whose *strings.Builder loses its backing array on every
+// Reset() (strings.Builder.Reset sets buf = nil), a pooled []byte retains its
+// capacity across uses because it is reset with [:0]. On hot paths that build a
+// string per call (e.g. GetTextContent, invoked once per <a> and per table cell),
+// this avoids re-growing a buffer from zero on every call. The profiler showed
+// GetTextContent's sb.Grow as the single largest allocator (~23% of bytes) for
+// precisely this reason; pooling a retaining []byte removes it.
+//
+// Usage:
+//
+//	bp := internal.GetByteBuf()
+//	defer internal.PutByteBuf(bp)
+//	*bp = append(*bp, "..."...)
+//	return string(*bp) // copies; safe because the buffer is reused after return
+var byteBufPool = sync.Pool{
+	New: func() any {
+		b := make([]byte, 0, 256)
+		return &b
+	},
+}
+
+// GetByteBuf returns a zero-length []byte backed by a capacity-retaining pooled
+// buffer. Append to *bp and convert the result with string(*bp) before returning
+// the buffer with PutByteBuf. The returned slice must not be retained past
+// PutByteBuf (the backing array is reused).
+func GetByteBuf() *[]byte {
+	bp := byteBufPool.Get().(*[]byte)
+	*bp = (*bp)[:0]
+	return bp
+}
+
+// PutByteBuf returns a buffer obtained from GetByteBuf to the pool, retaining its
+// capacity for reuse. Safe to call with nil.
+func PutByteBuf(bp *[]byte) {
+	if bp == nil {
+		return
+	}
+	*bp = (*bp)[:0]
+	byteBufPool.Put(bp)
+}
+
 // TransformBufferPool is a sync.Pool for byte slices used in encoding transformation.
 // These buffers are used for charset conversion operations.
 var TransformBufferPool = sync.Pool{

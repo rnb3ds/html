@@ -122,14 +122,18 @@ func IsNonContentElement(tag string) bool {
 //   - Text containers: p, div, pre, blockquote
 //   - Headings: h1-h6
 //   - Semantic sections: article, section, main, figure, figcaption, address
-//   - Lists: ul, ol, dl
+//   - Lists: ul, ol
+//   - Definitions: dd (separates term/definition pairs; dt stays tight to its dd)
 //   - Tables: table
 //   - Forms: fieldset
 //   - Interactive: details, summary, dialog
 //   - Media: canvas
 //
 // Block elements WITHOUT paragraph spacing (treated as inline blocks):
-//   - List items: li, dt, dd
+//   - List items: li, dt
+//   - Definition container: dl (its dd children already emit the paragraph spacing
+//     that separates term/definition pairs; marking dl too would double the blank
+//     line after the final dd)
 //   - Table structure: thead, tbody, tfoot, tr, td, th
 //   - Self-closing: hr
 //   - Structural: body, html, head
@@ -139,14 +143,14 @@ func IsParagraphLevelBlockElement(tag string) bool {
 	// Paragraph-level blocks (add double newlines)
 	case "p", "div", "h1", "h2", "h3", "h4", "h5", "h6",
 		"article", "section", "main", "blockquote", "pre",
-		"ul", "ol", "dl", "table",
+		"ul", "ol", "table",
 		"figure", "figcaption", "address",
 		"fieldset", "details", "summary", "dialog",
-		"canvas":
+		"canvas", "dd":
 		return true
 
 	// Block elements but no paragraph spacing (compact layout)
-	case "li", "dt", "dd",
+	case "li", "dt", "dl",
 		"thead", "tbody", "tfoot", "tr", "td", "th",
 		"hr",
 		"body", "html", "head",

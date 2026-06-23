@@ -4,6 +4,43 @@ All notable changes to the cybergodev/html library will be documented in this fi
 
 ---
 
+## v1.4.3 - Markdown Rendering, Robustness & Performance (2026-06-24)
+
+### Added
+- Definition lists (`<dl>`/`<dt>`/`<dd>`) now render with PHP Markdown Extra `: ` definition markers, indented two spaces per nesting level
+- Five testable, `Output:`-verified `Example` functions for godoc/pkg.go.dev (the public package previously had none)
+- `byteBufPool` — a capacity-retaining `[]byte` pool (`GetByteBuf`/`PutByteBuf`) backing the rewritten `GetTextContent`
+
+### Fixed
+- `<li>` items now emit proper Markdown list markers (`- ` for `<ul>`, `N. ` for `<ol>`) from DOM structure instead of CSS `padding-left`, so HTML lists (e.g. WordPress `wp-block-list`) render as lists rather than collapsed paragraphs
+- Semantic primary-content containers (`<article>`, `<main>`, `role="main"`/`role="article"`) are no longer stripped by the "sidebar" class heuristic, fixing empty extraction on layouts like `<article class="post-with-sidebar">`
+- `ResolveURL` now correctly resolves relative references against a file-style base URL (e.g. `…/page.html` + `about.html`); bases ending in `/` are unchanged and all existing cases stay byte-identical
+- Background goroutines (audit sink write, cache TTL cleanup) now recover panics, so a panicking user-supplied `AuditSink` or an internal cleanup fault can no longer crash the process
+- Removed file-header comments that polluted the package godoc overview; `go doc .` is now clean
+- `examples/`: each demo moved to its own package so `go build -tags examples ./examples/...` succeeds; the cache-benefit benchmark now reports an honest ~40x+ per-op speedup; the sequential-vs-batch comparison is fair; JSON pretty-printing uses `json.Indent` to preserve ordering and precision
+
+### Changed
+- Audit sink writes are now synchronous on the recording goroutine, removing the unbounded-goroutine amplification an adversarial document could cause (`Wait()` retained as a nil-safe no-op)
+- Deduplicated the iframe/embed/object video validate-and-dedup loop into a single `appendUniqueVideoURLs` helper, and the five inline `lastPathSegment` copies into one helper (behavior unchanged)
+
+### Performance
+- `GetTextContent` rewritten to build into a capacity-retaining pooled `[]byte`, removing its `sb.Grow` allocation (~23% of bytes — the single largest allocator, hit once per `<a>` and per table cell)
+- `ReplaceHTMLEntities` guards the slow path with a presence check (`strings.IndexByte(';')`), eliminating ~112 MB of pure-waste string copies for entity-free text
+- `validateDepthTraversal` converted from recursive to an iterative pooled stack (no per-call allocation)
+- `extractVideos`/`extractAudios` share a pre-computed `canContainMedia` gate, halving the full-document byte-by-byte media scan
+- `RecordTimeout` no longer allocates a per-call `map[string]any` metadata map
+
+### Documentation
+- Expanded godoc: error conditions for every extraction entry point; per-field docs for `Result`, `ImageInfo`, `LinkInfo`, `VideoInfo`, `AudioInfo`, `LinkResource`, `Statistics`; per-symbol `Default*` constant docs; full `Extractor` interface method docs; and completed `ContentNode.Type()` return values
+
+### Removed
+- `internal/constants.go`: `builderInitialSize` (only used by the old builder path)
+
+### Notes
+- No breaking public API changes. Full `examples/` audit (DOC-005) verified all 8 demos compile and run; test suite hardened with boundary tests for previously-uncovered functions and table-driven consolidation. `go test -race` was not run — ThreadSanitizer cannot reserve shadow memory on this Windows host (environment limitation, not a code race).
+
+---
+
 ## v1.4.2 - Performance, Race Fix & Robustness (2026-06-17)
 
 ### Fixed

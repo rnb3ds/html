@@ -1,4 +1,3 @@
-// processor_pool.go contains the processor pool for efficient reuse of Processor instances.
 package html
 
 import (
@@ -57,9 +56,10 @@ func putPooledProcessor(p *Processor) {
 	// needlessly stop and respawn the background cleanup goroutine.
 	wasClosed := p.closed.Swap(false)
 	p.ResetStatistics()
-	// Drain pending async sink writes before clearing entries and returning to pool.
-	// Without this, in-flight sink goroutines from the previous user can race with
-	// the next user's WaitGroup operations on the reused Processor.
+	// Sink writes are synchronous, so by the time the previous user's Extract
+	// returned, every audit entry was already handed to its sink. Wait() is a
+	// no-op safety hook kept here to mark the "audit work for this use is done"
+	// point before clearing entries and returning the processor to the pool.
 	if p.audit != nil {
 		p.audit.Wait()
 	}

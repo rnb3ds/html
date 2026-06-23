@@ -57,23 +57,36 @@ func TestInputError(t *testing.T) {
 	})
 }
 
-func TestInputErrorUnwrap(t *testing.T) {
+// TestErrorUnwrap consolidates the errors.Is unwrap contracts for all three
+// error types (previously TestInputErrorUnwrap, TestConfigErrorUnwrap and
+// TestFileErrorUnwrap, which were three copies of the same errors.Is check).
+// The message-format and field-value tests stay per-type because the three error
+// types have structurally different fields and constructors.
+func TestErrorUnwrap(t *testing.T) {
 	t.Parallel()
 
-	t.Run("unwrap to ErrInputTooLarge", func(t *testing.T) {
-		err := newInputError("Extract", 10000, 5000, nil)
-		if !errors.Is(err, ErrInputTooLarge) {
-			t.Error("InputError should unwrap to ErrInputTooLarge")
-		}
-	})
+	underlying := errors.New("underlying error")
 
-	t.Run("unwrap with underlying error", func(t *testing.T) {
-		underlying := errors.New("underlying")
-		err := newInputError("Extract", 10000, 5000, underlying)
-		if !errors.Is(err, underlying) {
-			t.Error("InputError should unwrap to underlying error")
-		}
-	})
+	tests := []struct {
+		name     string
+		err      error
+		sentinel error
+	}{
+		{"InputError unwraps to ErrInputTooLarge", newInputError("Extract", 10000, 5000, nil), ErrInputTooLarge},
+		{"InputError unwraps to underlying error", newInputError("Extract", 10000, 5000, underlying), underlying},
+		{"ConfigError unwraps to ErrInvalidConfig", newConfigError("MaxDepth", 0, "must be positive"), ErrInvalidConfig},
+		{"FileError unwraps to underlying error", newFileError("ExtractFromFile", "../traversal", underlying), underlying},
+		{"FileError with nil underlying unwraps to ErrInvalidFilePath", newFileError("ExtractFromFile", "../traversal", nil), ErrInvalidFilePath},
+		{"FileError unwraps to ErrFileNotFound", newFileError("ExtractFromFile", "missing.html", ErrFileNotFound), ErrFileNotFound},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if !errors.Is(tt.err, tt.sentinel) {
+				t.Errorf("errors.Is(err, %v) = false, want true", tt.sentinel)
+			}
+		})
+	}
 }
 
 func TestConfigError(t *testing.T) {
@@ -130,17 +143,6 @@ func TestConfigError(t *testing.T) {
 					t.Errorf("Value = %v, want %v", err.Value, tt.value)
 				}
 			})
-		}
-	})
-}
-
-func TestConfigErrorUnwrap(t *testing.T) {
-	t.Parallel()
-
-	t.Run("unwrap to ErrInvalidConfig", func(t *testing.T) {
-		err := newConfigError("MaxDepth", 0, "must be positive")
-		if !errors.Is(err, ErrInvalidConfig) {
-			t.Error("ConfigError should unwrap to ErrInvalidConfig")
 		}
 	})
 }
@@ -203,32 +205,6 @@ func TestFileError(t *testing.T) {
 		err := newFileError("Read", "/path/to/file.html", nil)
 		if err.SafePath() != "file.html" {
 			t.Errorf("SafePath() = %q, want 'file.html'", err.SafePath())
-		}
-	})
-}
-
-func TestFileErrorUnwrap(t *testing.T) {
-	t.Parallel()
-
-	t.Run("unwrap to underlying error", func(t *testing.T) {
-		innerErr := errors.New("path error")
-		err := newFileError("ExtractFromFile", "../traversal", innerErr)
-		if !errors.Is(err, innerErr) {
-			t.Error("FileError should unwrap to underlying error")
-		}
-	})
-
-	t.Run("unwrap to ErrInvalidFilePath when no underlying error", func(t *testing.T) {
-		err := newFileError("ExtractFromFile", "../traversal", nil)
-		if !errors.Is(err, ErrInvalidFilePath) {
-			t.Error("FileError with nil FileErr should unwrap to ErrInvalidFilePath")
-		}
-	})
-
-	t.Run("unwrap to ErrFileNotFound", func(t *testing.T) {
-		err := newFileError("ExtractFromFile", "missing.html", ErrFileNotFound)
-		if !errors.Is(err, ErrFileNotFound) {
-			t.Error("FileError should unwrap to ErrFileNotFound")
 		}
 	})
 }

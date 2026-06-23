@@ -837,90 +837,234 @@ func TestAuditCollectorWait(t *testing.T) {
 	})
 }
 
-// TestRecordEncodingIssue tests the RecordEncodingIssue method
-func TestRecordEncodingIssue(t *testing.T) {
+// TestAuditRecordMethods exercises every Record* path of auditCollector in one
+// table, replacing the previously triplicated "records event" / "log-flag
+// disabled" / "disabled audit" / "nil collector" subtests that were spread
+// across TestRecordEncodingIssue, TestRecordBlockedAttrDisabled,
+// TestRecordBlockedURLDisabled, TestRecordDepthViolation and TestRecordTimeout.
+// It also covers RecordBlockedTag, the one Record* method that had no dedicated
+// test. Each row supplies the method call, the config flag gating it, the
+// expected event type, and any method-specific entry assertions.
+func TestAuditRecordMethods(t *testing.T) {
 	t.Parallel()
 
-	t.Run("records encoding issue event", func(t *testing.T) {
-		config := DefaultAuditConfig()
-		config.Enabled = true
-		config.LogEncodingIssues = true
-		collector := newAuditCollector(config)
-		defer collector.Close()
+	cases := []struct {
+		name           string
+		record         func(c *auditCollector)
+		makeConfig     func() AuditConfig // Enabled with this method's log flag on
+		disableLogFlag func(c *AuditConfig)
+		wantEventType  AuditEventType
+		checkEntry     func(t *testing.T, e AuditEntry)
+	}{
+		{
+			name:   "blocked tag",
+			record: func(c *auditCollector) { c.RecordBlockedTag("script") },
+			makeConfig: func() AuditConfig {
+				cfg := DefaultAuditConfig()
+				cfg.Enabled = true
+				cfg.LogBlockedTags = true
+				return cfg
+			},
+			disableLogFlag: func(c *AuditConfig) { c.LogBlockedTags = false },
+			wantEventType:  AuditEventBlockedTag,
+			checkEntry: func(t *testing.T, e AuditEntry) {
+				t.Helper()
+				if e.Level != AuditLevelWarning {
+					t.Errorf("Level = %s, want %s", e.Level, AuditLevelWarning)
+				}
+				if e.Tag != "script" {
+					t.Errorf("Tag = %q, want %q", e.Tag, "script")
+				}
+			},
+		},
+		{
+			name:   "blocked attr",
+			record: func(c *auditCollector) { c.RecordBlockedAttr("onclick", "alert(1)") },
+			makeConfig: func() AuditConfig {
+				cfg := DefaultAuditConfig()
+				cfg.Enabled = true
+				cfg.LogBlockedAttrs = true
+				cfg.IncludeRawValues = true
+				return cfg
+			},
+			disableLogFlag: func(c *AuditConfig) { c.LogBlockedAttrs = false },
+			wantEventType:  AuditEventBlockedAttr,
+			checkEntry: func(t *testing.T, e AuditEntry) {
+				t.Helper()
+				if e.Level != AuditLevelWarning {
+					t.Errorf("Level = %s, want %s", e.Level, AuditLevelWarning)
+				}
+				if e.Attribute != "onclick" {
+					t.Errorf("Attribute = %q, want %q", e.Attribute, "onclick")
+				}
+				if e.RawValue != "alert(1)" {
+					t.Errorf("RawValue = %q, want %q", e.RawValue, "alert(1)")
+				}
+			},
+		},
+		{
+			name:   "blocked url",
+			record: func(c *auditCollector) { c.RecordBlockedURL("javascript:alert(1)", "javascript scheme") },
+			makeConfig: func() AuditConfig {
+				cfg := DefaultAuditConfig()
+				cfg.Enabled = true
+				cfg.LogBlockedURLs = true
+				return cfg
+			},
+			disableLogFlag: func(c *AuditConfig) { c.LogBlockedURLs = false },
+			wantEventType:  AuditEventBlockedURL,
+			checkEntry: func(t *testing.T, e AuditEntry) {
+				t.Helper()
+				if e.Level != AuditLevelWarning {
+					t.Errorf("Level = %s, want %s", e.Level, AuditLevelWarning)
+				}
+				if e.URL != "javascript:alert(1)" {
+					t.Errorf("URL = %q, want %q", e.URL, "javascript:alert(1)")
+				}
+			},
+		},
+		{
+			name:   "encoding issue",
+			record: func(c *auditCollector) { c.RecordEncodingIssue("windows-1252", "invalid byte sequence") },
+			makeConfig: func() AuditConfig {
+				cfg := DefaultAuditConfig()
+				cfg.Enabled = true
+				cfg.LogEncodingIssues = true
+				return cfg
+			},
+			disableLogFlag: func(c *AuditConfig) { c.LogEncodingIssues = false },
+			wantEventType:  AuditEventEncodingIssue,
+			checkEntry: func(t *testing.T, e AuditEntry) {
+				t.Helper()
+				if e.Level != AuditLevelInfo {
+					t.Errorf("Level = %s, want %s", e.Level, AuditLevelInfo)
+				}
+				if e.Message != "invalid byte sequence" {
+					t.Errorf("Message = %q, want %q", e.Message, "invalid byte sequence")
+				}
+				if e.Metadata["encoding"] != "windows-1252" {
+					t.Errorf("Metadata[encoding] = %v, want %q", e.Metadata["encoding"], "windows-1252")
+				}
+			},
+		},
+		{
+			name:   "depth violation",
+			record: func(c *auditCollector) { c.RecordDepthViolation(150, 100) },
+			makeConfig: func() AuditConfig {
+				cfg := DefaultAuditConfig()
+				cfg.Enabled = true
+				cfg.LogDepthViolations = true
+				return cfg
+			},
+			disableLogFlag: func(c *AuditConfig) { c.LogDepthViolations = false },
+			wantEventType:  AuditEventDepthViolation,
+			checkEntry: func(t *testing.T, e AuditEntry) {
+				t.Helper()
+				if e.Depth != 150 {
+					t.Errorf("Depth = %d, want 150", e.Depth)
+				}
+				if e.MaxDepth != 100 {
+					t.Errorf("MaxDepth = %d, want 100", e.MaxDepth)
+				}
+			},
+		},
+		{
+			name:   "timeout",
+			record: func(c *auditCollector) { c.RecordTimeout(5 * time.Second) },
+			makeConfig: func() AuditConfig {
+				cfg := DefaultAuditConfig()
+				cfg.Enabled = true
+				cfg.LogTimeouts = true
+				return cfg
+			},
+			disableLogFlag: func(c *AuditConfig) { c.LogTimeouts = false },
+			wantEventType:  AuditEventTimeout,
+			checkEntry: func(t *testing.T, e AuditEntry) {
+				t.Helper()
+				if e.Level != AuditLevelWarning {
+					t.Errorf("Level = %s, want %s", e.Level, AuditLevelWarning)
+				}
+			},
+		},
+	}
 
-		collector.RecordEncodingIssue("windows-1252", "invalid byte sequence")
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 
-		entries := collector.GetEntries()
-		if len(entries) != 1 {
-			t.Fatalf("Expected 1 entry, got %d", len(entries))
-		}
+			t.Run("records event", func(t *testing.T) {
+				t.Parallel()
+				collector := newAuditCollector(tc.makeConfig())
+				defer collector.Close()
+				tc.record(collector)
 
-		if entries[0].EventType != AuditEventEncodingIssue {
-			t.Errorf("Expected EventType %s, got %s", AuditEventEncodingIssue, entries[0].EventType)
-		}
-		if entries[0].Level != AuditLevelInfo {
-			t.Errorf("Expected Level %s, got %s", AuditLevelInfo, entries[0].Level)
-		}
-		if entries[0].Message != "invalid byte sequence" {
-			t.Errorf("Expected message 'invalid byte sequence', got '%s'", entries[0].Message)
-		}
-		if entries[0].Metadata["encoding"] != "windows-1252" {
-			t.Errorf("Expected encoding metadata, got %v", entries[0].Metadata["encoding"])
-		}
-	})
+				entries := collector.GetEntries()
+				if len(entries) != 1 {
+					t.Fatalf("Expected 1 entry, got %d", len(entries))
+				}
+				if entries[0].EventType != tc.wantEventType {
+					t.Errorf("EventType = %s, want %s", entries[0].EventType, tc.wantEventType)
+				}
+				if tc.checkEntry != nil {
+					tc.checkEntry(t, entries[0])
+				}
+			})
 
-	t.Run("nil collector handles gracefully", func(t *testing.T) {
-		var collector *auditCollector
-		// Should not panic
-		collector.RecordEncodingIssue("utf-8", "test")
-	})
+			t.Run("log flag disabled does not record", func(t *testing.T) {
+				t.Parallel()
+				cfg := tc.makeConfig()
+				tc.disableLogFlag(&cfg)
+				collector := newAuditCollector(cfg)
+				defer collector.Close()
+				tc.record(collector)
 
-	t.Run("disabled audit does not record", func(t *testing.T) {
-		config := DefaultAuditConfig()
-		config.Enabled = false
-		collector := newAuditCollector(config)
-		defer collector.Close()
+				if entries := collector.GetEntries(); len(entries) != 0 {
+					t.Errorf("Expected 0 entries with log flag disabled, got %d", len(entries))
+				}
+			})
 
-		collector.RecordEncodingIssue("utf-8", "test")
+			t.Run("disabled audit does not record", func(t *testing.T) {
+				t.Parallel()
+				cfg := tc.makeConfig()
+				cfg.Enabled = false
+				collector := newAuditCollector(cfg)
+				defer collector.Close()
+				tc.record(collector)
 
-		entries := collector.GetEntries()
-		if len(entries) != 0 {
-			t.Errorf("Expected 0 entries when disabled, got %d", len(entries))
-		}
-	})
+				if entries := collector.GetEntries(); len(entries) != 0 {
+					t.Errorf("Expected 0 entries with audit disabled, got %d", len(entries))
+				}
+			})
 
-	t.Run("LogEncodingIssues disabled does not record", func(t *testing.T) {
-		config := DefaultAuditConfig()
-		config.Enabled = true
-		config.LogEncodingIssues = false
-		collector := newAuditCollector(config)
-		defer collector.Close()
+			t.Run("nil collector does not panic", func(t *testing.T) {
+				t.Parallel()
+				var collector *auditCollector
+				tc.record(collector) // must not panic
+			})
+		})
+	}
+}
 
-		collector.RecordEncodingIssue("utf-8", "test")
+// TestRecordEncodingIssueRecordsMultiple preserves the aggregation check that
+// distinct encoding issues each produce their own entry (previously a subtest of
+// TestRecordEncodingIssue).
+func TestRecordEncodingIssueRecordsMultiple(t *testing.T) {
+	t.Parallel()
 
-		entries := collector.GetEntries()
-		if len(entries) != 0 {
-			t.Errorf("Expected 0 entries when LogEncodingIssues disabled, got %d", len(entries))
-		}
-	})
+	config := DefaultAuditConfig()
+	config.Enabled = true
+	config.LogEncodingIssues = true
+	collector := newAuditCollector(config)
+	defer collector.Close()
 
-	t.Run("records with various encodings", func(t *testing.T) {
-		config := DefaultAuditConfig()
-		config.Enabled = true
-		config.LogEncodingIssues = true
-		collector := newAuditCollector(config)
-		defer collector.Close()
+	encodings := []string{"utf-8", "windows-1252", "iso-8859-1", "shift_jis", "gbk"}
+	for _, enc := range encodings {
+		collector.RecordEncodingIssue(enc, "detection failed")
+	}
 
-		encodings := []string{"utf-8", "windows-1252", "iso-8859-1", "shift_jis", "gbk"}
-		for _, enc := range encodings {
-			collector.RecordEncodingIssue(enc, "detection failed")
-		}
-
-		entries := collector.GetEntries()
-		if len(entries) != len(encodings) {
-			t.Errorf("Expected %d entries, got %d", len(encodings), len(entries))
-		}
-	})
+	if entries := collector.GetEntries(); len(entries) != len(encodings) {
+		t.Errorf("Expected %d entries, got %d", len(encodings), len(entries))
+	}
 }
 
 // TestClearAuditLog tests the ClearAuditLog method on Processor
@@ -981,185 +1125,6 @@ func TestClearAuditLog(t *testing.T) {
 		entries := p.GetAuditLog()
 		if len(entries) == 0 {
 			t.Error("Expected new audit entries after clear")
-		}
-	})
-}
-
-// TestRecordBlockedAttrDisabled tests RecordBlockedAttr when disabled.
-func TestRecordBlockedAttrDisabled(t *testing.T) {
-	t.Parallel()
-
-	t.Run("LogBlockedAttrs disabled does not record", func(t *testing.T) {
-		config := DefaultAuditConfig()
-		config.Enabled = true
-		config.LogBlockedAttrs = false
-		collector := newAuditCollector(config)
-		defer collector.Close()
-
-		collector.RecordBlockedAttr("onclick", "alert(1)")
-
-		entries := collector.GetEntries()
-		if len(entries) != 0 {
-			t.Errorf("Expected 0 entries when LogBlockedAttrs disabled, got %d", len(entries))
-		}
-	})
-
-	t.Run("nil collector handles gracefully", func(t *testing.T) {
-		var collector *auditCollector
-		// Should not panic
-		collector.RecordBlockedAttr("onclick", "alert(1)")
-	})
-}
-
-// TestRecordBlockedURLDisabled tests RecordBlockedURL when disabled.
-func TestRecordBlockedURLDisabled(t *testing.T) {
-	t.Parallel()
-
-	t.Run("LogBlockedURLs disabled does not record", func(t *testing.T) {
-		config := DefaultAuditConfig()
-		config.Enabled = true
-		config.LogBlockedURLs = false
-		collector := newAuditCollector(config)
-		defer collector.Close()
-
-		collector.RecordBlockedURL("javascript:alert(1)", "javascript scheme")
-
-		entries := collector.GetEntries()
-		if len(entries) != 0 {
-			t.Errorf("Expected 0 entries when LogBlockedURLs disabled, got %d", len(entries))
-		}
-	})
-
-	t.Run("nil collector handles gracefully", func(t *testing.T) {
-		var collector *auditCollector
-		// Should not panic
-		collector.RecordBlockedURL("javascript:alert(1)", "javascript scheme")
-	})
-}
-
-// TestRecordDepthViolation tests RecordDepthViolation method.
-func TestRecordDepthViolation(t *testing.T) {
-	t.Parallel()
-
-	t.Run("records depth violation event", func(t *testing.T) {
-		config := HighSecurityAuditConfig()
-		config.LogDepthViolations = true
-		collector := newAuditCollector(config)
-		defer collector.Close()
-
-		collector.RecordDepthViolation(150, 100)
-
-		entries := collector.GetEntries()
-		if len(entries) != 1 {
-			t.Fatalf("Expected 1 entry, got %d", len(entries))
-		}
-
-		if entries[0].EventType != AuditEventDepthViolation {
-			t.Errorf("Expected EventType %s, got %s", AuditEventDepthViolation, entries[0].EventType)
-		}
-		if entries[0].Depth != 150 {
-			t.Errorf("Expected Depth 150, got %d", entries[0].Depth)
-		}
-		if entries[0].MaxDepth != 100 {
-			t.Errorf("Expected MaxDepth 100, got %d", entries[0].MaxDepth)
-		}
-	})
-
-	t.Run("LogDepthViolations disabled does not record", func(t *testing.T) {
-		config := DefaultAuditConfig()
-		config.Enabled = true
-		config.LogDepthViolations = false
-		collector := newAuditCollector(config)
-		defer collector.Close()
-
-		collector.RecordDepthViolation(150, 100)
-
-		entries := collector.GetEntries()
-		if len(entries) != 0 {
-			t.Errorf("Expected 0 entries when LogDepthViolations disabled, got %d", len(entries))
-		}
-	})
-
-	t.Run("nil collector handles gracefully", func(t *testing.T) {
-		var collector *auditCollector
-		// Should not panic
-		collector.RecordDepthViolation(150, 100)
-	})
-
-	t.Run("disabled audit does not record", func(t *testing.T) {
-		config := DefaultAuditConfig()
-		config.Enabled = false
-		config.LogDepthViolations = true
-		collector := newAuditCollector(config)
-		defer collector.Close()
-
-		collector.RecordDepthViolation(150, 100)
-
-		entries := collector.GetEntries()
-		if len(entries) != 0 {
-			t.Errorf("Expected 0 entries when disabled, got %d", len(entries))
-		}
-	})
-}
-
-// TestRecordTimeout tests RecordTimeout method.
-func TestRecordTimeout(t *testing.T) {
-	t.Parallel()
-
-	t.Run("records timeout event", func(t *testing.T) {
-		config := HighSecurityAuditConfig()
-		config.LogTimeouts = true
-		collector := newAuditCollector(config)
-		defer collector.Close()
-
-		collector.RecordTimeout(5 * time.Second)
-
-		entries := collector.GetEntries()
-		if len(entries) != 1 {
-			t.Fatalf("Expected 1 entry, got %d", len(entries))
-		}
-
-		if entries[0].EventType != AuditEventTimeout {
-			t.Errorf("Expected EventType %s, got %s", AuditEventTimeout, entries[0].EventType)
-		}
-		if entries[0].Level != AuditLevelWarning {
-			t.Errorf("Expected Level %s, got %s", AuditLevelWarning, entries[0].Level)
-		}
-	})
-
-	t.Run("LogTimeouts disabled does not record", func(t *testing.T) {
-		config := DefaultAuditConfig()
-		config.Enabled = true
-		config.LogTimeouts = false
-		collector := newAuditCollector(config)
-		defer collector.Close()
-
-		collector.RecordTimeout(5 * time.Second)
-
-		entries := collector.GetEntries()
-		if len(entries) != 0 {
-			t.Errorf("Expected 0 entries when LogTimeouts disabled, got %d", len(entries))
-		}
-	})
-
-	t.Run("nil collector handles gracefully", func(t *testing.T) {
-		var collector *auditCollector
-		// Should not panic
-		collector.RecordTimeout(5 * time.Second)
-	})
-
-	t.Run("disabled audit does not record", func(t *testing.T) {
-		config := DefaultAuditConfig()
-		config.Enabled = false
-		config.LogTimeouts = true
-		collector := newAuditCollector(config)
-		defer collector.Close()
-
-		collector.RecordTimeout(5 * time.Second)
-
-		entries := collector.GetEntries()
-		if len(entries) != 0 {
-			t.Errorf("Expected 0 entries when disabled, got %d", len(entries))
 		}
 	})
 }

@@ -2,9 +2,6 @@
 package internal
 
 const (
-	// Content analysis thresholds
-	builderInitialSize = 256 // Initial capacity for strings.Builder
-
 	// URL validation limits
 	MaxURLLength     = 2000   // Maximum URL length
 	MaxDataURILength = 100000 // Maximum data URL length (100KB)

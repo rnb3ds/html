@@ -33,6 +33,17 @@ func newPanicScorerConfig() html.Config {
 	return cfg
 }
 
+// panickingSink is an AuditSink whose Write always panics. It exercises the
+// async sink-write goroutine's recover path (SEC-003): a misbehaving custom
+// sink must never crash the process.
+type panickingSink struct{}
+
+func (panickingSink) Write(html.AuditEntry) {
+	panic("SEC-003 test: intentional audit sink panic")
+}
+
+func (panickingSink) Close() error { return nil }
+
 const testHTML = `<html><head><title>Test</title></head><body><p>Hello World</p><article><p>Content</p></article></body></html>`
 const testLinkHTML = `<html><body><a href="https://example.com">Link</a></body></html>`
 
@@ -440,4 +451,41 @@ func TestPanicRecovery_ConfigErrorsNoPanic(t *testing.T) {
 			t.Fatalf("expected ErrMultipleConfigs, got: %v", err)
 		}
 	})
+}
+
+// TestPanicRecovery_PanickingAuditSink verifies that a custom AuditSink whose
+// Write panics does not crash the process. The async sink-write goroutine must
+// recover so a misbehaving sink never propagates a panic through the public API.
+func TestPanicRecovery_PanickingAuditSink(t *testing.T) {
+	t.Parallel()
+
+	cfg := html.DefaultConfig()
+	cfg.Audit.Enabled = true
+	cfg.Audit.Sink = panickingSink{}
+	// A tiny MaxInputSize guarantees every call records an input-violation
+	// audit entry — which is written to the panicking sink in a background
+	// goroutine — regardless of sanitization behavior. This deterministically
+	// exercises the async sink-write path.
+	cfg.MaxInputSize = 8
+
+	p, err := html.New(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	oversized := []byte("<html><body>exceeds the tiny max input size</body></html>")
+	for i := 0; i < 5; i++ {
+		// The size error is expected; the goal is to force the async sink
+		// goroutine to run. An unrecovered panic there would crash the process.
+		if _, err := p.Extract(oversized); !errors.Is(err, html.ErrInputTooLarge) {
+			t.Fatalf("call %d: expected ErrInputTooLarge, got: %v", i, err)
+		}
+	}
+
+	// Close drains pending async sink writes via the WaitGroup. Reaching this
+	// point proves each panicking sink goroutine was recovered rather than
+	// aborting the test binary.
+	if err := p.Close(); err != nil {
+		t.Fatalf("close failed: %v", err)
+	}
 }

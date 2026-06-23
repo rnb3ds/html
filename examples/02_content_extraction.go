@@ -3,6 +3,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -140,9 +141,14 @@ func main() {
 		log.Fatal(err)
 	}
 
-	var data map[string]any
-	_ = json.Unmarshal(jsonBytes, &data) // best-effort pretty print
-	pretty, _ := json.MarshalIndent(data, "", "  ")
+	// Pretty-print without a lossy unmarshal/remarshal round-trip:
+	// json.Indent reformats the bytes in place, preserving key order and
+	// numeric precision exactly as the library produced them.
+	var prettyBuf bytes.Buffer
+	if err := json.Indent(&prettyBuf, jsonBytes, "", "  "); err != nil {
+		log.Fatal(err)
+	}
+	pretty := prettyBuf.Bytes()
 	if len(pretty) > 400 {
 		fmt.Printf("%s...\n\n", string(pretty[:400]))
 	} else {

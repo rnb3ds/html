@@ -468,6 +468,33 @@ func TestShouldRemoveElement(t *testing.T) {
 			html: `<article>content</article>`,
 			want: false,
 		},
+		{
+			// Regression: <article class="post-with-sidebar"> is the article body
+			// in a sidebar layout, NOT a sidebar. The "-" delimiter previously
+			// made "post-with-sidebar" match the "sidebar" removal pattern and
+			// discard the entire article. The semantic <article> tag must be
+			// protected from the class/id heuristic.
+			name: "article with sidebar-layout class",
+			html: `<article class="post-with-sidebar post-92883 category-news">content</article>`,
+			want: false,
+		},
+		{
+			name: "main with nav-ish class",
+			html: `<main class="nav-primary">content</main>`,
+			want: false,
+		},
+		{
+			name: "div with role main and sidebar class",
+			html: `<div role="main" class="sidebar-layout">content</div>`,
+			want: false,
+		},
+		{
+			// A plain div matching a removal pattern is still removed — only
+			// semantic primary-content containers are protected.
+			name: "div with sidebar class still removed",
+			html: `<div class="post-with-sidebar">content</div>`,
+			want: true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -955,4 +982,26 @@ func TestScoringConfigDefaults(t *testing.T) {
 			t.Error("RemovePatterns should not be empty")
 		}
 	})
+}
+
+// TestSharedDefaultScorer verifies the sync.Once-backed singleton: every call
+// returns the same instance, and it is usable for scoring.
+func TestSharedDefaultScorer(t *testing.T) {
+	t.Parallel()
+
+	s1 := SharedDefaultScorer()
+	if s1 == nil {
+		t.Fatal("SharedDefaultScorer() returned nil")
+	}
+
+	// Pointer identity across calls proves the singleton is cached, not rebuilt.
+	s2 := SharedDefaultScorer()
+	if s1 != s2 {
+		t.Fatal("SharedDefaultScorer() returned distinct instances; expected a shared singleton")
+	}
+
+	// It must be interchangeable with a freshly built default scorer.
+	if NewDefaultScorer() == nil {
+		t.Fatal("NewDefaultScorer() returned nil")
+	}
 }
