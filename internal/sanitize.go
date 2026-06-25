@@ -12,8 +12,13 @@ var tagsToRemoveMap = map[string]bool{
 	"script": true, "style": true, "noscript": true,
 	// Embedded content (potential XSS vectors)
 	"iframe": true, "embed": true, "object": true,
-	// Form elements (potential CSRF/UI redress)
-	"form": true, "input": true, "button": true,
+	// Form controls (potential CSRF/UI redress). Note: <form> itself is
+	// intentionally NOT removed — server frameworks (ASP.NET WebForms, JSF, JSP)
+	// wrap the entire page body in a single <form>, so removing it would discard
+	// all visible content. Text extraction never renders or submits forms, so the
+	// CSRF/UI-redress rationale that justifies removing <input>/<button> does not
+	// apply to the <form> container itself.
+	"input": true, "button": true,
 	// SVG can contain JavaScript and event handlers
 	"svg": true,
 	// MathML can be abused for XSS in some browsers

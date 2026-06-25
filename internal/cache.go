@@ -15,19 +15,13 @@ const (
 	DefaultCacheCleanupInterval = 5 * time.Minute
 )
 
-type cacheEntry struct {
-	prev, next *cacheEntry
-	lastUsed   int64
-	expiresAt  int64
-	value      any
-	key        string
-}
-
-func (e *cacheEntry) isExpired(now int64) bool {
-	return e.expiresAt > 0 && now > e.expiresAt
-}
-
-// Cache is a thread-safe LRU cache with optional TTL support.
+// Cache is a generic, thread-safe LRU cache with optional TTL support.
+// It is parameterized by the key type K so callers can pick the most efficient
+// key representation: the HTML Processor keys its cache by a 128-bit hash value
+// ([16]byte) to avoid allocating a key string on every extraction, while tests
+// and other callers may use plain string keys. K must be comparable (a
+// requirement of Go maps, which back the cache).
+//
 // It uses a doubly-linked list for LRU ordering with sentinel nodes
 // to simplify edge case handling.
 //
@@ -42,12 +36,12 @@ func (e *cacheEntry) isExpired(now int64) bool {
 // SECURITY: Cache entries may contain sensitive data. Use Clear() to remove
 // all entries when processing sensitive content. Consider setting an appropriate
 // TTL to limit data retention.
-type Cache struct {
+type Cache[K comparable] struct {
 	mu         sync.RWMutex
-	entries    map[string]*cacheEntry
+	entries    map[K]*cacheEntry[K]
 	maxEntries int
 	ttl        time.Duration
-	head, tail *cacheEntry // Sentinel nodes for doubly-linked list
+	head, tail *cacheEntry[K] // Sentinel nodes for doubly-linked list
 
 	// Cleanup management
 	cleanupMu     sync.Mutex         // Protects cleanupCancel and cleanupOnce coordination
@@ -55,31 +49,54 @@ type Cache struct {
 	cleanupOnce   sync.Once          // Ensures cleanup goroutine starts only once
 }
 
+type cacheEntry[K comparable] struct {
+	prev, next *cacheEntry[K]
+	lastUsed   int64
+	expiresAt  int64
+	value      any
+	key        K
+}
+
+func (e *cacheEntry[K]) isExpired(now int64) bool {
+	return e.expiresAt > 0 && now > e.expiresAt
+}
+
 // NewCache creates a new LRU cache with the specified maximum entries and TTL.
 // If maxEntries is 0 or negative, the cache is disabled (Set becomes a no-op).
 // If ttl is 0 or negative, entries never expire based on time.
-func NewCache(maxEntries int, ttl time.Duration) *Cache {
+//
+// The key type K must be specified at construction, e.g. NewCache[string](...)
+// or NewCache[[16]byte](...).
+func NewCache[K comparable](maxEntries int, ttl time.Duration) *Cache[K] {
 	if maxEntries < 0 {
 		maxEntries = 0
 	}
 	if ttl < 0 {
 		ttl = 0
 	}
-	c := &Cache{
-		entries:    make(map[string]*cacheEntry, maxEntries),
+	c := &Cache[K]{
+		entries:    make(map[K]*cacheEntry[K], maxEntries),
 		maxEntries: maxEntries,
 		ttl:        ttl,
 	}
 	// Initialize sentinel nodes
-	c.head = &cacheEntry{}
-	c.tail = &cacheEntry{}
+	c.head = &cacheEntry[K]{}
+	c.tail = &cacheEntry[K]{}
 	c.head.next = c.tail
 	c.tail.prev = c.head
 	return c
 }
 
-func (c *Cache) Get(key string) any {
-	if key == "" {
+// cacheKeyZero reports whether k is the zero value of its type. The zero value
+// is treated as the "no key" sentinel by Get/Set (a real key must be non-zero),
+// matching the legacy behavior where the empty string "" was rejected.
+func cacheKeyZero[K comparable](k K) bool {
+	var zero K
+	return k == zero
+}
+
+func (c *Cache[K]) Get(key K) any {
+	if cacheKeyZero(key) {
 		return nil
 	}
 	now := time.Now().UnixNano()
@@ -109,8 +126,8 @@ func (c *Cache) Get(key string) any {
 	return entry.value
 }
 
-func (c *Cache) Set(key string, value any) {
-	if value == nil || key == "" || c.maxEntries == 0 {
+func (c *Cache[K]) Set(key K, value any) {
+	if value == nil || cacheKeyZero(key) || c.maxEntries == 0 {
 		return
 	}
 	c.mu.Lock()
@@ -135,7 +152,7 @@ func (c *Cache) Set(key string, value any) {
 	}
 
 	// Create new entry
-	entry := &cacheEntry{
+	entry := &cacheEntry[K]{
 		value:     value,
 		lastUsed:  now,
 		key:       key,
@@ -151,7 +168,7 @@ func (c *Cache) Set(key string, value any) {
 }
 
 // moveToFront moves an entry to the front (most recently used position)
-func (c *Cache) moveToFront(entry *cacheEntry) {
+func (c *Cache[K]) moveToFront(entry *cacheEntry[K]) {
 	if entry == nil || entry == c.head || entry == c.tail {
 		return
 	}
@@ -163,7 +180,7 @@ func (c *Cache) moveToFront(entry *cacheEntry) {
 }
 
 // addToFront adds an entry right after head (most recently used position)
-func (c *Cache) addToFront(entry *cacheEntry) {
+func (c *Cache[K]) addToFront(entry *cacheEntry[K]) {
 	if entry == nil {
 		return
 	}
@@ -174,7 +191,7 @@ func (c *Cache) addToFront(entry *cacheEntry) {
 }
 
 // removeNode removes an entry from the doubly-linked list
-func (c *Cache) removeNode(entry *cacheEntry) {
+func (c *Cache[K]) removeNode(entry *cacheEntry[K]) {
 	if entry == nil || entry == c.head || entry == c.tail {
 		return
 	}
@@ -184,7 +201,7 @@ func (c *Cache) removeNode(entry *cacheEntry) {
 	entry.next = nil
 }
 
-func (c *Cache) evictOne(nowNano int64) {
+func (c *Cache[K]) evictOne(nowNano int64) {
 	// First, try to remove an expired entry
 	for key, entry := range c.entries {
 		if entry.isExpired(nowNano) {
@@ -203,7 +220,7 @@ func (c *Cache) evictOne(nowNano int64) {
 	}
 }
 
-func (c *Cache) Clear() {
+func (c *Cache[K]) Clear() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	// Clear all entries and break references to help GC
@@ -234,10 +251,10 @@ func (c *Cache) Clear() {
 //
 // Usage:
 //
-//	cache := NewCache(1000, time.Hour)
+//	cache := NewCache[string](1000, time.Hour)
 //	cache.StartCleanup(5 * time.Minute)
 //	defer cache.StopCleanup()
-func (c *Cache) StartCleanup(interval time.Duration) context.CancelFunc {
+func (c *Cache[K]) StartCleanup(interval time.Duration) context.CancelFunc {
 	if interval <= 0 {
 		interval = DefaultCacheCleanupInterval
 	}
@@ -249,9 +266,9 @@ func (c *Cache) StartCleanup(interval time.Duration) context.CancelFunc {
 		c.cleanupCancel = cancelFunc
 		c.cleanupMu.Unlock()
 
-		// Set finalizer to ensure goroutine cleanup when Cache is garbage collected.
+		// Set finalizer to ensure cleanup goroutine cleanup when Cache is garbage collected.
 		// This prevents goroutine leaks if StopCleanup() is not called explicitly.
-		runtime.SetFinalizer(c, func(cache *Cache) {
+		runtime.SetFinalizer(c, func(cache *Cache[K]) {
 			cache.StopCleanup()
 		})
 
@@ -291,7 +308,7 @@ func (c *Cache) StartCleanup(interval time.Duration) context.CancelFunc {
 // StopCleanup stops the background cleanup goroutine if it was started.
 // It is safe to call this method multiple times.
 // This method also clears the finalizer to prevent double cleanup.
-func (c *Cache) StopCleanup() {
+func (c *Cache[K]) StopCleanup() {
 	c.cleanupMu.Lock()
 	cancel := c.cleanupCancel
 	c.cleanupCancel = nil
@@ -307,16 +324,26 @@ func (c *Cache) StopCleanup() {
 // This is needed when a pooled processor is reused after Close(), since
 // Close() calls StopCleanup(). Without this, expired entries accumulate
 // indefinitely when the processor is reused from the pool.
-func (c *Cache) RestartCleanup(interval time.Duration) {
+//
+// Concurrency: callers MUST serialize StartCleanup/StopCleanup/RestartCleanup
+// against each other for a given Cache. The cleanupOnce reset below is taken
+// under cleanupMu so it cannot race with a concurrent StartCleanup's Do(), but
+// the broader start→stop→restart sequence is not internally serialized. The
+// library's only caller (putPooledProcessor) honors this by holding single
+// ownership of the processor (and thus its cache) when returning it to the pool.
+func (c *Cache[K]) RestartCleanup(interval time.Duration) {
 	c.StopCleanup()
-	// Reset sync.Once so StartCleanup can run again
+	// Reset sync.Once under cleanupMu so this write cannot race with a
+	// concurrent StartCleanup reading cleanupOnce via Do().
+	c.cleanupMu.Lock()
 	c.cleanupOnce = sync.Once{}
+	c.cleanupMu.Unlock()
 	c.StartCleanup(interval)
 }
 
 // cleanupExpired removes all expired entries from the cache.
 // This is called periodically by the background cleanup goroutine.
-func (c *Cache) cleanupExpired() {
+func (c *Cache[K]) cleanupExpired() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -331,7 +358,7 @@ func (c *Cache) cleanupExpired() {
 
 // Len returns the current number of entries in the cache.
 // This is useful for monitoring and debugging.
-func (c *Cache) Len() int {
+func (c *Cache[K]) Len() int {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return len(c.entries)

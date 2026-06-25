@@ -32,6 +32,15 @@ type ScoringConfig struct {
 	NegativeWeakPatterns map[string]int
 	// RemovePatterns maps pattern strings to a boolean indicating removal.
 	RemovePatterns map[string]bool
+	// SubstringRemovePatterns maps patterns matched as plain substrings (no word
+	// boundary) for removal. Reserve this for unambiguous navigation markers
+	// whose real-world class/id forms defeat word-boundary matching — e.g.
+	// "sitemap" appears in ids like "divSiteMap" and "sitemap2", where the
+	// surrounding letters/digits prevent RemovePatterns from matching. Keep this
+	// set small and high-confidence: substring matching is broader than
+	// RemovePatterns, so a carelessly chosen token (e.g. "ad", "nav") would
+	// cause widespread false positives.
+	SubstringRemovePatterns map[string]bool
 	// TagScores maps tag names to their base scores.
 	TagScores map[string]int
 }
@@ -72,6 +81,17 @@ func DefaultScoringConfig() *ScoringConfig {
 			"widget": true, "plugin": true,
 			"promo": true, "promotion": true,
 			"banner": true, "sponsor": true,
+			// Sitemap/site-map/site_map match standard delimited class/id values.
+			// Prefixed/suffixed forms (divSiteMap, sitemap2) are caught by
+			// SubstringRemovePatterns below, since word boundaries fail there.
+			"sitemap": true, "site-map": true, "site_map": true,
+		},
+		// Substring matches for navigation markers that reliably indicate
+		// non-primary content regardless of surrounding characters. "sitemap"
+		// blocks are large link directories (e.g. 9k+ chars, 100+ links) that
+		// are never main article content.
+		SubstringRemovePatterns: map[string]bool{
+			"sitemap": true,
 		},
 		TagScores: map[string]int{
 			"article": 1000,
@@ -254,6 +274,11 @@ func (s *DefaultScorer) ShouldRemove(node *html.Node) bool {
 			lowerVal := strings.ToLower(attr.Val)
 			for pattern := range s.config.RemovePatterns {
 				if hasWordBoundary(lowerVal, pattern, boundaryStandard) {
+					return true
+				}
+			}
+			for pattern := range s.config.SubstringRemovePatterns {
+				if strings.Contains(lowerVal, pattern) {
 					return true
 				}
 			}

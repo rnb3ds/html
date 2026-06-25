@@ -26,7 +26,11 @@ const (
 //
 // Performance optimization: Uses inline hashing to reduce function call overhead
 // and processes data in larger chunks for better CPU cache utilization.
-func (p *Processor) generateCacheKey(content string) string {
+//
+// Returns the 128-bit key as a stack value ([16]byte) rather than a heap string.
+// The cache is keyed by this value type, so generating a key allocates nothing —
+// [16]byte arrays are comparable and usable directly as map keys.
+func (p *Processor) generateCacheKey(content string) [16]byte {
 	// Initialize hash with seed
 	h := prime64_5
 
@@ -124,7 +128,7 @@ func (p *Processor) generateCacheKey(content string) string {
 	h2 = hashMixInline(h2)
 	binary.LittleEndian.PutUint64(buf[8:], h2)
 
-	return string(buf[:])
+	return buf
 }
 
 // hashMixInline is an inline version of hashMixFast for critical paths.

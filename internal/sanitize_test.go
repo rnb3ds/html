@@ -432,7 +432,7 @@ func TestSanitizeHTML_EventHandlers(t *testing.T) {
 
 func TestSanitizeHTML_DangerousTags(t *testing.T) {
 	dangerousTags := []string{
-		"script", "style", "noscript", "iframe", "embed", "object", "form", "input", "button",
+		"script", "style", "noscript", "iframe", "embed", "object", "input", "button",
 		"svg", "math", // SVG and MathML can contain scripts
 	}
 
@@ -444,6 +444,22 @@ func TestSanitizeHTML_DangerousTags(t *testing.T) {
 				t.Errorf("%s tag should be removed, but found in: %s", tag, output)
 			}
 		})
+	}
+}
+
+// TestSanitizeHTML_PreservesFormContent ensures <form> and its text content are
+// retained during sanitization. Server-side frameworks (ASP.NET WebForms, JSF,
+// JSP) wrap the entire page body in a single <form>, so stripping <form> would
+// discard all visible content. Form controls (<input>/<button>) are still removed.
+func TestSanitizeHTML_PreservesFormContent(t *testing.T) {
+	input := `<form action="/submit" method="post"><p>Account summary</p><input type="text"></form>`
+	output := SanitizeHTML(input)
+
+	if !strings.Contains(output, "Account summary") {
+		t.Errorf("text inside <form> should be preserved, got: %s", output)
+	}
+	if strings.Contains(strings.ToLower(output), "<input") {
+		t.Errorf("<input> control should still be removed, got: %s", output)
 	}
 }
 

@@ -2,6 +2,7 @@ package html
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -40,13 +41,11 @@ func (p *Processor) ExtractAllLinks(htmlBytes []byte) ([]LinkResource, error) {
 			return nil, err
 		}
 
-		// Process with timeout if configured
+		// Process with timeout if configured. The context here is background
+		// (this is the no-context entry point); extractLinksRespectingDeadline
+		// applies only the ProcessingTimeout deadline when configured.
 		var links []LinkResource
-		if p.config.ProcessingTimeout > 0 {
-			links, err = p.extractLinksWithTimeout(utf8String)
-		} else {
-			links, err = p.extractAllLinksFromContent(utf8String)
-		}
+		links, err = p.extractLinksRespectingDeadline(context.Background(), utf8String)
 
 		if err != nil {
 			p.stats.errorCount.Add(1)
@@ -127,15 +126,10 @@ func (p *Processor) ExtractAllLinksWithContext(ctx context.Context, htmlBytes []
 		default:
 		}
 
-		// Process with timeout if configured, using withTimeout for goroutine tracking
+		// Process with timeout if configured, deriving the deadline from ctx so
+		// cooperative checks honor both the user's context and ProcessingTimeout.
 		var links []LinkResource
-		if p.config.ProcessingTimeout > 0 {
-			links, err = withTimeout(p.config.ProcessingTimeout, func() ([]LinkResource, error) {
-				return p.extractAllLinksFromContent(utf8String)
-			})
-		} else {
-			links, err = p.extractAllLinksFromContent(utf8String)
-		}
+		links, err = p.extractLinksRespectingDeadline(ctx, utf8String)
 
 		if err != nil {
 			p.stats.errorCount.Add(1)
@@ -256,13 +250,27 @@ func ExtractAllLinksFromFileWithContext(ctx context.Context, filePath string, cf
 	})
 }
 
-func (p *Processor) extractLinksWithTimeout(htmlContent string) ([]LinkResource, error) {
-	return withTimeout(p.config.ProcessingTimeout, func() ([]LinkResource, error) {
-		return p.extractAllLinksFromContent(htmlContent)
-	})
+// extractLinksRespectingDeadline runs link extraction honoring both the caller's
+// context and the configured ProcessingTimeout. When a timeout is configured it
+// derives a deadline from ctx and threads it through extractAllLinksFromContent,
+// so an expired timeout interrupts in-flight work at the next cooperative check
+// rather than racing the return value. It mirrors the Extract path's use of
+// withTimeout; the deadline surfaces as context.DeadlineExceeded and is
+// normalized to the public ErrProcessingTimeout contract.
+func (p *Processor) extractLinksRespectingDeadline(ctx context.Context, htmlContent string) ([]LinkResource, error) {
+	if p.config.ProcessingTimeout > 0 {
+		links, err := withTimeout(ctx, p.config.ProcessingTimeout, func(deadlineCtx context.Context) ([]LinkResource, error) {
+			return p.extractAllLinksFromContent(deadlineCtx, htmlContent)
+		})
+		if errors.Is(err, context.DeadlineExceeded) {
+			err = ErrProcessingTimeout
+		}
+		return links, err
+	}
+	return p.extractAllLinksFromContent(ctx, htmlContent)
 }
 
-func (p *Processor) extractAllLinksFromContent(htmlContent string) ([]LinkResource, error) {
+func (p *Processor) extractAllLinksFromContent(ctx context.Context, htmlContent string) ([]LinkResource, error) {
 	// Reuse the allocation-free blank check used by the Extract path for consistency.
 	if p.isBlankContent(htmlContent) {
 		return []LinkResource{}, nil
@@ -273,9 +281,24 @@ func (p *Processor) extractAllLinksFromContent(htmlContent string) ([]LinkResour
 		return nil, fmt.Errorf("%w: %w", ErrInvalidHTML, err)
 	}
 
+	// Honor cancellation between the parse (which may have consumed the bulk of
+	// the time budget) and the depth walk + link scan that follow.
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	default:
+	}
+
 	// Validate depth during extraction to avoid duplicate traversal
 	if err := p.validateDepthTraversal(doc, 0); err != nil {
 		return nil, err
+	}
+
+	// Honor cancellation before the full-document link scan.
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	default:
 	}
 
 	baseURL := p.config.BaseURL

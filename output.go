@@ -314,7 +314,7 @@ func (p *Processor) buildFormatProcessor(imageFormat, linkFormat string) *Proces
 
 	cfg.InlineImageFormat = imageFormat
 	cfg.InlineLinkFormat = linkFormat
-	// The transient processor uses a disabled cache (NewCache(0, 0) below), so
+	// The transient processor uses a disabled cache (NewCache[[16]byte](0, 0) below), so
 	// zero the entry budget too: this short-circuits the cache-key generation
 	// and Get/Set calls in Extract, which would otherwise run as no-ops while
 	// still paying the cost of hashing the input on every format conversion.
@@ -322,7 +322,7 @@ func (p *Processor) buildFormatProcessor(imageFormat, linkFormat string) *Proces
 
 	return &Processor{
 		config:       &cfg,
-		cache:        internal.NewCache(0, 0),
+		cache:        internal.NewCache[[16]byte](0, 0),
 		scorer:       p.scorer,
 		audit:        newAuditCollector(AuditConfig{Enabled: false}),
 		auditAdapter: &auditRecorderAdapter{collector: nil},

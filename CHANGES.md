@@ -4,6 +4,31 @@ All notable changes to the cybergodev/html library will be documented in this fi
 
 ---
 
+## v1.4.4 - Content Extraction Fixes, Sitemap Stripping & Allocation Cuts (2026-06-26)
+
+### Added
+- `ScoringConfig.SubstringRemovePatterns` — high-confidence navigation markers (default: `"sitemap"`) matched as plain substrings, catching real-world ids like `divSiteMap`/`sitemap2` that defeat word-boundary matching
+- `sitemap`, `site-map`, `site_map` added to default `RemovePatterns` for standard delimited class/id values
+
+### Fixed
+- Pages whose body is wrapped in `<form>` (ASP.NET WebForms, JSF, JSP) no longer extract as empty — `<form>` content is now preserved while `<input>` controls are still dropped
+- `ExtractAllLinks` and link extraction now honor `ProcessingTimeout` via cooperative context cancellation; a fired deadline surfaces as `ErrProcessingTimeout` instead of running to completion in the background
+- Pooled-processor (package-level) fallbacks that hand-built an incomplete `Processor` (nil stats/scorer/audit) replaced with `New(poolCfg)`, preventing a nil-deref on the next `Extract`
+- `RestartCleanup` now resets `cleanupOnce` under `cleanupMu` and documents the caller-serialization requirement (closes a latent race on the reset path)
+- Zero-byte cache-key sentinel replaced with an explicit `hasCacheKey` flag — a legitimately all-zero hash was previously treated as "no key"
+
+### Changed
+- Pooled-processor path now uses a dedicated `poolCfg` with caching fully disabled (cleared on every pool return), so it no longer hashes keys or mutates an always-empty map
+- Custom `Scorer` implementations documented as required to be safe for concurrent use; `extractAllLinksFromContent` now takes a `context.Context`
+- The four `ExtractBatch*` methods share a `prepareBatch` helper for the previously-duplicated guard preamble
+
+### Performance
+- `generateCacheKey` returns `[16]byte` instead of a `string`, removing a 16-byte heap string allocated on every `Extract`; the LRU cache is generalized to `Cache[K comparable]` to key on the stack value
+- `extractTitle` folds three tree walks (`<title>`/`<h1>`/`<h2>`) into a single `WalkNodes` with early exit
+- Every cache-keyed path drops exactly 1 alloc and 16 B/op (e.g. `BenchmarkExtract` 5→4 allocs, −6.3% time); cache-disabled paths unchanged
+
+---
+
 ## v1.4.3 - Markdown Rendering, Robustness & Performance (2026-06-24)
 
 ### Added
