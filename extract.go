@@ -329,10 +329,16 @@ func (p *Processor) extractCoreWithContext(ctx context.Context, htmlBytes []byte
 		return nil, err
 	}
 
-	// Check cache only if caching is enabled
-	var cacheKey string
+	// Check cache only if caching is enabled. hasCacheKey tracks whether a key
+	// was generated for this input so the result is cached on the miss path
+	// without relying on the key being non-zero — a hash could, in principle,
+	// be all zero bytes, which the old `cacheKey != ([16]byte{})` guard would
+	// wrongly treat as "no key" and skip caching.
+	var cacheKey [16]byte
+	hasCacheKey := false
 	if p.config.MaxCacheEntries > 0 {
 		cacheKey = p.generateCacheKey(utf8String)
+		hasCacheKey = true
 		if cached := p.cache.Get(cacheKey); cached != nil {
 			// Count a hit only when the cached value is actually usable.
 			// Incrementing the hit counter before the type assertion previously
@@ -354,12 +360,24 @@ func (p *Processor) extractCoreWithContext(ctx context.Context, htmlBytes []byte
 	default:
 	}
 
-	// Process content with optional timeout and context support
+	// Process content with optional timeout and context support. The timeout is
+	// applied by deriving a deadline from ctx and threading it through
+	// withTimeout into processContentWithContext, whose cooperative cancellation
+	// checks then honor the deadline — so an expired timeout interrupts in-flight
+	// work at the next check rather than merely racing the return value while
+	// extraction runs to completion.
 	var result *Result
 	if p.config.ProcessingTimeout > 0 {
-		result, err = withTimeout(p.config.ProcessingTimeout, func() (*Result, error) {
-			return p.processContentWithContext(ctx, utf8String)
+		result, err = withTimeout(ctx, p.config.ProcessingTimeout, func(deadlineCtx context.Context) (*Result, error) {
+			return p.processContentWithContext(deadlineCtx, utf8String)
 		})
+		// A fired deadline surfaces as context.DeadlineExceeded (from either
+		// withTimeout's select or an in-flight cooperative check); normalize it
+		// to the public ErrProcessingTimeout contract. A user-initiated
+		// cancellation surfaces as context.Canceled and is returned unchanged.
+		if errors.Is(err, context.DeadlineExceeded) {
+			err = ErrProcessingTimeout
+		}
 	} else {
 		result, err = p.processContentWithContext(ctx, utf8String)
 	}
@@ -381,8 +399,8 @@ func (p *Processor) extractCoreWithContext(ctx context.Context, htmlBytes []byte
 	p.stats.totalProcessTime.Add(int64(processingTime))
 	p.stats.totalProcessed.Add(1)
 
-	// Only cache if caching is enabled and we have a cache key.
-	if p.config.MaxCacheEntries > 0 && cacheKey != "" {
+	// Only cache if caching is enabled and we generated a key for this input.
+	if hasCacheKey {
 		p.cache.Set(cacheKey, result)
 		// Return a clone so the caller owns an independent copy. The cached
 		// entry and the returned value must not alias: a caller that mutates
@@ -564,18 +582,25 @@ func (p *Processor) ExtractTextFromFileWithContext(ctx context.Context, filePath
 	return result.Text, nil
 }
 
-// withTimeout executes a function with a timeout, returning its result or an error if timeout expires.
-// This is a generic helper that eliminates code duplication in timeout handling.
+// withTimeout executes a function under a deadline derived from parent, returning
+// its result or an error if the timeout expires. This is a generic helper that
+// eliminates code duplication in timeout handling.
 //
-// IMPORTANT: If the timeout is reached, the timeout error is returned immediately, but the
-// function fn() continues executing in the background until it completes. This is because
-// Go does not support cooperative cancellation for arbitrary functions. The function fn()
-// should be designed to complete relatively quickly to avoid resource accumulation.
-// For long-running operations, consider using context-aware processing instead.
+// The deadline context is passed into fn so that fn's own cooperative
+// cancellation checks (e.g. the select-on-ctx.Done() stages in
+// processContentWithContext) honor the timeout: when the deadline fires, fn
+// returns at its next check rather than running to completion in the background.
+// The caller still receives the timeout error promptly via the select below,
+// independent of how long fn takes to wind down.
 //
-// Goroutine Safety: To prevent goroutine leaks under heavy load, this function limits the
-// maximum number of concurrent timeout goroutines. If the limit is exceeded, an error is returned.
-func withTimeout[T any](timeout time.Duration, fn func() (T, error)) (T, error) {
+// On deadline, withTimeout returns the underlying context error
+// (context.DeadlineExceeded); callers normalize it to ErrProcessingTimeout. A
+// cancellation propagated through parent surfaces as context.Canceled.
+//
+// Goroutine Safety: To prevent goroutine leaks under heavy load, this function
+// limits the maximum number of concurrent timeout goroutines. If the limit is
+// exceeded, an error is returned.
+func withTimeout[T any](parent context.Context, timeout time.Duration, fn func(context.Context) (T, error)) (T, error) {
 	// Atomically check-and-add to prevent TOCTOU race under heavy concurrency.
 	// This prevents resource exhaustion when processing many documents with timeouts.
 	for {
@@ -589,7 +614,7 @@ func withTimeout[T any](timeout time.Duration, fn func() (T, error)) (T, error) 
 		}
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	ctx, cancel := context.WithTimeout(parent, timeout)
 	defer cancel()
 
 	type result struct {
@@ -614,7 +639,7 @@ func withTimeout[T any](timeout time.Duration, fn func() (T, error)) (T, error) 
 					err = fmt.Errorf("%w: %v", ErrInternalPanic, r)
 				}
 			}()
-			return fn()
+			return fn(ctx)
 		}()
 		// Try to send the result. If context is done, the result is discarded.
 		// This is intentional - we don't want to block if nobody is listening.
@@ -631,11 +656,11 @@ func withTimeout[T any](timeout time.Duration, fn func() (T, error)) (T, error) 
 		return res.res, res.err
 	case <-ctx.Done():
 		var zero T
-		// Note: The goroutine above continues running until fn() completes.
-		// This is a known limitation of non-cooperative cancellation in Go.
-		// The resultChan has buffer size 1, so the goroutine won't block forever.
-		// The activeTimeoutGoroutines counter ensures we don't spawn too many.
-		return zero, ErrProcessingTimeout
+		// Return the context error so callers can distinguish a deadline (which
+		// they map to ErrProcessingTimeout) from a user cancellation. The
+		// goroutine above receives the same ctx and winds down at its next
+		// cooperative check; the buffered resultChan keeps it from blocking.
+		return zero, ctx.Err()
 	}
 }
 
@@ -778,17 +803,37 @@ func (p *Processor) extractTitle(doc *stdxhtml.Node) string {
 	if doc == nil {
 		return ""
 	}
-	if titleNode := internal.FindElementByTag(doc, "title"); titleNode != nil {
+	// Collect the first <title>, <h1>, and <h2> in a single document-order
+	// traversal. The previous implementation issued up to three separate
+	// FindElementByTag calls (one full tree walk each); documents lacking a
+	// <title> or <h1> — common — paid for all three. Priority is unchanged:
+	// title → h1 → h2, each preferring a non-empty value.
+	var titleNode, h1Node, h2Node *stdxhtml.Node
+	internal.WalkNodes(doc, func(n *stdxhtml.Node) bool {
+		if n.Type == stdxhtml.ElementNode {
+			switch n.Data {
+			case "title":
+				titleNode = n
+			case "h1":
+				h1Node = n
+			case "h2":
+				h2Node = n
+			}
+		}
+		// Keep walking until all three candidates have been located.
+		return titleNode == nil || h1Node == nil || h2Node == nil
+	})
+	if titleNode != nil {
 		if title := internal.GetTextContent(titleNode); title != "" {
 			return title
 		}
 	}
-	if h1Node := internal.FindElementByTag(doc, "h1"); h1Node != nil {
+	if h1Node != nil {
 		if title := internal.GetTextContent(h1Node); title != "" {
 			return title
 		}
 	}
-	if h2Node := internal.FindElementByTag(doc, "h2"); h2Node != nil {
+	if h2Node != nil {
 		return internal.GetTextContent(h2Node)
 	}
 	return ""

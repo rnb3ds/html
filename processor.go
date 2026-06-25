@@ -17,6 +17,12 @@ import (
 // Implementations can provide custom scoring logic for content extraction.
 // If no custom scorer is provided, the DefaultScorer is used.
 //
+// Implementations MUST be safe for concurrent use: a single Processor invokes
+// Score and ShouldRemove from multiple goroutines when it is shared across
+// concurrent Extract calls. The built-in DefaultScorer/SharedDefaultScorer is
+// read-only and satisfies this; a custom Scorer that holds mutable state must
+// synchronize it itself.
+//
 // The ContentNode interface abstracts away the internal HTML parser types,
 // allowing users to implement custom scorers without importing golang.org/x/net/html.
 //
@@ -142,7 +148,7 @@ func (n contentNodeAdapter) Parent() ContentNode {
 type Processor struct {
 	config   *Config
 	configMu sync.Mutex // Protects config snapshot copy during extractWithFormats
-	cache    *internal.Cache
+	cache    *internal.Cache[[16]byte]
 	scorer   internal.Scorer
 	audit    *auditCollector
 	closed   atomic.Bool
@@ -206,7 +212,7 @@ func New(cfg ...Config) (*Processor, error) {
 
 	p := &Processor{
 		config: &c,
-		cache:  internal.NewCache(c.MaxCacheEntries, c.CacheTTL),
+		cache:  internal.NewCache[[16]byte](c.MaxCacheEntries, c.CacheTTL),
 		audit:  newAuditCollector(c.Audit),
 		stats:  &processorStats{},
 	}

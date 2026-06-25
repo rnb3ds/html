@@ -340,7 +340,7 @@ func TestIsNonContentElement(t *testing.T) {
 		{"aside", true},
 		{"footer", true},
 		{"header", true},
-		{"form", true},
+		{"form", false},
 		{"div", false},
 		{"p", false},
 		{"article", false},
@@ -493,6 +493,28 @@ func TestShouldRemoveElement(t *testing.T) {
 			// semantic primary-content containers are protected.
 			name: "div with sidebar class still removed",
 			html: `<div class="post-with-sidebar">content</div>`,
+			want: true,
+		},
+		{
+			// Sitemap blocks are large link directories, never main content.
+			// The standard delimited class is matched by RemovePatterns.
+			name: "sitemap class",
+			html: `<div class="sitemap">links</div>`,
+			want: true,
+		},
+		{
+			// Real-world ids such as "divSiteMap" prefix the token with letters,
+			// which defeats word-boundary matching; SubstringRemovePatterns
+			// catches these prefixed forms.
+			name: "divSiteMap id (prefixed token)",
+			html: `<div id="divSiteMap">links</div>`,
+			want: true,
+		},
+		{
+			// Suffixed forms such as "sitemap2" (digit suffix) also defeat word
+			// boundaries and are caught by SubstringRemovePatterns.
+			name: "sitemap2 id (digit suffix)",
+			html: `<div id="sitemap2">links</div>`,
 			want: true,
 		},
 	}
@@ -980,6 +1002,15 @@ func TestScoringConfigDefaults(t *testing.T) {
 		}
 		if len(config.RemovePatterns) == 0 {
 			t.Error("RemovePatterns should not be empty")
+		}
+		if len(config.SubstringRemovePatterns) == 0 {
+			t.Error("SubstringRemovePatterns should not be empty")
+		}
+		if !config.SubstringRemovePatterns["sitemap"] {
+			t.Error("SubstringRemovePatterns should contain sitemap")
+		}
+		if !config.RemovePatterns["sitemap"] {
+			t.Error("RemovePatterns should contain sitemap")
 		}
 	})
 }

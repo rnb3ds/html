@@ -77,9 +77,13 @@ var blockElements = map[string]bool{
 }
 
 // nonContentTags contains tags that are typically not part of the main content.
+// Note: <form> is intentionally excluded. Server-side frameworks (ASP.NET
+// WebForms, JSF, JSP) wrap the entire page body in a single <form>; marking it
+// non-content would cause ShouldRemove/CleanContentNode and the text extractor
+// to drop the whole page body.
 var nonContentTags = map[string]bool{
 	"script": true, "style": true, "noscript": true, "nav": true,
-	"aside": true, "footer": true, "header": true, "form": true,
+	"aside": true, "footer": true, "header": true,
 }
 
 // knownInlineNamespacePrefixes contains namespace prefixes that are typically

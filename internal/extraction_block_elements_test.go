@@ -38,6 +38,7 @@ func TestBlockElementClassification(t *testing.T) {
 		{"address", "address", true, true},
 		{"canvas", "canvas", true, true},
 		{"center", "center", true, false},
+		{"form", "form", true, false},
 		{"body", "body", true, false},
 		{"html", "html", true, false},
 		{"head", "head", true, false},
@@ -65,7 +66,6 @@ func TestBlockElementClassification(t *testing.T) {
 		{"aside", "aside", true, false},
 		{"header", "header", true, false},
 		{"footer", "footer", true, false},
-		{"form", "form", true, false},
 	}
 
 	for _, tt := range tests {

@@ -115,17 +115,8 @@ func ExtractBatchFilesWithContext(ctx context.Context, filePaths []string, cfg .
 // The concurrency level is controlled by the WorkerPoolSize configuration (default: 4).
 // Each extraction is performed independently with automatic encoding detection.
 func (p *Processor) ExtractBatch(htmlContents [][]byte) *BatchResult {
-	if p == nil || p.closed.Load() {
-		return p.closedBatchResult(len(htmlContents))
-	}
-
-	if len(htmlContents) > maxBatchSize {
-		return uniformErrorBatch(len(htmlContents),
-			fmt.Errorf("html: batch size %d exceeds maximum %d", len(htmlContents), maxBatchSize))
-	}
-
-	if len(htmlContents) == 0 {
-		return &BatchResult{Results: []*Result{}, Errors: []error{}}
+	if br := p.prepareBatch(len(htmlContents)); br != nil {
+		return br
 	}
 
 	extractors := make([]extractFunc, len(htmlContents))
@@ -141,17 +132,8 @@ func (p *Processor) ExtractBatch(htmlContents [][]byte) *BatchResult {
 // Each extraction is performed independently with automatic encoding detection.
 // If the context is cancelled, pending extractions are skipped and the BatchResult.Cancelled count is incremented.
 func (p *Processor) ExtractBatchWithContext(ctx context.Context, htmlContents [][]byte) *BatchResult {
-	if p == nil || p.closed.Load() {
-		return p.closedBatchResult(len(htmlContents))
-	}
-
-	if len(htmlContents) > maxBatchSize {
-		return uniformErrorBatch(len(htmlContents),
-			fmt.Errorf("html: batch size %d exceeds maximum %d", len(htmlContents), maxBatchSize))
-	}
-
-	if len(htmlContents) == 0 {
-		return &BatchResult{Results: []*Result{}, Errors: []error{}}
+	if br := p.prepareBatch(len(htmlContents)); br != nil {
+		return br
 	}
 
 	extractors := make([]extractFunc, len(htmlContents))
@@ -166,17 +148,8 @@ func (p *Processor) ExtractBatchWithContext(ctx context.Context, htmlContents []
 // The concurrency level is controlled by the WorkerPoolSize configuration (default: 4).
 // Each extraction is performed independently with automatic encoding detection.
 func (p *Processor) ExtractBatchFiles(filePaths []string) *BatchResult {
-	if p == nil || p.closed.Load() {
-		return p.closedBatchResult(len(filePaths))
-	}
-
-	if len(filePaths) > maxBatchSize {
-		return uniformErrorBatch(len(filePaths),
-			fmt.Errorf("html: batch size %d exceeds maximum %d", len(filePaths), maxBatchSize))
-	}
-
-	if len(filePaths) == 0 {
-		return &BatchResult{Results: []*Result{}, Errors: []error{}}
+	if br := p.prepareBatch(len(filePaths)); br != nil {
+		return br
 	}
 
 	extractors := make([]extractFunc, len(filePaths))
@@ -192,17 +165,8 @@ func (p *Processor) ExtractBatchFiles(filePaths []string) *BatchResult {
 // Each extraction is performed independently with automatic encoding detection.
 // If the context is cancelled, pending extractions are skipped and the BatchResult.Cancelled count is incremented.
 func (p *Processor) ExtractBatchFilesWithContext(ctx context.Context, filePaths []string) *BatchResult {
-	if p == nil || p.closed.Load() {
-		return p.closedBatchResult(len(filePaths))
-	}
-
-	if len(filePaths) > maxBatchSize {
-		return uniformErrorBatch(len(filePaths),
-			fmt.Errorf("html: batch size %d exceeds maximum %d", len(filePaths), maxBatchSize))
-	}
-
-	if len(filePaths) == 0 {
-		return &BatchResult{Results: []*Result{}, Errors: []error{}}
+	if br := p.prepareBatch(len(filePaths)); br != nil {
+		return br
 	}
 
 	extractors := make([]extractFunc, len(filePaths))
@@ -325,4 +289,26 @@ func (p *Processor) closedBatchResult(count int) *BatchResult {
 		br.Errors[i] = ErrProcessorClosed
 	}
 	return br
+}
+
+// prepareBatch runs the input guards shared by all four ExtractBatch* methods
+// before any work is dispatched. It returns a non-nil *BatchResult for the
+// short-circuit cases — a nil/closed processor (closedBatchResult), a batch
+// exceeding maxBatchSize (uniformErrorBatch), or an empty batch — and nil to
+// signal "validation passed, build the extractors and proceed". Centralizing
+// these guards removes a 13-line preamble that was duplicated verbatim across
+// the four methods. It is safe to call on a nil *Processor (closedBatchResult
+// does not dereference its receiver).
+func (p *Processor) prepareBatch(count int) *BatchResult {
+	if p == nil || p.closed.Load() {
+		return p.closedBatchResult(count)
+	}
+	if count > maxBatchSize {
+		return uniformErrorBatch(count,
+			fmt.Errorf("html: batch size %d exceeds maximum %d", count, maxBatchSize))
+	}
+	if count == 0 {
+		return &BatchResult{Results: []*Result{}, Errors: []error{}}
+	}
+	return nil
 }

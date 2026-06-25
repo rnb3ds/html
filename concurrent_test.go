@@ -58,7 +58,7 @@ func TestConcurrentProcessorExtraction(t *testing.T) {
 
 // TestConcurrentCacheOperations tests concurrent cache access.
 func TestConcurrentCacheOperations(t *testing.T) {
-	cache := internal.NewCache(1000, time.Minute)
+	cache := internal.NewCache[string](1000, time.Minute)
 
 	numGoroutines := 50
 	numOperations := 100
@@ -94,7 +94,7 @@ func TestConcurrentCacheOperations(t *testing.T) {
 
 // TestConcurrentCacheSetGet tests concurrent Set and Get on same keys.
 func TestConcurrentCacheSetGet(t *testing.T) {
-	cache := internal.NewCache(100, time.Minute)
+	cache := internal.NewCache[string](100, time.Minute)
 
 	numGoroutines := 20
 	numOperations := 1000
@@ -131,7 +131,7 @@ func TestConcurrentCacheSetGet(t *testing.T) {
 
 // TestConcurrentCacheClear tests concurrent Clear with Set/Get.
 func TestConcurrentCacheClear(t *testing.T) {
-	cache := internal.NewCache(100, time.Minute)
+	cache := internal.NewCache[string](100, time.Minute)
 
 	numGoroutines := 30
 	numOperations := 200
@@ -484,7 +484,7 @@ func TestConcurrentLinkExtraction(t *testing.T) {
 // TestConcurrentCacheWithTTL tests cache with TTL under concurrent access.
 func TestConcurrentCacheWithTTL(t *testing.T) {
 	// Short TTL to test expiration
-	cache := internal.NewCache(100, 50*time.Millisecond)
+	cache := internal.NewCache[string](100, 50*time.Millisecond)
 
 	numGoroutines := 30
 	numOperations := 100
@@ -555,7 +555,7 @@ func TestConcurrentMultiSink(t *testing.T) {
 
 // BenchmarkConcurrentCache benchmarks concurrent cache operations.
 func BenchmarkConcurrentCache(b *testing.B) {
-	cache := internal.NewCache(10000, time.Hour)
+	cache := internal.NewCache[string](10000, time.Hour)
 
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
@@ -789,5 +789,54 @@ func TestCacheEvictionUnderLoad(t *testing.T) {
 
 	if errorCount.Load() > 0 {
 		t.Errorf("Cache eviction test had %d errors", errorCount.Load())
+	}
+}
+
+// TestConcurrentPackageLevelExtract stresses the pooled-processor reuse path.
+//
+// The package-level Extract() (unlike the direct Processor.Extract exercised by
+// the tests above) routes through processorPool -> get/putPooledProcessor, which
+// resets stats, drains/clears the audit log, clears the cache, and may restart
+// the cache cleanup goroutine on every call. That is the most intricate
+// concurrency path in the library and was previously not covered by a
+// concurrent test. Hammering the package-level entry point from many goroutines
+// exercises pool reuse, the wasClosed Swap(false) handshake, and cache restart
+// under contention.
+func TestConcurrentPackageLevelExtract(t *testing.T) {
+	t.Parallel()
+
+	// Use the default config implicitly (no variadic Config) so the pooled path
+	// is taken, and include an <img> so the scorer/link/inline-format code paths
+	// run alongside the pool mechanics.
+	htmlBytes := []byte(`<html><body><article><h1>Pool reuse</h1><p>concurrent extract via package-level API</p><img src="x.png" alt="a"></article></body></html>`)
+
+	const numGoroutines = 100
+	const numOperations = 100
+
+	var wg sync.WaitGroup
+	var errorCount atomic.Int64
+
+	for i := 0; i < numGoroutines; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < numOperations; j++ {
+				result, err := Extract(htmlBytes)
+				if err != nil {
+					errorCount.Add(1)
+					return
+				}
+				if result == nil || result.Text == "" {
+					errorCount.Add(1)
+					return
+				}
+			}
+		}()
+	}
+
+	wg.Wait()
+
+	if errorCount.Load() > 0 {
+		t.Errorf("Concurrent package-level Extract had %d errors", errorCount.Load())
 	}
 }

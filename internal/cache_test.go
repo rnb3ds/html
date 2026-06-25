@@ -11,7 +11,7 @@ import (
 func TestCacheBasic(t *testing.T) {
 	t.Parallel()
 
-	cache := NewCache(10, time.Hour)
+	cache := NewCache[string](10, time.Hour)
 
 	// Test Set and Get
 	cache.Set("key1", "value1")
@@ -33,7 +33,7 @@ func TestCacheBasic(t *testing.T) {
 func TestCacheEmptyKey(t *testing.T) {
 	t.Parallel()
 
-	cache := NewCache(10, time.Hour)
+	cache := NewCache[string](10, time.Hour)
 
 	cache.Set("", "value")
 	val := cache.Get("")
@@ -45,7 +45,7 @@ func TestCacheEmptyKey(t *testing.T) {
 func TestCacheNilValue(t *testing.T) {
 	t.Parallel()
 
-	cache := NewCache(10, time.Hour)
+	cache := NewCache[string](10, time.Hour)
 
 	cache.Set("key", nil)
 	val := cache.Get("key")
@@ -59,7 +59,7 @@ func TestCacheTTL(t *testing.T) {
 		t.Skip("Skipping TTL test in short mode")
 	}
 
-	cache := NewCache(10, 50*time.Millisecond)
+	cache := NewCache[string](10, 50*time.Millisecond)
 
 	cache.Set("key", "value")
 
@@ -82,7 +82,7 @@ func TestCacheTTL(t *testing.T) {
 func TestCacheNoTTL(t *testing.T) {
 	t.Parallel()
 
-	cache := NewCache(10, 0) // No TTL
+	cache := NewCache[string](10, 0) // No TTL
 
 	cache.Set("key", "value")
 
@@ -95,7 +95,7 @@ func TestCacheNoTTL(t *testing.T) {
 func TestCacheEviction(t *testing.T) {
 	t.Parallel()
 
-	cache := NewCache(3, time.Hour) // Small cache
+	cache := NewCache[string](3, time.Hour) // Small cache
 
 	// Fill cache
 	cache.Set("key1", "value1")
@@ -134,7 +134,7 @@ func TestCacheEviction(t *testing.T) {
 func TestCacheUpdateExisting(t *testing.T) {
 	t.Parallel()
 
-	cache := NewCache(3, time.Hour)
+	cache := NewCache[string](3, time.Hour)
 
 	cache.Set("key", "value1")
 	cache.Set("key", "value2")
@@ -151,7 +151,7 @@ func TestCacheUpdateExisting(t *testing.T) {
 func TestCacheClear(t *testing.T) {
 	t.Parallel()
 
-	cache := NewCache(10, time.Hour)
+	cache := NewCache[string](10, time.Hour)
 
 	cache.Set("key1", "value1")
 	cache.Set("key2", "value2")
@@ -166,7 +166,7 @@ func TestCacheClear(t *testing.T) {
 func TestCacheDisabled(t *testing.T) {
 	t.Parallel()
 
-	cache := NewCache(0, time.Hour) // Disabled cache
+	cache := NewCache[string](0, time.Hour) // Disabled cache
 
 	cache.Set("key", "value")
 
@@ -179,7 +179,7 @@ func TestCacheDisabled(t *testing.T) {
 func TestCacheConcurrency(t *testing.T) {
 	t.Parallel()
 
-	cache := NewCache(100, time.Hour)
+	cache := NewCache[string](100, time.Hour)
 
 	const goroutines = 50
 	const operations = 100
@@ -210,7 +210,7 @@ func TestCacheConcurrency(t *testing.T) {
 func TestCacheLRUBehavior(t *testing.T) {
 	t.Parallel()
 
-	cache := NewCache(3, time.Hour)
+	cache := NewCache[string](3, time.Hour)
 
 	// Add entries
 	cache.Set("key1", "value1")
@@ -241,7 +241,7 @@ func TestCacheExpiredEviction(t *testing.T) {
 		t.Skip("Skipping expiration test in short mode")
 	}
 
-	cache := NewCache(3, 50*time.Millisecond)
+	cache := NewCache[string](3, 50*time.Millisecond)
 
 	// Add entries
 	cache.Set("key1", "value1")
@@ -265,7 +265,7 @@ func TestCacheExpiredEviction(t *testing.T) {
 }
 
 func BenchmarkCacheSet(b *testing.B) {
-	cache := NewCache(1000, time.Hour)
+	cache := NewCache[string](1000, time.Hour)
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -275,7 +275,7 @@ func BenchmarkCacheSet(b *testing.B) {
 }
 
 func BenchmarkCacheGet(b *testing.B) {
-	cache := NewCache(1000, time.Hour)
+	cache := NewCache[string](1000, time.Hour)
 
 	// Pre-populate cache
 	for i := 0; i < 1000; i++ {
@@ -290,7 +290,7 @@ func BenchmarkCacheGet(b *testing.B) {
 }
 
 func BenchmarkCacheConcurrent(b *testing.B) {
-	cache := NewCache(1000, time.Hour)
+	cache := NewCache[string](1000, time.Hour)
 
 	b.RunParallel(func(pb *testing.PB) {
 		i := 0
@@ -311,7 +311,7 @@ func TestCacheStartCleanup(t *testing.T) {
 		t.Skip("Skipping cleanup test in short mode")
 	}
 
-	cache := NewCache(100, 50*time.Millisecond)
+	cache := NewCache[string](100, 50*time.Millisecond)
 
 	// Start cleanup with 20ms interval
 	cancel := cache.StartCleanup(20 * time.Millisecond)
@@ -339,7 +339,7 @@ func TestCacheStartCleanup(t *testing.T) {
 }
 
 func TestCacheStopCleanup(t *testing.T) {
-	cache := NewCache(100, time.Hour)
+	cache := NewCache[string](100, time.Hour)
 
 	// Start cleanup
 	cancel := cache.StartCleanup(time.Minute)
@@ -356,7 +356,7 @@ func TestCacheStopCleanup(t *testing.T) {
 }
 
 func TestCacheCleanupIdempotent(t *testing.T) {
-	cache := NewCache(100, time.Hour)
+	cache := NewCache[string](100, time.Hour)
 
 	// Multiple calls to StartCleanup should only start one goroutine
 	cancel1 := cache.StartCleanup(time.Minute)
@@ -387,7 +387,7 @@ func TestCacheCleanupNoExpiredEntries(t *testing.T) {
 	}
 
 	// Cache with long TTL - entries won't expire during test
-	cache := NewCache(100, time.Hour)
+	cache := NewCache[string](100, time.Hour)
 	cancel := cache.StartCleanup(20 * time.Millisecond)
 	defer cancel()
 
@@ -405,7 +405,7 @@ func TestCacheCleanupNoExpiredEntries(t *testing.T) {
 }
 
 func TestCacheLen(t *testing.T) {
-	cache := NewCache(10, time.Hour)
+	cache := NewCache[string](10, time.Hour)
 
 	if cache.Len() != 0 {
 		t.Errorf("Empty cache should have 0 entries, got %d", cache.Len())
@@ -434,7 +434,7 @@ func TestCacheLen(t *testing.T) {
 }
 
 func TestCacheCleanupDefaultInterval(t *testing.T) {
-	cache := NewCache(100, time.Hour)
+	cache := NewCache[string](100, time.Hour)
 
 	// Start cleanup with 0 interval - should use default
 	cancel := cache.StartCleanup(0)
@@ -445,7 +445,7 @@ func TestCacheCleanupDefaultInterval(t *testing.T) {
 }
 
 func BenchmarkCacheWithCleanup(b *testing.B) {
-	cache := NewCache(1000, time.Hour)
+	cache := NewCache[string](1000, time.Hour)
 	cancel := cache.StartCleanup(time.Minute)
 	defer cancel()
 
@@ -478,7 +478,7 @@ func TestCacheGoroutineCleanup(t *testing.T) {
 	// Create a cache and start cleanup, then let it be garbage collected
 	// WITHOUT calling StopCleanup explicitly
 	func() {
-		cache := NewCache(100, time.Minute)
+		cache := NewCache[string](100, time.Minute)
 		cache.StartCleanup(10 * time.Millisecond)
 		// Cache goes out of scope here without StopCleanup being called
 		// The finalizer should ensure the goroutine is stopped
@@ -505,7 +505,7 @@ func TestCacheGoroutineCleanup(t *testing.T) {
 // TestCacheExplicitStopCleanupClearsFinalizer verifies that calling StopCleanup
 // explicitly clears the finalizer to prevent double cleanup.
 func TestCacheExplicitStopCleanupClearsFinalizer(t *testing.T) {
-	cache := NewCache(100, time.Minute)
+	cache := NewCache[string](100, time.Minute)
 	cache.StartCleanup(10 * time.Millisecond)
 
 	// Stop cleanup explicitly
@@ -530,7 +530,7 @@ func TestCacheMultipleStartCleanup(t *testing.T) {
 
 	before := runtime.NumGoroutine()
 
-	cache := NewCache(100, time.Minute)
+	cache := NewCache[string](100, time.Minute)
 
 	// Call StartCleanup multiple times
 	cache.StartCleanup(10 * time.Millisecond)
@@ -558,7 +558,7 @@ func TestCacheMultipleStartCleanup(t *testing.T) {
 func TestCacheRestartCleanup(t *testing.T) {
 	t.Parallel()
 
-	cache := NewCache(4, 25*time.Millisecond)
+	cache := NewCache[string](4, 25*time.Millisecond)
 	cache.StartCleanup(10 * time.Millisecond)
 	defer cache.StopCleanup()
 
@@ -592,7 +592,7 @@ func TestCacheRestartCleanup(t *testing.T) {
 
 // waitCacheLen polls c.Len() until it equals want or the timeout elapses.
 // Returns true if the target was reached.
-func waitCacheLen(c *Cache, want int, timeout time.Duration) bool {
+func waitCacheLen(c *Cache[string], want int, timeout time.Duration) bool {
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
 		if c.Len() == want {

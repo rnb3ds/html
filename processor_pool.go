@@ -1,28 +1,44 @@
 package html
 
 import (
+	"fmt"
 	"sync"
-
-	"github.com/cybergodev/html/internal"
 )
 
-// defaultCfg is the default configuration used by the processor pool.
-// Initialized at package load time since DefaultConfig() is a pure function.
-var defaultCfg = DefaultConfig()
+// poolCfg is the configuration used by the package-level processor pool. It is
+// identical to DefaultConfig except caching is fully disabled.
+//
+// Pooled processors are returned to the pool via putPooledProcessor, which
+// calls ClearCache on every return, so a pooled processor always begins an
+// extraction with an empty cache. With caching enabled, every package-level
+// extraction would therefore pay the cache-key hash plus a map insert/remove
+// that can never pay off (Get always misses), and New would additionally start
+// a background cleanup goroutine sweeping a cache that is always empty. Zeroing
+// MaxCacheEntries short-circuits the cache in Extract (no key generation, no
+// Get/Set), and zeroing CacheTTL/CacheCleanup prevents the cleanup goroutine
+// from starting. Callers that benefit from caching construct their own
+// Processor via New, which honors their Config.
+var poolCfg = func() Config {
+	c := DefaultConfig()
+	c.MaxCacheEntries = 0
+	c.CacheTTL = 0
+	c.CacheCleanup = 0
+	return c
+}()
 
 // processorPool is a sync.Pool for Processor instances.
 // Used by package-level functions to reduce allocation overhead.
 var processorPool = sync.Pool{
 	New: func() any {
-		p, err := New(defaultCfg)
+		// poolCfg is derived from DefaultConfig and is valid by construction, so
+		// New cannot fail here. If it ever does, that is a library invariant
+		// violation (like regexp.MustCompile on a compile-time pattern): fail
+		// fast rather than return a half-constructed Processor. The previous
+		// fallback hand-built a Processor with nil stats/scorer/audit, which
+		// would have nil-dereferenced on the very next Extract.
+		p, err := New(poolCfg)
 		if err != nil {
-			// Fallback: return a minimally configured processor
-			// This should never happen with valid defaults, but we avoid panic
-			// to prevent crashing the entire application
-			return &Processor{
-				config: &defaultCfg,
-				cache:  internal.NewCache(defaultCfg.MaxCacheEntries, defaultCfg.CacheTTL),
-			}
+			panic(fmt.Sprintf("html: default processor config failed validation: %v", err))
 		}
 		return p
 	},
@@ -35,10 +51,10 @@ func getPooledProcessor() *Processor {
 	v := processorPool.Get()
 	p, ok := v.(*Processor)
 	if !ok {
-		// Pool corruption detected: create a new processor as fallback
-		// This should never happen under normal circumstances, but we handle it
-		// gracefully to prevent crashing the entire application
-		p, _ = New(defaultCfg)
+		// Pool corruption detected: create a new processor as fallback. This
+		// builds a fully initialized Processor (New sets stats/scorer/audit),
+		// unlike the old pool.New fallback which hand-built an incomplete one.
+		p, _ = New(poolCfg)
 	}
 	return p
 }
